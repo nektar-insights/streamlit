@@ -69,22 +69,33 @@ avg_participation_pct = (closed_won["amount"] / closed_won["total_funded_amount"
 avg_commission = closed_won["commission"].mean()
 total_commissions_paid = (closed_won["amount"] * closed_won["commission"]).sum()
 
+total_capital_deployed = closed_won["amount"].sum()
+total_expected_return = (closed_won["amount"] * closed_won["factor_rate"]) - closed_won["commission"]
+total_expected_return_sum = total_expected_return.sum()
+moic = total_expected_return_sum / total_capital_deployed if total_capital_deployed else 0
+projected_irr = (moic ** (12 / avg_term) - 1) if avg_term else 0
+
 # --- Top Summary ---
-st.title("Pipeline Dashboard")
+st.title("HubSpot Deals Dashboard")
 col1, col2, col3 = st.columns(3)
 col1.metric("Total Deals", total_deals)
 col2.metric("Closed Won", len(closed_won))
 col3.metric("Close Ratio", f"{participation_ratio:.2%}")
 
 col4, col5, col6 = st.columns(3)
-col4.metric("Avg Participation ($)", f"${avg_amount:,.0f}")
-col5.metric("Avg Factor", f"{avg_factor:.2f}")
-col6.metric("Avg Term (mo)", f"{avg_term:.1f}")
+col4.metric("Total Capital Deployed", f"${total_capital_deployed:,.0f}")
+col5.metric("Total Expected Return", f"${total_expected_return_sum:,.0f}")
+col6.metric("MOIC", f"{moic:.2f}")
 
 col7, col8, col9 = st.columns(3)
-col7.metric("Pacing (Deals/mo)", f"{pacing:.1f}")
+col7.metric("Projected IRR", f"{projected_irr:.2%}")
 col8.metric("Avg % of Deal", f"{avg_participation_pct:.2%}")
 col9.metric("Commission Paid", f"${total_commissions_paid:,.0f}")
+
+col10, col11, col12 = st.columns(3)
+col10.metric("Avg Participation ($)", f"${avg_amount:,.0f}")
+col11.metric("Avg Factor", f"{avg_factor:.2f}")
+col12.metric("Avg Term (mo)", f"{avg_term:.1f}")
 
 # --- Charts ---
 color_palette = ['#34a853', '#7C9EB2', '#4E4A59', '#E6C79C', '#E5DCC5']
