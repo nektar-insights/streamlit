@@ -91,37 +91,37 @@ color_palette = ['#34a853', '#394053', '#4E4A59', '#E6C79C', '#E5DCC5']
 monthly_funded = df.groupby("month")["total_funded_amount"].sum().round(0).reset_index()
 avg_funded = monthly_funded["total_funded_amount"].mean()
 st.subheader("Total Funded Amount by Month")
-funded_chart = alt.Chart(monthly_funded).mark_bar(size=40, color=color_palette[0]).encode(
-    x="month:T",
-    y=alt.Y("total_funded_amount:Q", title="Total Funded ($)", axis=alt.Axis(format="$,.0f")),
-    tooltip=["month", alt.Tooltip("total_funded_amount", format="$,.0f")]
+funded_chart = alt.Chart(monthly_funded).mark_bar(size=45, color=color_palette[0]).encode(
+    x=alt.X("month:T", axis=alt.Axis(labelAngle=0, title="")),
+    y=alt.Y("total_funded_amount:Q", title="Total Funded ($)", axis=alt.Axis(format="$,.0f", titlePadding=10)),
+    tooltip=[alt.Tooltip("total_funded_amount", title="Total Funded", format="$,.0f")]
 ) + alt.Chart(monthly_funded).mark_rule(color="gray", strokeWidth=2, strokeDash=[4,2], opacity=0.6).encode(
     y=alt.Y("mean(total_funded_amount):Q", title="Average Funded", axis=alt.Axis(format="$,.0f"))
 )
-st.altair_chart(funded_chart.properties(width=800, height=300), use_container_width=True)
+st.altair_chart(funded_chart.properties(width=850, height=300), use_container_width=True)
 
 # Deals per Month by Partner Source
 monthly_partner = df.groupby(["month", "partner_source"]).size().reset_index(name="count")
 st.subheader("Deals per Month by Partner Source")
-partner_chart = alt.Chart(monthly_partner).mark_bar(size=40).encode(
-    x="month:T",
+partner_chart = alt.Chart(monthly_partner).mark_bar(size=45).encode(
+    x=alt.X("month:T", axis=alt.Axis(labelAngle=0, title="")),
     y="count:Q",
     color=alt.Color("partner_source:N", scale=alt.Scale(range=color_palette)),
     tooltip=["partner_source", "count"]
-).properties(width=800, height=400)
+).properties(width=850, height=400)
 st.altair_chart(partner_chart, use_container_width=True)
 
 # Amount by Month
 monthly_amount = df.groupby("month")["amount"].sum().round(0).reset_index()
 st.subheader("Amount by Month")
-amount_chart = alt.Chart(monthly_amount).mark_bar(size=40, color=color_palette[1]).encode(
-    x="month:T",
-    y=alt.Y("amount:Q", title="Amount ($)", axis=alt.Axis(format="$,.0f")),
-    tooltip=["month", alt.Tooltip("amount", format="$,.0f")]
+amount_chart = alt.Chart(monthly_amount).mark_bar(size=45, color=color_palette[1]).encode(
+    x=alt.X("month:T", axis=alt.Axis(labelAngle=0, title="")),
+    y=alt.Y("amount:Q", title="Amount ($)", axis=alt.Axis(format="$,.0f", titlePadding=10)),
+    tooltip=[alt.Tooltip("amount", title="Amount", format="$,.0f")]
 ) + alt.Chart(monthly_amount).mark_rule(color="gray", strokeWidth=2, strokeDash=[4,2], opacity=0.6).encode(
     y=alt.Y("mean(amount):Q", title="Average Amount", axis=alt.Axis(format="$,.0f"))
 )
-st.altair_chart(amount_chart.properties(width=800, height=300), use_container_width=True)
+st.altair_chart(amount_chart.properties(width=850, height=300), use_container_width=True)
 
 # --- Partner Summary ---
 st.subheader("Partner Summary Table")
@@ -154,7 +154,7 @@ summary_display = summary.rename(columns={
 
 summary_display["$ Opportunities"] = summary_display["$ Opportunities"].apply(lambda x: f"${x:,.0f}")
 summary_display["Participated $"] = summary_display["Participated $"].apply(lambda x: f"${x:,.0f}")
-summary_display["% Closed Won"] = summary_display["% Closed Won"].apply(lambda x: f"{x:.2%}")
-summary_display["Avg % of Deal"] = summary_display["Avg % of Deal"].apply(lambda x: f"{x:.2%}")
+summary_display["% Closed Won"] = summary_display["% Closed Won"].apply(lambda x: f"{x:.2%}" if pd.notnull(x) else "")
+summary_display["Avg % of Deal"] = summary_display["Avg % of Deal"].apply(lambda x: f"{x:.2%}" if pd.notnull(x) else "")
 
 st.dataframe(summary_display, use_container_width=True)
