@@ -5,8 +5,8 @@ from supabase import create_client
 from datetime import datetime
 
 # Load Supabase
-url = st.secrets["supabase"]["SUPABASE_URL"]
-key = st.secrets["supabase"]["SUPABASE_KEY"]
+url = st.secrets["supabase"]["url"]
+key = st.secrets["supabase"]["service_role"]
 supabase = create_client(url, key)
 
 # Load Data
@@ -87,27 +87,8 @@ col9.metric("Commission Paid", f"${total_commissions_paid:,.0f}")
 # --- Charts ---
 color_palette = ['#34a853', '#394053', '#4E4A59', '#E6C79C', '#E5DCC5']
 
-alt.Color(
-    "partner_source:N",
-    scale=alt.Scale(
-        domain=["Fresh Funding", "TVT", "VitalCap"], 
-        range=color_palette
-    )
-)
-
-bar_color = color_palette[0] if df["partner_source"].nunique() <= 1 else color_palette[1]
-
-amount_chart = alt.Chart(monthly_amount).mark_bar(size=45, color=bar_color).encode(
-    x=alt.X("month:T", title=None, axis=alt.Axis(labelAngle=0)),
-    y=alt.Y("amount:Q", title="Amount ($)", axis=alt.Axis(format="$,.0f")),
-    tooltip=[alt.Tooltip("amount", title="Amount", format="$,.0f")]
-) + alt.Chart(monthly_amount).mark_rule(color="gray", strokeWidth=2, strokeDash=[4, 2], opacity=0.6).encode(
-    y=alt.Y("mean(amount):Q", title="Average Amount", axis=alt.Axis(format="$,.0f"))
-)
-
 # Funded Amount by Month
 monthly_funded = df.groupby("month")["total_funded_amount"].sum().round(0).reset_index()
-avg_funded = monthly_funded["total_funded_amount"].mean()
 st.subheader("Total Funded Amount by Month")
 funded_chart = alt.Chart(monthly_funded).mark_bar(size=45, color=color_palette[0]).encode(
     x=alt.X("month:T", axis=alt.Axis(labelAngle=0, title="")),
@@ -124,16 +105,18 @@ st.subheader("Deals per Month by Partner Source")
 partner_chart = alt.Chart(monthly_partner).mark_bar(size=45).encode(
     x=alt.X("month:T", title=None, axis=alt.Axis(labelAngle=0)),
     y=alt.Y("count:Q", title="Deal Count"),
-    color=alt.Color("partner_source:N", scale=alt.Scale(range=color_palette)),
+    color=alt.Color(
+        "partner_source:N",
+        scale=alt.Scale(domain=["Fresh Funding", "TVT", "VitalCap"], range=color_palette)
+    ),
     tooltip=["partner_source", "count"]
 ).properties(width=850, height=400)
 st.altair_chart(partner_chart, use_container_width=True)
 
 # Amount by Month
 monthly_amount = df.groupby("month")["amount"].sum().round(0).reset_index()
-
 bar_color = color_palette[0] if df["partner_source"].nunique() <= 1 else color_palette[1]
-
+st.subheader("Amount by Month")
 amount_chart = alt.Chart(monthly_amount).mark_bar(size=45, color=bar_color).encode(
     x=alt.X("month:T", axis=alt.Axis(labelAngle=0, title="")),
     y=alt.Y("amount:Q", title="Amount ($)", axis=alt.Axis(format="$,.0f", titlePadding=10)),
@@ -141,42 +124,31 @@ amount_chart = alt.Chart(monthly_amount).mark_bar(size=45, color=bar_color).enco
 ) + alt.Chart(monthly_amount).mark_rule(color="gray", strokeWidth=2, strokeDash=[4,2], opacity=0.6).encode(
     y=alt.Y("mean(amount):Q", title="Average Amount", axis=alt.Axis(format="$,.0f"))
 )
-
 st.altair_chart(amount_chart.properties(width=850, height=300), use_container_width=True)
 
 # --- Partner Summary ---
 st.subheader("Partner Summary Table")
 
-# 1. Separate closed_won deals for precise denominator
 closed_won = df[df["is_closed_won"] == True]
-
-# 2. Group full dataset for total deals
 all_deals = df.groupby("partner_source").agg(
     total_deals=("id", "count"),
     total_amount=("total_funded_amount", "sum")
 )
-
-# 3. Group closed_won dataset for participation
 won_deals = closed_won.groupby("partner_source").agg(
     participated_deals=("id", "count"),
     participated_amount=("amount", "sum"),
     total_won_amount=("total_funded_amount", "sum")
 )
 
-# 4. Combine both
 summary = all_deals.join(won_deals, how="left").fillna(0)
-
-# 5. Derived metrics
 summary["closed_won_pct"] = summary["participated_deals"] / summary["total_deals"]
 summary["avg_participation_pct"] = summary["participated_amount"] / summary["total_won_amount"]
 
-# 6. Format for display
 summary["$ Opportunities"] = summary["total_amount"].apply(lambda x: f"${x:,.0f}")
 summary["Participated $"] = summary["participated_amount"].apply(lambda x: f"${x:,.0f}")
 summary["% Closed Won"] = summary["closed_won_pct"].apply(lambda x: f"{x:.2%}")
 summary["Avg % of Deal"] = summary["avg_participation_pct"].apply(lambda x: f"{x:.2%}")
 
-# 7. Prepare display
 summary_display = summary.reset_index()[[
     "partner_source", "total_deals", "$ Opportunities",
     "Participated $", "% Closed Won", "Avg % of Deal"
