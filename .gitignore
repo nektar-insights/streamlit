@@ -1,0 +1,7 @@
+.env
+*.env
+secrets.toml
+*.toml
+*.key
+*.json
+__pycache__/
