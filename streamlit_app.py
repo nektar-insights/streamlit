@@ -68,7 +68,7 @@ avg_commission = closed_won["commission"].mean()
 total_commissions_paid = (closed_won["amount"] * closed_won["commission"]).sum()
 
 # --- Top Summary ---
-st.title("HubSpot Deals Dashboard")
+st.title("Pipeline Dashboard")
 col1, col2, col3 = st.columns(3)
 col1.metric("Total Deals", total_deals)
 col2.metric("Closed Won", len(closed_won))
