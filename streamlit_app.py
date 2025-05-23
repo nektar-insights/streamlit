@@ -85,7 +85,7 @@ col8.metric("Avg % of Deal", f"{avg_participation_pct:.2%}")
 col9.metric("Commission Paid", f"${total_commissions_paid:,.0f}")
 
 # --- Charts ---
-color_palette = ['#34a853', '#394053', '#4E4A59', '#E6C79C', '#E5DCC5']
+color_palette = ['#34a853', '#7C9EB2', '#4E4A59', '#E6C79C', '#E5DCC5']
 
 # Funded Amount by Month
 monthly_funded = df.groupby("month")["total_funded_amount"].sum().round(0).reset_index()
