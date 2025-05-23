@@ -131,14 +131,17 @@ st.altair_chart(partner_chart, use_container_width=True)
 
 # Amount by Month
 monthly_amount = df.groupby("month")["amount"].sum().round(0).reset_index()
-st.subheader("Amount by Month")
-amount_chart = alt.Chart(monthly_amount).mark_bar(size=45, color=color_palette[1]).encode(
+
+bar_color = color_palette[0] if df["partner_source"].nunique() <= 1 else color_palette[1]
+
+amount_chart = alt.Chart(monthly_amount).mark_bar(size=45, color=bar_color).encode(
     x=alt.X("month:T", axis=alt.Axis(labelAngle=0, title="")),
     y=alt.Y("amount:Q", title="Amount ($)", axis=alt.Axis(format="$,.0f", titlePadding=10)),
     tooltip=[alt.Tooltip("amount", title="Amount", format="$,.0f")]
 ) + alt.Chart(monthly_amount).mark_rule(color="gray", strokeWidth=2, strokeDash=[4,2], opacity=0.6).encode(
     y=alt.Y("mean(amount):Q", title="Average Amount", axis=alt.Axis(format="$,.0f"))
 )
+
 st.altair_chart(amount_chart.properties(width=850, height=300), use_container_width=True)
 
 # --- Partner Summary ---
