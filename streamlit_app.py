@@ -154,7 +154,7 @@ summary_display = summary.rename(columns={
 
 summary_display["$ Opportunities"] = summary_display["$ Opportunities"].apply(lambda x: f"${x:,.0f}")
 summary_display["Participated $"] = summary_display["Participated $"].apply(lambda x: f"${x:,.0f}")
-summary_display["% Closed Won"] = summary_display["% Closed Won"].apply(lambda x: f"{x:.2%}" if pd.notnull(x) else "")
-summary_display["Avg % of Deal"] = summary_display["Avg % of Deal"].apply(lambda x: f"{x:.2%}" if pd.notnull(x) else "")
+summary_display["% Closed Won"] = summary["participation_pct"].apply(lambda x: f"{x:.2%}")
+summary_display["Avg % of Deal"] = summary["avg_participation_pct"].apply(lambda x: f"{x:.2%}")
 
 st.dataframe(summary_display, use_container_width=True)
