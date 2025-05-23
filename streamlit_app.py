@@ -5,8 +5,8 @@ from supabase import create_client
 from datetime import datetime
 
 # Load Supabase
-url = st.secrets["supabase"]["url"]
-key = st.secrets["supabase"]["service_role"]
+url = st.secrets["supabase"]["SUPABASE_URL"]
+key = st.secrets["supabase"]["SUPABASE_KEY"]
 supabase = create_client(url, key)
 
 # Load Data
