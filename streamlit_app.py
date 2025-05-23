@@ -28,7 +28,7 @@ total_deals = len(df)
 st.metric("Total Deals", total_deals)
 
 # b) Total Closed Won
-closed_won = df[df["is_closed_won"] == "true"]  # it's a string from HubSpot
+closed_won = df[df["is_closed_won"] == True] 
 st.metric("Deals Closed Won", len(closed_won))
 
 # c) Participation Ratio
