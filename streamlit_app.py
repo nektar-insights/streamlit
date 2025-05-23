@@ -87,6 +87,24 @@ col9.metric("Commission Paid", f"${total_commissions_paid:,.0f}")
 # --- Charts ---
 color_palette = ['#34a853', '#394053', '#4E4A59', '#E6C79C', '#E5DCC5']
 
+alt.Color(
+    "partner_source:N",
+    scale=alt.Scale(
+        domain=["Fresh Funding", "TVT", "VitalCap"], 
+        range=color_palette
+    )
+)
+
+bar_color = color_palette[0] if df["partner_source"].nunique() <= 1 else color_palette[1]
+
+amount_chart = alt.Chart(monthly_amount).mark_bar(size=45, color=bar_color).encode(
+    x=alt.X("month:T", title=None, axis=alt.Axis(labelAngle=0)),
+    y=alt.Y("amount:Q", title="Amount ($)", axis=alt.Axis(format="$,.0f")),
+    tooltip=[alt.Tooltip("amount", title="Amount", format="$,.0f")]
+) + alt.Chart(monthly_amount).mark_rule(color="gray", strokeWidth=2, strokeDash=[4, 2], opacity=0.6).encode(
+    y=alt.Y("mean(amount):Q", title="Average Amount", axis=alt.Axis(format="$,.0f"))
+)
+
 # Funded Amount by Month
 monthly_funded = df.groupby("month")["total_funded_amount"].sum().round(0).reset_index()
 avg_funded = monthly_funded["total_funded_amount"].mean()
@@ -104,8 +122,8 @@ st.altair_chart(funded_chart.properties(width=850, height=300), use_container_wi
 monthly_partner = df.groupby(["month", "partner_source"]).size().reset_index(name="count")
 st.subheader("Deals per Month by Partner Source")
 partner_chart = alt.Chart(monthly_partner).mark_bar(size=45).encode(
-    x=alt.X("month:T", axis=alt.Axis(labelAngle=0, title="")),
-    y="count:Q",
+    x=alt.X("month:T", title=None, axis=alt.Axis(labelAngle=0)),
+    y=alt.Y("count:Q", title="Deal Count"),
     color=alt.Color("partner_source:N", scale=alt.Scale(range=color_palette)),
     tooltip=["partner_source", "count"]
 ).properties(width=850, height=400)
