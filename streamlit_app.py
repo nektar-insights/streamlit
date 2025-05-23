@@ -4,12 +4,12 @@ import altair as alt
 from supabase import create_client
 from datetime import datetime
 
-# Load secrets
+# Load Supabase
 url = st.secrets["supabase"]["url"]
 key = st.secrets["supabase"]["service_role"]
 supabase = create_client(url, key)
 
-# Pull deals
+# Load Data
 @st.cache_data(ttl=3600)
 def load_deals():
     res = supabase.table("deals").select("*").execute()
@@ -17,40 +17,37 @@ def load_deals():
 
 df = load_deals()
 
-# Convert date_created
+# Data Prep
 df["date_created"] = pd.to_datetime(df["date_created"], errors="coerce")
 df["month"] = df["date_created"].dt.to_period("M").astype(str)
+df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
+df["total_funded_amount"] = pd.to_numeric(df["total_funded_amount"], errors="coerce")
+df["factor_rate"] = pd.to_numeric(df["factor_rate"], errors="coerce")
+df["loan_term"] = pd.to_numeric(df["loan_term"], errors="coerce")
+df["commission"] = pd.to_numeric(df["commission"], errors="coerce")
 
-# --- Date filter ---
+# --- Filters ---
 min_date = df["date_created"].min()
 max_date = df["date_created"].max()
 
 start_date, end_date = st.date_input(
-    "Filter by Date Range", [min_date, max_date],
-    min_value=min_date, max_value=max_date
+    "Filter by Date Range", [min_date, max_date], min_value=min_date, max_value=max_date
 )
 
 df = df[(df["date_created"] >= pd.to_datetime(start_date)) &
         (df["date_created"] <= pd.to_datetime(end_date))]
 
-# --- Partner Source Filter ---
 partner_options = sorted(df["partner_source"].dropna().unique())
-selected_partners = st.multiselect(
-    "Filter by Partner Source",
-    options=partner_options,
-    default=partner_options  # pre-select all
-)
+all_label = "All Partners"
+partner_options_with_all = [all_label] + partner_options
 
-df = df[df["partner_source"].isin(selected_partners)]
+selected_partner = st.selectbox("Filter by Partner Source", options=partner_options_with_all)
+if selected_partner != all_label:
+    df = df[df["partner_source"] == selected_partner]
 
-# --- Calculations ---
-df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
-df["total_funded_amount"] = pd.to_numeric(df["total_funded_amount"], errors="coerce")
-df["factor_rate"] = pd.to_numeric(df["factor_rate"], errors="coerce")
-df["loan_term"] = pd.to_numeric(df["loan_term"], errors="coerce")
-
+# --- Metrics ---
+closed_won = df[df["is_closed_won"] == True]
 total_deals = len(df)
-closed_won = df[df["is_closed_won"] == "true"]
 participation_ratio = len(closed_won) / total_deals if total_deals else 0
 months = df["month"].nunique()
 pacing = len(closed_won) / months if months else 0
@@ -58,11 +55,12 @@ pacing = len(closed_won) / months if months else 0
 avg_amount = closed_won["amount"].mean()
 avg_factor = closed_won["factor_rate"].mean()
 avg_term = closed_won["loan_term"].mean()
+avg_participation_pct = (closed_won["amount"] / closed_won["total_funded_amount"]).mean()
+avg_commission = closed_won["commission"].mean()
+total_commissions_paid = (closed_won["amount"] * closed_won["commission"] / 100).sum()
 
-# --- UI Layout ---
+# --- Top Summary ---
 st.title("HubSpot Deals Dashboard")
-
-# Summary row
 col1, col2, col3 = st.columns(3)
 col1.metric("Total Deals", total_deals)
 col2.metric("Closed Won", len(closed_won))
@@ -73,25 +71,69 @@ col4.metric("Avg Participation ($)", f"${avg_amount:,.0f}")
 col5.metric("Avg Factor", f"{avg_factor:.2f}")
 col6.metric("Avg Term (mo)", f"{avg_term:.1f}")
 
-st.metric("Pacing (Deals Closed Won per Month)", f"{pacing:.1f}")
+col7, col8, col9 = st.columns(3)
+col7.metric("Pacing (Deals/mo)", f"{pacing:.1f}")
+col8.metric("Avg % of Deal", f"{avg_participation_pct:.2%}")
+col9.metric("Commission Paid", f"${total_commissions_paid:,.0f}")
 
 # --- Charts ---
-# Total Funded Amount by Month
-monthly_funded = df.dropna(subset=["total_funded_amount"]).groupby("month")["total_funded_amount"].sum().round(0).reset_index()
-st.subheader("Total Funded Amount by Month")
-st.bar_chart(monthly_funded.set_index("month"))
+color_palette = ['#34a853', '#394053', '#4E4A59', '#E6C79C', '#E5DCC5']
 
-# Count of Deals per Month by Partner Source
+# Funded Amount by Month
+monthly_funded = df.groupby("month")["total_funded_amount"].sum().round(0).reset_index()
+avg_funded = monthly_funded["total_funded_amount"].mean()
+st.subheader("Total Funded Amount by Month")
+funded_chart = alt.Chart(monthly_funded).mark_bar(color=color_palette[0]).encode(
+    x="month:T",
+    y=alt.Y("total_funded_amount:Q", title="Total Funded ($)", axis=alt.Axis(format="$,.0f"))
+) + alt.Chart(monthly_funded).mark_rule(color="gray", strokeDash=[4,2], opacity=0.4).encode(
+    y="mean(total_funded_amount):Q"
+)
+st.altair_chart(funded_chart.properties(width=750, height=300), use_container_width=True)
+
+# Deals per Month by Partner Source
 monthly_partner = df.groupby(["month", "partner_source"]).size().reset_index(name="count")
 st.subheader("Deals per Month by Partner Source")
-partner_chart = alt.Chart(monthly_partner).mark_bar().encode(
+partner_chart = alt.Chart(monthly_partner).mark_bar(size=25).encode(
     x="month:T",
     y="count:Q",
-    color="partner_source:N"
-).properties(width=700, height=400)
+    color=alt.Color("partner_source:N", scale=alt.Scale(range=color_palette)),
+    tooltip=["partner_source", "count"]
+).properties(width=750, height=400)
 st.altair_chart(partner_chart, use_container_width=True)
 
 # Amount by Month
 monthly_amount = df.groupby("month")["amount"].sum().round(0).reset_index()
 st.subheader("Amount by Month")
-st.bar_chart(monthly_amount.set_index("month"))
+amount_chart = alt.Chart(monthly_amount).mark_bar(color=color_palette[1]).encode(
+    x="month:T",
+    y=alt.Y("amount:Q", title="Amount ($)", axis=alt.Axis(format="$,.0f"))
+) + alt.Chart(monthly_amount).mark_rule(color="gray", strokeDash=[4,2], opacity=0.4).encode(
+    y="mean(amount):Q"
+)
+st.altair_chart(amount_chart.properties(width=750, height=300), use_container_width=True)
+
+# --- Partner Summary ---
+st.subheader("Partner Summary Table")
+summary = df.groupby("partner_source").agg(
+    total_opps=("id", "count"),
+    total_opps_amount=("total_funded_amount", "sum"),
+    total_participation=("is_closed_won", lambda x: x.sum()),
+    participation_amount=("amount", "sum")
+).reset_index()
+
+summary["participation_pct"] = summary["total_participation"] / summary["total_opps"]
+summary["avg_participation_pct"] = summary["participation_amount"] / summary["total_opps_amount"]
+
+summary["total_opps_amount"] = summary["total_opps_amount"].round(0)
+summary["participation_amount"] = summary["participation_amount"].round(0)
+
+st.dataframe(summary.rename(columns={
+    "partner_source": "Partner",
+    "total_opps": "Total Deals",
+    "total_opps_amount": "Total $",
+    "total_participation": "Closed Won",
+    "participation_amount": "Won $",
+    "participation_pct": "% Closed Won",
+    "avg_participation_pct": "Avg % of Deal"
+}))
