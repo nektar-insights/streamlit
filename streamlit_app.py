@@ -33,6 +33,16 @@ start_date, end_date = st.date_input(
 df = df[(df["date_created"] >= pd.to_datetime(start_date)) &
         (df["date_created"] <= pd.to_datetime(end_date))]
 
+# --- Partner Source Filter ---
+partner_options = sorted(df["partner_source"].dropna().unique())
+selected_partners = st.multiselect(
+    "Filter by Partner Source",
+    options=partner_options,
+    default=partner_options  # pre-select all
+)
+
+df = df[df["partner_source"].isin(selected_partners)]
+
 # --- Calculations ---
 df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
 df["total_funded_amount"] = pd.to_numeric(df["total_funded_amount"], errors="coerce")
