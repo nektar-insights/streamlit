@@ -3,6 +3,8 @@ import pandas as pd
 import altair as alt
 from supabase import create_client
 from datetime import datetime
+import io
+import pdfkit
 
 # Load Supabase
 url = st.secrets["supabase"]["url"]
@@ -155,3 +157,24 @@ summary_display = summary.reset_index()[[
 ]].rename(columns={"partner_source": "Partner", "total_deals": "Total Deals"})
 
 st.dataframe(summary_display, use_container_width=True)
+
+csv = summary_display.to_csv(index=False).encode("utf-8")
+st.download_button(
+    label="📥 Download Partner Summary as CSV",
+    data=csv,
+    file_name="partner_summary.csv",
+    mime="text/csv"
+)
+
+# Convert DataFrame to styled HTML table
+html = summary_display.to_html(index=False)
+
+# Optional: customize PDF output
+pdf_bytes = pdfkit.from_string(html, False)
+
+st.download_button(
+    label="📄 Download Partner Summary as PDF",
+    data=pdf_bytes,
+    file_name="partner_summary.pdf",
+    mime="application/pdf"
+)
