@@ -4,7 +4,7 @@ import altair as alt
 from supabase import create_client
 from datetime import datetime
 import io
-import pdfkit
+from xhtml2pdf import pisa
 
 # Load Supabase
 url = st.secrets["supabase"]["url"]
@@ -167,14 +167,18 @@ st.download_button(
 )
 
 # Convert DataFrame to styled HTML table
+def create_pdf_from_html(html: str):
+    result = io.BytesIO()
+    pisa.CreatePDF(io.StringIO(html), dest=result)
+    return result.getvalue()
+
+# Clean HTML from DataFrame
 html = summary_display.to_html(index=False)
 
-# Optional: customize PDF output
-pdf_bytes = pdfkit.from_string(html, False)
+pdf = create_pdf_from_html(html)
 
 st.download_button(
     label="📄 Download Partner Summary as PDF",
-    data=pdf_bytes,
+    data=pdf,
     file_name="partner_summary.pdf",
     mime="application/pdf"
-)
