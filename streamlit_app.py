@@ -126,37 +126,39 @@ st.altair_chart(amount_chart.properties(width=850, height=300), use_container_wi
 # --- Partner Summary ---
 st.subheader("Partner Summary Table")
 
-# Calculate raw metrics
-summary = df.groupby("partner_source").agg(
+# 1. Separate closed_won deals for precise denominator
+closed_won = df[df["is_closed_won"] == True]
+
+# 2. Group full dataset for total deals
+all_deals = df.groupby("partner_source").agg(
     total_deals=("id", "count"),
-    total_amount=("total_funded_amount", "sum"),
-    participated_deals=("is_closed_won", "sum"),
-    participated_amount=("amount", "sum")
-).reset_index()
+    total_amount=("total_funded_amount", "sum")
+)
 
-# Calculate ratios
+# 3. Group closed_won dataset for participation
+won_deals = closed_won.groupby("partner_source").agg(
+    participated_deals=("id", "count"),
+    participated_amount=("amount", "sum"),
+    total_won_amount=("total_funded_amount", "sum")
+)
+
+# 4. Combine both
+summary = all_deals.join(won_deals, how="left").fillna(0)
+
+# 5. Derived metrics
 summary["closed_won_pct"] = summary["participated_deals"] / summary["total_deals"]
-summary["avg_participation_pct"] = summary["participated_amount"] / summary["total_amount"]
+summary["avg_participation_pct"] = summary["participated_amount"] / summary["total_won_amount"]
 
-# Format numbers
+# 6. Format for display
 summary["$ Opportunities"] = summary["total_amount"].apply(lambda x: f"${x:,.0f}")
 summary["Participated $"] = summary["participated_amount"].apply(lambda x: f"${x:,.0f}")
 summary["% Closed Won"] = summary["closed_won_pct"].apply(lambda x: f"{x:.2%}")
 summary["Avg % of Deal"] = summary["avg_participation_pct"].apply(lambda x: f"{x:.2%}")
 
-# Select display columns
-display_cols = [
-    "partner_source",
-    "total_deals",
-    "$ Opportunities",
-    "Participated $",
-    "% Closed Won",
-    "Avg % of Deal"
-]
-
-summary_display = summary[display_cols].rename(columns={
-    "partner_source": "Partner",
-    "total_deals": "Total Deals"
-})
+# 7. Prepare display
+summary_display = summary.reset_index()[[
+    "partner_source", "total_deals", "$ Opportunities",
+    "Participated $", "% Closed Won", "Avg % of Deal"
+]].rename(columns={"partner_source": "Partner", "total_deals": "Total Deals"})
 
 st.dataframe(summary_display, use_container_width=True)
