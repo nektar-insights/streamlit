@@ -182,3 +182,4 @@ st.download_button(
     data=pdf,
     file_name="partner_summary.pdf",
     mime="application/pdf"
+)
