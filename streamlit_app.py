@@ -69,8 +69,13 @@ avg_participation_pct = (closed_won["amount"] / closed_won["total_funded_amount"
 avg_commission = closed_won["commission"].mean()
 total_commissions_paid = (closed_won["amount"] * closed_won["commission"]).sum()
 
+# Platform fee
+platform_fee_rate = 0.04
+total_platform_fee = closed_won["amount"].sum() * platform_fee_rate
+
+# Total Capital + Expected Return + MOIC
 total_capital_deployed = closed_won["amount"].sum()
-total_expected_return = (closed_won["amount"] * closed_won["factor_rate"]) - closed_won["commission"]
+total_expected_return = (closed_won["amount"] * closed_won["factor_rate"]) - closed_won["commission"] - (closed_won["amount"] * platform_fee_rate)
 total_expected_return_sum = total_expected_return.sum()
 moic = total_expected_return_sum / total_capital_deployed if total_capital_deployed else 0
 projected_irr = (moic ** (12 / avg_term) - 1) if avg_term else 0
