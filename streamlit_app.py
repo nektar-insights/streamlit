@@ -125,36 +125,38 @@ st.altair_chart(amount_chart.properties(width=850, height=300), use_container_wi
 
 # --- Partner Summary ---
 st.subheader("Partner Summary Table")
+
+# Calculate raw metrics
 summary = df.groupby("partner_source").agg(
-    total_opps=("id", "count"),
-    total_opps_amount=("total_funded_amount", "sum"),
-    total_participation=("is_closed_won", lambda x: x.sum()),
-    participation_amount=("amount", "sum")
+    total_deals=("id", "count"),
+    total_amount=("total_funded_amount", "sum"),
+    participated_deals=("is_closed_won", "sum"),
+    participated_amount=("amount", "sum")
 ).reset_index()
 
-summary["participation_pct"] = summary["total_participation"] / summary["total_opps"]
-summary["avg_participation_pct"] = summary["participation_amount"] / summary["total_opps_amount"]
+# Calculate ratios
+summary["closed_won_pct"] = summary["participated_deals"] / summary["total_deals"]
+summary["avg_participation_pct"] = summary["participated_amount"] / summary["total_amount"]
 
-summary = summary.round({
-    "total_opps_amount": 0,
-    "participation_amount": 0,
-    "participation_pct": 4,
-    "avg_participation_pct": 4
-})
+# Format numbers
+summary["$ Opportunities"] = summary["total_amount"].apply(lambda x: f"${x:,.0f}")
+summary["Participated $"] = summary["participated_amount"].apply(lambda x: f"${x:,.0f}")
+summary["% Closed Won"] = summary["closed_won_pct"].apply(lambda x: f"{x:.2%}")
+summary["Avg % of Deal"] = summary["avg_participation_pct"].apply(lambda x: f"{x:.2%}")
 
-summary_display = summary.rename(columns={
+# Select display columns
+display_cols = [
+    "partner_source",
+    "total_deals",
+    "$ Opportunities",
+    "Participated $",
+    "% Closed Won",
+    "Avg % of Deal"
+]
+
+summary_display = summary[display_cols].rename(columns={
     "partner_source": "Partner",
-    "total_opps": "Total Deals",
-    "total_opps_amount": "$ Opportunities",
-    "total_participation": "% Closed Won",
-    "participation_amount": "Participated $",
-    "participation_pct": "% Closed Won",
-    "avg_participation_pct": "Avg % of Deal"
+    "total_deals": "Total Deals"
 })
-
-summary_display["$ Opportunities"] = summary_display["$ Opportunities"].apply(lambda x: f"${x:,.0f}")
-summary_display["Participated $"] = summary_display["Participated $"].apply(lambda x: f"${x:,.0f}")
-summary_display["% Closed Won"] = summary["participation_pct"].apply(lambda x: f"{x:.2%}")
-summary_display["Avg % of Deal"] = summary["avg_participation_pct"].apply(lambda x: f"{x:.2%}")
 
 st.dataframe(summary_display, use_container_width=True)
