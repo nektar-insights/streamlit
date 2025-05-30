@@ -131,10 +131,10 @@ partner_chart = alt.Chart(monthly_partner).mark_bar(size=45).encode(
 ).properties(width=850, height=400)
 st.altair_chart(partner_chart, use_container_width=True)
 
-# Amount by Month
+# Participated Amount by Month
 monthly_amount = df.groupby("month")["amount"].sum().round(0).reset_index()
 bar_color = color_palette[0] if df["partner_source"].nunique() <= 1 else color_palette[1]
-st.subheader("Amount by Month")
+st.subheader("Participated Amount by Month")
 amount_chart = alt.Chart(monthly_amount).mark_bar(size=45, color=bar_color).encode(
     x=alt.X("month:T", axis=alt.Axis(labelAngle=0, title="")),
     y=alt.Y("amount:Q", title="Amount ($)", axis=alt.Axis(format="$,.0f", titlePadding=10)),
