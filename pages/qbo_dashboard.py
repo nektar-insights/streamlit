@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 from supabase import create_client
 import os
+os.getenv("SUPABASE_URL")
+os.getenv("SUPABASE_KEY")
 
 # Setup Supabase
 supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
