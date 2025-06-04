@@ -162,7 +162,7 @@ st.altair_chart(risk_chart, use_container_width=True)
 # Risk Scoring
 # ----------------------------
 # Risk score only for aged and delinquent loans
-df["days_since_funding"] = (pd.Timestamp.today().date() - pd.to_datetime(df["funding_date"])).dt.days
+df["days_since_funding"] = (pd.Timestamp.today() - pd.to_datetime(df["funding_date"])).dt.days
 
 # Exclude loans funded in the last 30 days or with $0 past due
 risk_df = df[(df["days_since_funding"] > 30) & (df["past_due_amount"] > 0)].copy()
