@@ -16,6 +16,15 @@ def load_mca_deals():
 
 df = load_mca_deals()
 
+# Filters
+min_date = df["funding_date"].min()
+max_date = df["funding_date"].max()
+start_date, end_date = st.date_input("Filter by Funding Date", [min_date, max_date], min_value=min_date, max_value=max_date)
+df = df[(df["funding_date"] >= start_date) & (df["funding_date"] <= end_date)]
+
+status_filter = st.multiselect("Status Category", df["status_category"].dropna().unique(), default=list(df["status_category"].dropna().unique()))
+df = df[df["status_category"].isin(status_filter)]
+
 # Data prep
 df["purchase_price"] = pd.to_numeric(df["purchase_price"], errors="coerce")
 df["receivables_amount"] = pd.to_numeric(df["receivables_amount"], errors="coerce")
@@ -56,15 +65,6 @@ loan_tape["Past Due ($)"] = loan_tape["Past Due ($)"].apply(lambda x: f"${x:,.0f
 loan_tape["Remaining to Recover ($)"] = loan_tape["Remaining to Recover ($)"].apply(lambda x: f"${x:,.0f}")
 st.subheader("📋 Loan Tape")
 st.dataframe(loan_tape, use_container_width=True)
-
-# Filters
-min_date = df["funding_date"].min()
-max_date = df["funding_date"].max()
-start_date, end_date = st.date_input("Filter by Funding Date", [min_date, max_date], min_value=min_date, max_value=max_date)
-df = df[(df["funding_date"] >= start_date) & (df["funding_date"] <= end_date)]
-
-status_filter = st.multiselect("Status Category", df["status_category"].dropna().unique(), default=list(df["status_category"].dropna().unique()))
-df = df[df["status_category"].isin(status_filter)]
 
 # Metrics
 total_deals = len(df)
