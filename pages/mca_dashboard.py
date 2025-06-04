@@ -47,8 +47,8 @@ max_date = df["funding_date"].max()
 start_date, end_date = st.date_input("Filter by Funding Date", [min_date, max_date], min_value=min_date, max_value=max_date)
 df = df[(df["funding_date"] >= start_date) & (df["funding_date"] <= end_date)]
 
-status_filter = st.multiselect("Status Category", df["status_category"].dropna().unique(), default=list(df["status_category"].dropna().unique()))
-df = df[df["status_category"].isin(status_filter)]
+status_filter = st.multiselect("Status Category", df["status"].dropna().unique(), default=list(df["status"].dropna().unique()))
+df = df[df["status"].isin(status_filter)]
 
 # ----------------------------
 # Metrics Summary
@@ -71,7 +71,7 @@ st.metric("Total Past Due", f"${total_past_due:,.0f}")
 # Loan Tape Display
 # ----------------------------
 loan_tape = df[[
-    "deal_number", "dba", "funding_date", "status_category",
+    "deal_number", "dba", "funding_date", "status",
     "past_due_amount", "past_due_pct", "performance_ratio",
     "rtr_balance", "performance_details"
 ]].copy()
@@ -80,7 +80,7 @@ loan_tape.rename(columns={
     "deal_number": "Loan ID",
     "dba": "Deal",
     "funding_date": "Funding Date",
-    "status_category": "Status",
+    "status": "Status",
     "past_due_amount": "Past Due ($)",
     "past_due_pct": "Past Due Amount",
     "performance_ratio": "Performance Ratio",
@@ -96,19 +96,10 @@ st.subheader("📋 Loan Tape")
 st.dataframe(loan_tape, use_container_width=True)
 
 # ----------------------------
-# Preview Section
-# ----------------------------
-st.subheader("Preview")
-st.dataframe(df[[
-    "deal_id", "dba", "funding_date", "status_category",
-    "purchase_price", "receivables_amount", "past_due_amount"
-]], use_container_width=True)
-
-# ----------------------------
 # Distribution of Deal Status (Bar Chart)
 # ----------------------------
-# Handle null status_category safely
-status_counts = df["status_category"].fillna("Unknown").value_counts(normalize=True)
+# Handle null status safely
+status_counts = df["status"].fillna("Unknown").value_counts(normalize=True)
 status_chart = status_counts.rename("Share").reset_index().rename(columns={"index": "Status"})
 
 # Explicit type casting to prevent Altair errors
@@ -133,7 +124,7 @@ st.altair_chart(bar, use_container_width=True)
 # ----------------------------
 # Risk Chart: % of Balance at Risk
 # ----------------------------
-not_current = df[df["status_category"] != "Current"].copy()
+not_current = df[df["status"] != "Current"].copy()
 not_current["at_risk_pct"] = not_current["past_due_amount"] / not_current["current_balance"]
 
 risk_chart = alt.Chart(not_current).mark_bar().encode(
