@@ -257,7 +257,7 @@ scatter = alt.Chart(risk_df).mark_circle().encode(
 st.altair_chart(scatter, use_container_width=True)
 
 st.markdown("""
-* Risk Score is calculated using:
+'*' Risk Score is calculated using:
 - **70% weight** on the percentage of the loan that is past due,
 - **30% weight** on how long the loan has been outstanding.
 New deals (< 30 days old), those with low delinquency (<1%), or with status 'Current' are excluded.
