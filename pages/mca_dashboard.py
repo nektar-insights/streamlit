@@ -23,7 +23,7 @@ def load_deals():
 deals_df = load_deals()
 
 # Cleanup
-deals_df["deal_number"] = deals_df["loan_id"].astype(str)
+deals_df["loan_id"] = deals_df["loan_id"].astype(str)
 deals_df["amount"] = pd.to_numeric(deals_df["amount"], errors="coerce")  # our investment
 
 # 1 workforce
@@ -92,11 +92,11 @@ st.metric("Total Past Due", f"${total_past_due:,.0f}")
 # ----------------------------
 
 # Make sure deal_number is str for join
-df["deal_number"] = df["deal_number"].astype(str)
-deals_df["deal_number"] = deals_df["deal_number"].astype(str)
+# Ensure types match before merge
+df["loan_id"] = df["loan_id"].astype(str)
+deals_df["loan_id"] = deals_df["loan_id"].astype(str)
 
-# Merge in our capital
-df = df.merge(deals_df[["deal_number", "amount"]], on="deal_number", how="left")
+df = df.merge(deals_df[["loan_id", "amount"]], on="loan_id", how="left")
 df.rename(columns={"amount": "CSL Participation ($)"}, inplace=True)
 
 # Display columns
@@ -283,8 +283,18 @@ scatter = alt.Chart(risk_df).mark_circle().encode(
     title="📉 Risk Score by Past Due % and Deal Age"
 )
 
-st.altair_chart(scatter, use_container_width=True)
+threshold_x = alt.Chart(pd.DataFrame({"x": [0.10]})).mark_rule(
+    strokeDash=[4, 4], color="gray"
+).encode(x="x:Q")
 
+threshold_y = alt.Chart(pd.DataFrame({"y": [90]})).mark_rule(
+    strokeDash=[4, 4], color="gray"
+).encode(y="y:Q")
+
+st.altair_chart(
+    scatter + threshold_x + threshold_y,
+    use_container_width=True
+)
 st.markdown("""
 '*' Risk Score is calculated using:
 - **70% weight** on the percentage of the loan that is past due,
