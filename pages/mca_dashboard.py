@@ -87,21 +87,23 @@ if "All" not in status_category_filter:
 # ----------------------------
 # Color Palette for Visualizations
 # ----------------------------
-# Primary color: #34a853 (Google Green)
-# Complementary palette for visualizations
+# Primary color: #34a853 (Professional Green)
+# Professional palette derived from primary
 PRIMARY_COLOR = "#34a853"
 COLOR_PALETTE = [
     "#34a853",  # Primary green
-    "#1a73e8",  # Blue
-    "#ea4335",  # Red  
-    "#fbbc04",  # Yellow
-    "#9aa0a6",  # Gray
-    "#137333",  # Dark green
-    "#0d47a1",  # Dark blue
-    "#c5221f",  # Dark red
+    "#2d5a3d",  # Dark green
+    "#4a90e2",  # Professional blue
+    "#6c757d",  # Neutral gray
+    "#495057",  # Dark gray
+    "#28a745",  # Success green
+    "#17a2b8",  # Info blue
+    "#6f42c1",  # Professional purple
 ]
 
-RISK_COLORS = ["#34a853", "#fbbc04", "#ea4335"]  # Green to Yellow to Red
+# Simple single colors for charts (no gradients)
+CHART_COLOR = PRIMARY_COLOR
+RISK_COLOR = "#dc3545"  # Professional red for risk
 
 # ----------------------------
 # Metrics Summary
@@ -128,7 +130,7 @@ st.metric("Total Past Due", f"${total_past_due:,.0f}")
 # ----------------------------
 # Loan Tape Display
 # ----------------------------
-# Create loan tape display
+# Create loan tape display (keep raw numeric data for sorting)
 loan_tape = df[[
     "deal_number", "dba", "funding_date", "status_category",
     "past_due_amount", "past_due_pct", "performance_ratio",
@@ -148,18 +150,12 @@ loan_tape.rename(columns={
     "performance_details": "Performance Notes"
 }, inplace=True)
 
-# Format display columns - keep numeric values for sorting
-loan_tape["Past Due %"] = loan_tape["Past Due %"].apply(
-    lambda x: x if pd.notnull(x) else 0
-)
-loan_tape["Past Due ($)"] = loan_tape["Past Due ($)"].apply(
-    lambda x: x if pd.notnull(x) else 0
-)
-loan_tape["Remaining to Recover ($)"] = loan_tape["Remaining to Recover ($)"].apply(
-    lambda x: x if pd.notnull(x) else 0
-)
+# Clean up numeric data for proper sorting
+loan_tape["Past Due %"] = loan_tape["Past Due %"].fillna(0)
+loan_tape["Past Due ($)"] = loan_tape["Past Due ($)"].fillna(0)
+loan_tape["Remaining to Recover ($)"] = loan_tape["Remaining to Recover ($)"].fillna(0)
 
-# Display with proper formatting
+# Display with both sorting AND formatting
 st.subheader("📋 Loan Tape")
 st.dataframe(
     loan_tape,
@@ -177,6 +173,10 @@ st.dataframe(
             "Remaining to Recover ($)",
             format="$%,.0f"
         ),
+        "Performance Ratio": st.column_config.NumberColumn(
+            "Performance Ratio",
+            format="%.2f"
+        ),
     }
 )
 
@@ -193,7 +193,7 @@ status_category_chart = pd.DataFrame({
 })
 
 # Build chart
-bar = alt.Chart(status_category_chart).mark_bar(color=PRIMARY_COLOR).encode(
+bar = alt.Chart(status_category_chart).mark_bar(color=CHART_COLOR).encode(
     x=alt.X(
         "status_category:N",
         title="Status Category",
@@ -201,11 +201,6 @@ bar = alt.Chart(status_category_chart).mark_bar(color=PRIMARY_COLOR).encode(
         axis=alt.Axis(labelAngle=-45)
     ),
     y=alt.Y("Share:Q", title="Percent of Deals", axis=alt.Axis(format=".0%")),
-    color=alt.Color(
-        "status_category:N",
-        scale=alt.Scale(range=COLOR_PALETTE),
-        legend=None
-    ),
     tooltip=[
         alt.Tooltip("status_category", title="Status"),
         alt.Tooltip("Share:Q", title="Share", format=".2%")
@@ -226,7 +221,7 @@ not_current["at_risk_pct"] = not_current["past_due_amount"] / not_current["curre
 not_current = not_current[not_current["at_risk_pct"] > 0]
 
 if len(not_current) > 0:
-    risk_chart = alt.Chart(not_current).mark_bar(color=RISK_COLORS[2]).encode(
+    risk_chart = alt.Chart(not_current).mark_bar(color=RISK_COLOR).encode(
         x=alt.X(
             "dba:N",
             title="Deal",
@@ -234,11 +229,6 @@ if len(not_current) > 0:
             axis=alt.Axis(labelAngle=-45)
         ),
         y=alt.Y("at_risk_pct:Q", title="% of Balance at Risk", axis=alt.Axis(format=".0%")),
-        color=alt.Color(
-            "at_risk_pct:Q",
-            scale=alt.Scale(range=RISK_COLORS, type="linear"),
-            legend=alt.Legend(title="Risk Level")
-        ),
         tooltip=[
             alt.Tooltip("dba:N", title="Deal"),
             alt.Tooltip("past_due_amount:Q", title="Past Due ($)", format="$,.0f"),
@@ -305,7 +295,7 @@ if len(risk_df) > 0:
     }, inplace=True)
 
     # Risk score bar chart
-    bar_chart = alt.Chart(top_risk).mark_bar().encode(
+    bar_chart = alt.Chart(top_risk).mark_bar(color=RISK_COLOR).encode(
         x=alt.X(
             "dba:N",
             title="Deal",
@@ -313,11 +303,6 @@ if len(risk_df) > 0:
             axis=alt.Axis(labelAngle=-45)
         ),
         y=alt.Y("risk_score:Q", title="Risk Score"),
-        color=alt.Color(
-            "risk_score:Q",
-            scale=alt.Scale(range=RISK_COLORS, type="linear"),
-            legend=alt.Legend(title="Risk Score")
-        ),
         tooltip=[
             alt.Tooltip("deal_number:N", title="Loan ID"),
             alt.Tooltip("status_category", title="Status Category"),
@@ -333,7 +318,24 @@ if len(risk_df) > 0:
 
     st.altair_chart(bar_chart, use_container_width=True)
 
-    # Display styled dataframe with proper number formatting
+    # Create display table with proper formatting
+    top_risk_display = top_risk[[
+        "deal_number", "dba", "status_category", "funding_date", "risk_score",
+        "past_due_amount", "current_balance"
+    ]].copy()
+
+    # Rename columns
+    top_risk_display.rename(columns={
+        "deal_number": "Loan ID",
+        "dba": "Deal",
+        "status_category": "Status",
+        "funding_date": "Funded",
+        "risk_score": "Risk Score",
+        "past_due_amount": "Past Due ($)",
+        "current_balance": "Current Balance ($)"
+    }, inplace=True)
+
+    # Display with both sorting AND formatting
     st.dataframe(
         top_risk_display,
         use_container_width=True,
@@ -356,15 +358,9 @@ if len(risk_df) > 0:
     # ----------------------------
     # Scatter Plot
     # ----------------------------
-    scatter = alt.Chart(risk_df).mark_circle().encode(
+    scatter = alt.Chart(risk_df).mark_circle(color=CHART_COLOR, size=60).encode(
         x=alt.X("past_due_pct:Q", title="% Past Due", axis=alt.Axis(format=".0%")),
         y=alt.Y("days_since_funding:Q", title="Days Since Funding"),
-        size=alt.Size("risk_score:Q", title="Risk Score"),
-        color=alt.Color(
-            "risk_score:Q",
-            scale=alt.Scale(range=RISK_COLORS, type="linear"),
-            title="Risk Score"
-        ),
         tooltip=[
             alt.Tooltip("dba:N", title="Deal"),
             alt.Tooltip("status_category:N", title="Status"),
@@ -395,11 +391,23 @@ else:
     st.info("No deals meet the risk criteria for analysis.")
 
 st.markdown("""
-'*' Risk Score is calculated using:
-- **70% weight** on the percentage of the loan that is past due,
-- **30% weight** on how long the loan has been outstanding.
+#### 🧠 Understanding the Risk Score
+
+The **Risk Score** ranges between **0.00 and 1.00** and blends two key factors:
+- **70% weight**: The **percentage of the balance that is past due**
+- **30% weight**: The **age of the deal** (older deals score higher)
+
+| Risk Score | Interpretation            |
+|------------|---------------------------|
+| 0.00–0.19  | Very Low Risk             |
+| 0.20–0.49  | Low to Moderate Risk      |
+| 0.50–0.74  | Elevated Risk             |
+| 0.75–1.00  | High Risk of Loss         |
+
+🔎 *Example*: A score of **0.80** implies the deal is either **very delinquent**, **very old**, or both.
 New deals (< 30 days old), those with low delinquency (<1%), or with status 'Current' are excluded.
 """)
+
 
 # ----------------------------
 # Download buttons
