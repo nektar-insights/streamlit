@@ -125,6 +125,9 @@ total_matured = (df["status_category"] == "Matured").sum()
 total_current = (df["status_category"] == "Current").sum()
 total_non_current = (df["status_category"] == "Not Current").sum()
 
+pct_current = total_current / total_deals if total_deals > 0 else 0
+pct_non_current = total_non_current / total_deals if total_deals > 0 else 0
+
 # Row 1: Deal counts
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Total Deals", total_deals)
@@ -132,10 +135,15 @@ col2.metric("Total Matured Deals", total_matured)
 col3.metric("Current Deals", total_current)
 col4.metric("Total Non-Current Deals", total_non_current)
 
-# Row 2: Dollar values
+# Row 2: Percentage metrics
 col5, col6 = st.columns(2)
-col5.metric("Total Funded", f"${total_funded:,.0f}")
-col6.metric("Total Past Due", f"${total_past_due:,.0f}")
+col5.metric("% of Deals Current", f"{pct_current:.1%}")
+col6.metric("% of Deals Not Current", f"{pct_non_current:.1%}")
+
+# Row 3: Dollar values
+col7, col8 = st.columns(2)
+col7.metric("Total Funded", f"${total_funded:,.0f}")
+col8.metric("Total Past Due", f"${total_past_due:,.0f}")
 
 # ----------------------------
 # Loan Tape Display
