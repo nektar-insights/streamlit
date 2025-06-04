@@ -89,11 +89,13 @@ total_deals = len(df)
 total_funded = df["purchase_price"].sum()
 total_receivables = df["receivables_amount"].sum()
 total_past_due = df["past_due_amount"].sum()
+total_current = (df["status_category"] == "Current").sum()
+pct_current = total_current / total_deals if total_deals > 0 else 0
 
 col1, col2, col3 = st.columns(3)
 col1.metric("Total Deals", total_deals)
-col2.metric("Total Funded", f"${total_funded:,.0f}")
-col3.metric("Total Receivables", f"${total_receivables:,.0f}")
+col2.metric("Current Loans", f"{pct_current:.1%}")
+col3.metric("Total Funded", f"${df['purchase_price'].sum():,.0f}")
 
 st.metric("Total Past Due", f"${total_past_due:,.0f}")
 
@@ -143,7 +145,7 @@ status_category_chart = pd.DataFrame({
 
 # Build chart
 bar = alt.Chart(status_category_chart).mark_bar().encode(
-    x=alt.X("status_category:N", title="Status Category", sort=alt.EncodingSortField(field="Share", order="ascending")),
+    x=alt.X("status_category:N", title="Status Category", sort=alt.EncodingSortField(field="Share", order="descending")),
     y=alt.Y("Share:Q", title="Percent of Deals", axis=alt.Axis(format=".0%")),
     tooltip=[
         alt.Tooltip("status_category", title="Status"),
@@ -177,7 +179,7 @@ if len(not_current) > 0:
     ).properties(
         width=850,
         height=400,
-        title="🚨 % of Balance at Risk (Non-Current Deals)"
+        title="🚨 Percentage of Balance at Risk (Non-Current Deals)"
     )
 
     st.altair_chart(risk_chart, use_container_width=True)
