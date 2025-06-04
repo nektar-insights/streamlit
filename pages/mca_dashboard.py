@@ -223,7 +223,7 @@ bar = alt.Chart(status_category_chart).mark_bar().encode(
         "status_category:N",
         title="Status Category",
         sort=alt.EncodingSortField(field="Share", order="descending"),
-        axis=alt.Axis(labelAngle=-45)
+        axis=alt.Axis(labelAngle=-90)
     ),
     y=alt.Y("Share:Q", title="Percent of Deals", axis=alt.Axis(format=".0%")),
     color=alt.Color(
@@ -257,7 +257,7 @@ if len(not_current) > 0:
             "dba:N",
             title="Deal",
             sort="-y",
-            axis=alt.Axis(labelAngle=-45)
+            axis=alt.Axis(labelAngle=-90)
         ),
         y=alt.Y("at_risk_pct:Q", title="% of Balance at Risk", axis=alt.Axis(format=".0%")),
         color=alt.Color(
