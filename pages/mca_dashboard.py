@@ -98,19 +98,20 @@ st.dataframe(loan_tape, use_container_width=True)
 # ----------------------------
 # Distribution of Deal Status (Bar Chart)
 # ----------------------------
-# Handle null status safely
 
-# Step 1: safely get share of statuses
-status_counts = df["status"].fillna("Unknown").value_counts(normalize=True).reset_index()
+# Step 1: calculate normalized value counts safely
+status_counts = df["status"].fillna("Unknown").value_counts(normalize=True)
 
-# Step 2: rename columns properly
-status_chart = status_counts.rename(columns={"index": "Status", "status": "Share"})
+# Step 2: convert to DataFrame
+status_chart = pd.DataFrame({
+    "Status": status_counts.index.astype(str),
+    "Share": status_counts.values
+})
 
-# Step 3: ensure proper types for Altair
-status_chart["Status"] = status_chart["Status"].astype(str)
+# Step 3: ensure clean types
 status_chart["Share"] = pd.to_numeric(status_chart["Share"], errors="coerce")
 
-# Step 4: chart
+# Step 4: build chart
 bar = alt.Chart(status_chart).mark_bar().encode(
     x=alt.X("Status:N", title="Status Category"),
     y=alt.Y("Share:Q", title="Percent of Deals", axis=alt.Axis(format=".0%")),
