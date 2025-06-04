@@ -170,21 +170,14 @@ loan_tape.rename(columns={
     "performance_details": "Performance Notes"
 }, inplace=True)
 
-# Clean up numeric data for proper sorting
-loan_tape["Past Due %"] = pd.to_numeric(loan_tape["Past Due %"], errors='coerce').fillna(0)
-loan_tape["Past Due ($)"] = loan_tape["Past Due ($)"].fillna(0)
-loan_tape["Remaining to Recover ($)"] = loan_tape["Remaining to Recover ($)"].fillna(0)
-loan_tape["Performance Ratio"] = loan_tape["Performance Ratio"].fillna(0)
-
-# Display with both sorting AND formatting
-st.subheader("📋 Loan Tape")
-
-# Ensure all numeric columns are properly typed
+# Clean up numeric data for proper sorting (do this only once)
 loan_tape["Past Due %"] = pd.to_numeric(loan_tape["Past Due %"], errors='coerce').fillna(0)
 loan_tape["Past Due ($)"] = pd.to_numeric(loan_tape["Past Due ($)"], errors='coerce').fillna(0)
 loan_tape["Remaining to Recover ($)"] = pd.to_numeric(loan_tape["Remaining to Recover ($)"], errors='coerce').fillna(0)
 loan_tape["Performance Ratio"] = pd.to_numeric(loan_tape["Performance Ratio"], errors='coerce').fillna(0)
 
+# Display with both sorting AND formatting
+st.subheader("📋 Loan Tape")
 st.dataframe(
     loan_tape,
     use_container_width=True,
