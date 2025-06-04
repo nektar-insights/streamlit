@@ -2,3 +2,4 @@ supabase
 pandas
 streamlit
 xhtml2pdf
+matplotlib>=3.0
