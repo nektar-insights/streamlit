@@ -54,7 +54,6 @@ start_date, end_date = st.date_input("Filter by Funding Date", [min_date, max_da
 df = df[(df["funding_date"] >= start_date) & (df["funding_date"] <= end_date)]
 
 # Filter out Canceled deals
-df = df[df["status_category"] != "Canceled"]
 status_category_filter = st.multiselect("status_category Category", df["status_category"].dropna().unique(), default=list(df["status_category"].dropna().unique()))
 df = df[df["status_category"].isin(status_category_filter)]
 
@@ -88,7 +87,7 @@ loan_tape.rename(columns={
     "deal_number": "Loan ID",
     "dba": "Deal",
     "funding_date": "Funding Date",
-    "status_category": "status_category",
+    "status_category": "Status Category",
     "past_due_amount": "Past Due ($)",
     "past_due_pct": "Past Due Amount",
     "performance_ratio": "Performance Ratio",
@@ -118,7 +117,6 @@ status_category_chart = pd.DataFrame({
 
 # Step 3: ensure clean types
 status_category_chart["Share"] = pd.to_numeric(status_category_chart["Share"], errors="coerce")
-not_current = not_current[not_current["at_risk_pct"] > 0]
 
 # Step 4: build chart
 bar = alt.Chart(status_category_chart).mark_bar().encode(
@@ -141,6 +139,7 @@ st.altair_chart(bar, use_container_width=True)
 # ----------------------------
 not_current = df[df["status_category"] != "Current"].copy()
 not_current["at_risk_pct"] = not_current["past_due_amount"] / not_current["current_balance"]
+not_current = not_current[not_current["at_risk_pct"] > 0]
 
 risk_chart = alt.Chart(not_current).mark_bar().encode(
     x=alt.X("dba:N", title="Deal", sort="-y"),
@@ -176,7 +175,7 @@ risk_df["risk_score"] = (
 )
 
 st.subheader("🚨 Top 10 Highest Risk Deals 🚨")
-st.dataframe(top_risk_display, use_container_width=True)
+
 
 top_risk = risk_df.sort_values("risk_score", ascending=False).head(10).copy()
 
@@ -193,6 +192,7 @@ top_risk_display = top_risk[[
     "current_balance": "Current Balance ($)",
     "rtr_balance": "Remaining to Recover ($)"
 })
+st.dataframe(top_risk_display, use_container_width=True)
 
 # Format currency and risk score
 for col in ["Past Due ($)", "Current Balance ($)", "Remaining to Recover ($)"]:
