@@ -26,9 +26,6 @@ deals_df["loan_id"] = deals_df["loan_id"].astype(str)
 deals_df = deals_df[deals_df["loan_id"].notna()]
 deals_df["amount"] = pd.to_numeric(deals_df["amount"], errors="coerce")  # our investment
 
-st.write("📦 `deals_df` Columns:", deals_df.columns.tolist())
-st.dataframe(deals_df.head())  # Optional: to see the top few rows
-
 # ----------------------------
 # Load and prepare data  # 1 workforce data
 # ----------------------------
@@ -96,13 +93,14 @@ st.metric("Total Past Due", f"${total_past_due:,.0f}")
 # Loan Tape Display
 # ----------------------------
 
-# Ensure types match before merge
-df["loan_id"] = df["loan_id"].astype(str)
+# Prepare columns for merge
+df["deal_number"] = df["deal_number"].astype(str)
 deals_df["loan_id"] = deals_df["loan_id"].astype(str)
 deals_df = deals_df[deals_df["loan_id"].notna()]
 
-# Join MCA data with HubSpot participation data
-df = df.merge(deals_df[["loan_id", "amount"]], on="loan_id", how="left")
+# Merge on deal_number from MCA data and loan_id from HubSpot
+df = df.merge(deals_df[["loan_id", "amount"]], left_on="deal_number", right_on="loan_id", how="left")
+df.rename(columns={"amount": "CSL Participation ($)"}, inplace=True)
 
 # Select display columns
 loan_tape = df[[
