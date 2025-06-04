@@ -16,7 +16,6 @@ def load_mca_deals():
 df = load_mca_deals()
 
 # Data prep
-df["funding_date"] = pd.to_datetime(df["funding_date"], errors="coerce")
 df["purchase_price"] = pd.to_numeric(df["purchase_price"], errors="coerce")
 df["receivables_amount"] = pd.to_numeric(df["receivables_amount"], errors="coerce")
 df["current_balance"] = pd.to_numeric(df["current_balance"], errors="coerce")
@@ -61,7 +60,7 @@ st.dataframe(loan_tape, use_container_width=True)
 min_date = df["funding_date"].min()
 max_date = df["funding_date"].max()
 start_date, end_date = st.date_input("Filter by Funding Date", [min_date, max_date], min_value=min_date, max_value=max_date)
-df = df[(df["funding_date"] >= pd.to_datetime(start_date)) & (df["funding_date"] <= pd.to_datetime(end_date))]
+df = df[(df["funding_date"] >= start_date) & (df["funding_date"] <= end_date)]
 
 status_filter = st.multiselect("Status Category", df["status_category"].dropna().unique(), default=list(df["status_category"].dropna().unique()))
 df = df[df["status_category"].isin(status_filter)]
