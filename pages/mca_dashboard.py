@@ -128,7 +128,7 @@ pct_current = total_current / total_outstanding if total_outstanding > 0 else 0
 
 # Totals for matured and non-current
 total_matured = (df["status_category"] == "Matured").sum()
-total_non_current = (df["status_category"] != "Current").sum()
+total_non_current = (df["status_category"] == "Not Current").sum()
 
 # Display metrics
 col1, col2, col3 = st.columns(3)
