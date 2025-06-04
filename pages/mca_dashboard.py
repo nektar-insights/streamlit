@@ -179,41 +179,37 @@ loan_tape["Performance Ratio"] = loan_tape["Performance Ratio"].fillna(0)
 # Display with both sorting AND formatting
 st.subheader("📋 Loan Tape")
 
-# Apply formatting only to numeric columns, handling NaN/string values safely
-def safe_format_currency(val):
-    try:
-        if pd.isna(val) or val == 0:
-            return "$0"
-        return f"${val:,.0f}"
-    except:
-        return str(val)
-
-def safe_format_percentage(val):
-    try:
-        if pd.isna(val) or val == 0:
-            return "0.0%"
-        return f"{val:.1%}"
-    except:
-        return str(val)
-
-def safe_format_ratio(val):
-    try:
-        if pd.isna(val):
-            return "0.00"
-        return f"{val:.2f}"
-    except:
-        return str(val)
-
-# Create a copy for display with safe formatting
-loan_tape_display = loan_tape.copy()
-loan_tape_display["Past Due %"] = loan_tape_display["Past Due %"].apply(safe_format_percentage)
-loan_tape_display["Past Due ($)"] = loan_tape_display["Past Due ($)"].apply(safe_format_currency)
-loan_tape_display["Remaining to Recover ($)"] = loan_tape_display["Remaining to Recover ($)"].apply(safe_format_currency)
-loan_tape_display["Performance Ratio"] = loan_tape_display["Performance Ratio"].apply(safe_format_ratio)
+# Ensure all numeric columns are properly typed
+loan_tape["Past Due %"] = pd.to_numeric(loan_tape["Past Due %"], errors='coerce').fillna(0)
+loan_tape["Past Due ($)"] = pd.to_numeric(loan_tape["Past Due ($)"], errors='coerce').fillna(0)
+loan_tape["Remaining to Recover ($)"] = pd.to_numeric(loan_tape["Remaining to Recover ($)"], errors='coerce').fillna(0)
+loan_tape["Performance Ratio"] = pd.to_numeric(loan_tape["Performance Ratio"], errors='coerce').fillna(0)
 
 st.dataframe(
-    loan_tape_display,
-    use_container_width=True
+    loan_tape,
+    use_container_width=True,
+    column_config={
+        "Past Due %": st.column_config.NumberColumn(
+            "Past Due %",
+            format="%.1%%",
+            help="Percentage of balance past due"
+        ),
+        "Past Due ($)": st.column_config.NumberColumn(
+            "Past Due ($)",
+            format="$%.0f",
+            help="Dollar amount past due"
+        ),
+        "Remaining to Recover ($)": st.column_config.NumberColumn(
+            "Remaining to Recover ($)",
+            format="$%.0f",
+            help="Remaining balance to recover"
+        ),
+        "Performance Ratio": st.column_config.NumberColumn(
+            "Performance Ratio",
+            format="%.2f",
+            help="Performance ratio"
+        ),
+    }
 )
 
 # ----------------------------
@@ -377,32 +373,31 @@ if len(risk_df) > 0:
     top_risk_display["Past Due ($)"] = top_risk_display["Past Due ($)"].fillna(0)
     top_risk_display["Current Balance ($)"] = top_risk_display["Current Balance ($)"].fillna(0)
 
-    # Display with safe formatting that handles mixed data types
-    def safe_format_currency(val):
-        try:
-            if pd.isna(val) or val == 0:
-                return "$0"
-            return f"${val:,.0f}"
-        except:
-            return str(val)
-
-    def safe_format_risk_score(val):
-        try:
-            if pd.isna(val):
-                return "0.000"
-            return f"{val:.3f}"
-        except:
-            return str(val)
-
-    # Create display version with safe formatting
-    top_risk_formatted = top_risk_display.copy()
-    top_risk_formatted["Past Due ($)"] = top_risk_formatted["Past Due ($)"].apply(safe_format_currency)
-    top_risk_formatted["Current Balance ($)"] = top_risk_formatted["Current Balance ($)"].apply(safe_format_currency)
-    top_risk_formatted["Risk Score"] = top_risk_formatted["Risk Score"].apply(safe_format_risk_score)
+    # Ensure all numeric columns are properly typed for sorting
+    top_risk_display["Risk Score"] = pd.to_numeric(top_risk_display["Risk Score"], errors='coerce').fillna(0)
+    top_risk_display["Past Due ($)"] = pd.to_numeric(top_risk_display["Past Due ($)"], errors='coerce').fillna(0)
+    top_risk_display["Current Balance ($)"] = pd.to_numeric(top_risk_display["Current Balance ($)"], errors='coerce').fillna(0)
 
     st.dataframe(
-        top_risk_formatted,
-        use_container_width=True
+        top_risk_display,
+        use_container_width=True,
+        column_config={
+            "Past Due ($)": st.column_config.NumberColumn(
+                "Past Due ($)",
+                format="$%.0f",
+                help="Dollar amount past due"
+            ),
+            "Current Balance ($)": st.column_config.NumberColumn(
+                "Current Balance ($)",
+                format="$%.0f", 
+                help="Current outstanding balance"
+            ),
+            "Risk Score": st.column_config.NumberColumn(
+                "Risk Score",
+                format="%.3f",
+                help="Calculated risk score"
+            ),
+        }
     )
 
     # ----------------------------
