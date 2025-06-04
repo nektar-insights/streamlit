@@ -12,7 +12,7 @@ key = st.secrets["supabase"]["service_role"]
 supabase = create_client(url, key)
 
 # ----------------------------
-# Load and prepare data  Hubspot data...
+# Load and prepare data - Hubspot data
 # ----------------------------
 @st.cache_data(ttl=3600)
 def load_deals():
@@ -27,7 +27,7 @@ deals_df = deals_df[deals_df["loan_id"].notna()]
 deals_df["amount"] = pd.to_numeric(deals_df["amount"], errors="coerce")  # our investment
 
 # ----------------------------
-# Load and prepare data  # 1 workforce data
+# Load and prepare data - MCA workforce data
 # ----------------------------
 @st.cache_data(ttl=3600)
 def load_mca_deals():
@@ -64,11 +64,20 @@ df["past_due_pct"] = df.apply(
 min_date = df["funding_date"].min()
 max_date = df["funding_date"].max()
 
-start_date, end_date = st.date_input("Filter by Funding Date", [min_date, max_date], min_value=min_date, max_value=max_date)
+start_date, end_date = st.date_input(
+    "Filter by Funding Date", 
+    [min_date, max_date], 
+    min_value=min_date, 
+    max_value=max_date
+)
 df = df[(df["funding_date"] >= start_date) & (df["funding_date"] <= end_date)]
 
-# Filter out Canceled deals
-status_category_filter = st.multiselect("status_category Category", df["status_category"].dropna().unique(), default=list(df["status_category"].dropna().unique()))
+# Filter by status category
+status_category_filter = st.multiselect(
+    "Status Category", 
+    df["status_category"].dropna().unique(), 
+    default=list(df["status_category"].dropna().unique())
+)
 df = df[df["status_category"].isin(status_category_filter)]
 
 # ----------------------------
@@ -92,43 +101,39 @@ st.metric("Total Past Due", f"${total_past_due:,.0f}")
 # Loan Tape Display
 # ----------------------------
 # Prepare columns for merge
-# Align types for join
 df["deal_number"] = df["deal_number"].astype(str)
 deals_df["loan_id"] = deals_df["loan_id"].astype(str)
 
-if "CSL Participation ($)" not in df.columns:
-    df["CSL Participation ($)"] = None
-    
 # Merge using deal_number from df and loan_id from deals_df
 df = df.merge(deals_df[["loan_id", "amount"]], left_on="deal_number", right_on="loan_id", how="left")
 
-# ✅ Rename here before referencing in loan_tape
+# Rename the amount column to CSL Participation
 df.rename(columns={"amount": "CSL Participation ($)"}, inplace=True)
 
-# Now select display columns
-loan_tape = df.rename(columns={"amount": "CSL Participation ($)"}).copy()[[
+# Create loan tape display
+loan_tape = df[[
     "deal_number", "dba", "funding_date", "status_category",
     "past_due_amount", "past_due_pct", "performance_ratio",
     "rtr_balance", "performance_details", "CSL Participation ($)"
-]]
+]].copy()
 
-# Rename for display
+# Rename columns for display
 loan_tape.rename(columns={
     "deal_number": "Loan ID",
     "dba": "Deal",
     "funding_date": "Funding Date",
     "status_category": "Status Category",
     "past_due_amount": "Past Due ($)",
-    "past_due_pct": "Past Due Amount",
+    "past_due_pct": "Past Due %",
     "performance_ratio": "Performance Ratio",
     "rtr_balance": "Remaining to Recover ($)",
     "performance_details": "Performance Notes"
 }, inplace=True)
 
 # Format display columns
-loan_tape["Past Due Amount"] = loan_tape["Past Due Amount"].apply(lambda x: f"{x:.1%}")
-loan_tape["Past Due ($)"] = loan_tape["Past Due ($)"].apply(lambda x: f"${x:,.0f}")
-loan_tape["Remaining to Recover ($)"] = loan_tape["Remaining to Recover ($)"].apply(lambda x: f"${x:,.0f}")
+loan_tape["Past Due %"] = loan_tape["Past Due %"].apply(lambda x: f"{x:.1%}" if pd.notnull(x) else "0.0%")
+loan_tape["Past Due ($)"] = loan_tape["Past Due ($)"].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "$0")
+loan_tape["Remaining to Recover ($)"] = loan_tape["Remaining to Recover ($)"].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "$0")
 loan_tape["CSL Participation ($)"] = loan_tape["CSL Participation ($)"].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "-")
 
 # Display
@@ -136,22 +141,18 @@ st.subheader("📋 Loan Tape")
 st.dataframe(loan_tape, use_container_width=True)
 
 # ----------------------------
-# Distribution of Deal status_category (Bar Chart)
+# Distribution of Deal Status (Bar Chart)
 # ----------------------------
-
-# Step 1: calculate normalized value counts safely
+# Calculate normalized value counts
 status_category_counts = df["status_category"].fillna("Unknown").value_counts(normalize=True)
 
-# Step 2: convert to DataFrame
+# Convert to DataFrame
 status_category_chart = pd.DataFrame({
     "status_category": status_category_counts.index.astype(str),
     "Share": status_category_counts.values
 })
 
-# Step 3: ensure clean types
-status_category_chart["Share"] = pd.to_numeric(status_category_chart["Share"], errors="coerce")
-
-# Step 4: build chart
+# Build chart
 bar = alt.Chart(status_category_chart).mark_bar().encode(
     x=alt.X("status_category:N", title="Status Category", sort=alt.EncodingSortField(field="Share", order="ascending")),
     y=alt.Y("Share:Q", title="Percent of Deals", axis=alt.Axis(format=".0%")),
@@ -174,27 +175,30 @@ not_current = df[df["status_category"] != "Current"].copy()
 not_current["at_risk_pct"] = not_current["past_due_amount"] / not_current["current_balance"]
 not_current = not_current[not_current["at_risk_pct"] > 0]
 
-risk_chart = alt.Chart(not_current).mark_bar().encode(
-    x=alt.X("dba:N", title="Deal", sort="-y"),
-    y=alt.Y("at_risk_pct:Q", title="% of Balance at Risk", axis=alt.Axis(format=".0%")),
-    tooltip=[
-        alt.Tooltip("dba:N", title="Deal"),
-        alt.Tooltip("past_due_amount:Q", title="Past Due ($)", format="$,.0f"),
-        alt.Tooltip("current_balance:Q", title="Current Balance ($)", format="$,.0f"),
-        alt.Tooltip("at_risk_pct:Q", title="% at Risk", format=".2%")
-    ]
-).properties(
-    width=850,
-    height=400,
-    title="🚨 % of Balance at Risk (Non-Current Deals)"
-)
+if len(not_current) > 0:
+    risk_chart = alt.Chart(not_current).mark_bar().encode(
+        x=alt.X("dba:N", title="Deal", sort="-y"),
+        y=alt.Y("at_risk_pct:Q", title="% of Balance at Risk", axis=alt.Axis(format=".0%")),
+        tooltip=[
+            alt.Tooltip("dba:N", title="Deal"),
+            alt.Tooltip("past_due_amount:Q", title="Past Due ($)", format="$,.0f"),
+            alt.Tooltip("current_balance:Q", title="Current Balance ($)", format="$,.0f"),
+            alt.Tooltip("at_risk_pct:Q", title="% at Risk", format=".2%")
+        ]
+    ).properties(
+        width=850,
+        height=400,
+        title="🚨 % of Balance at Risk (Non-Current Deals)"
+    )
 
-st.altair_chart(risk_chart, use_container_width=True)
+    st.altair_chart(risk_chart, use_container_width=True)
+else:
+    st.info("No non-current deals with past due amounts to display.")
 
 # ----------------------------
 # Risk Scoring
 # ----------------------------
-st.subheader("🔥 Top 10 Highest *Risk Deals (Excludes New and Performing Loans)")
+st.subheader("🔥 Top 10 Highest Risk Deals (Excludes New and Performing Loans)")
 
 # Calculate days since funding
 df["days_since_funding"] = (pd.Timestamp.today() - pd.to_datetime(df["funding_date"])).dt.days
@@ -206,107 +210,108 @@ risk_df = df[
     (df["status_category"] != "Current")
 ].copy()
 
-# Calculate percent past due
-risk_df["past_due_pct"] = risk_df["past_due_amount"] / risk_df["current_balance"].clip(lower=1)
+if len(risk_df) > 0:
+    # Calculate percent past due
+    risk_df["past_due_pct"] = risk_df["past_due_amount"] / risk_df["current_balance"].clip(lower=1)
 
-# Normalize age for relative weight (to avoid unfairly penalizing very old deals)
-max_days = risk_df["days_since_funding"].max()
-risk_df["age_weight"] = risk_df["days_since_funding"] / max_days
+    # Normalize age for relative weight
+    max_days = risk_df["days_since_funding"].max()
+    if max_days > 0:
+        risk_df["age_weight"] = risk_df["days_since_funding"] / max_days
+    else:
+        risk_df["age_weight"] = 0
 
-# Final weighted risk score
-risk_df["risk_score"] = risk_df["past_due_pct"] * 0.7 + risk_df["age_weight"] * 0.3
-risk_df["risk_score"] = pd.to_numeric(risk_df["risk_score"], errors="coerce")
-
+    # Final weighted risk score
+    risk_df["risk_score"] = risk_df["past_due_pct"] * 0.7 + risk_df["age_weight"] * 0.3
     
-# Top 10 by risk score
-top_risk = risk_df.sort_values("risk_score", ascending=False).head(10).copy()
+    # Top 10 by risk score
+    top_risk = risk_df.sort_values("risk_score", ascending=False).head(10).copy()
 
-# Format output table
-# Remove string formatting from earlier step
-top_risk_display = top_risk[[
-    "deal_number", "dba", "status_category", "funding_date", "risk_score",
-    "past_due_amount", "current_balance"
-]].rename(columns={
-    "deal_number": "Loan ID",
-    "dba": "Deal",
-    "status_category": "Status",
-    "funding_date": "Funded",
-    "risk_score": "Risk Score",
-    "past_due_amount": "Past Due ($)",
-    "current_balance": "Current Balance ($)"
-})
+    # Create display table with proper formatting
+    top_risk_display = top_risk[[
+        "deal_number", "dba", "status_category", "funding_date", "risk_score",
+        "past_due_amount", "current_balance"
+    ]].copy()
 
-# Apply formatting for display
-top_risk_display["Past Due ($)"] = top_risk_display["Past Due ($)"].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "-")
-top_risk_display["Current Balance ($)"] = top_risk_display["Current Balance ($)"].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "-")
+    # Rename columns
+    top_risk_display.rename(columns={
+        "deal_number": "Loan ID",
+        "dba": "Deal",
+        "status_category": "Status",
+        "funding_date": "Funded",
+        "risk_score": "Risk Score",
+        "past_due_amount": "Past Due ($)",
+        "current_balance": "Current Balance ($)"
+    }, inplace=True)
 
-    
-bar_chart = alt.Chart(top_risk).mark_bar().encode(
-    x=alt.X("dba:N", title="Deal", sort="-y"),
-    y=alt.Y("risk_score:Q", title="Risk Score"),
-    color=alt.Color("risk_score:Q", scale=alt.Scale(scheme="orangered")),
-    tooltip=[
-        alt.Tooltip("deal_number:N", title = "Loan ID"), 
-        alt.Tooltip( "status_category", title = "Status Category"),
-        alt.Tooltip("funding_date", title = "Funding Date"),
-        alt.Tooltip("past_due_amount", title = "Past Due Amount"),
-        alt.Tooltip("risk_score", title = "Risk Score")
+    # Risk score bar chart
+    bar_chart = alt.Chart(top_risk).mark_bar().encode(
+        x=alt.X("dba:N", title="Deal", sort="-y"),
+        y=alt.Y("risk_score:Q", title="Risk Score"),
+        color=alt.Color("risk_score:Q", scale=alt.Scale(scheme="orangered")),
+        tooltip=[
+            alt.Tooltip("deal_number:N", title="Loan ID"), 
+            alt.Tooltip("status_category", title="Status Category"),
+            alt.Tooltip("funding_date", title="Funding Date"),
+            alt.Tooltip("past_due_amount", title="Past Due Amount"),
+            alt.Tooltip("risk_score", title="Risk Score")
         ]
-).properties(
-    width=700,
-    height=400,
-    title="🔥 Top 10 Risk Scores"
-)
+    ).properties(
+        width=700,
+        height=400,
+        title="🔥 Top 10 Risk Scores"
+    )
 
-st.altair_chart(bar_chart, use_container_width=True)
+    st.altair_chart(bar_chart, use_container_width=True)
 
-# Format again after color styling
-top_risk_display["Risk Score"] = pd.to_numeric(top_risk_display["Risk Score"], errors="coerce")
+    # Display styled dataframe - fix the formatting issue
+    styled_df = top_risk_display.style.background_gradient(
+        subset=["Risk Score"], cmap="Reds", axis=None
+    ).format({
+        "Past Due ($)": "${:,.0f}",
+        "Current Balance ($)": "${:,.0f}",
+        "Risk Score": "{:.2f}"
+    })
 
-styled_df = top_risk_display.style.background_gradient(
-    subset=["Risk Score"], cmap="Reds", axis=None
-).format({
-    "Past Due ($)": "${:,.0f}",
-    "Current Balance ($)": "${:,.0f}",
-    "Risk Score": "{:.2f}"
-})
+    st.dataframe(styled_df, use_container_width=True)
 
-st.dataframe(styled_df, use_container_width=True)
+    # ----------------------------
+    # Scatter Plot
+    # ----------------------------
+    scatter = alt.Chart(risk_df).mark_circle().encode(
+        x=alt.X("past_due_pct:Q", title="% Past Due", axis=alt.Axis(format=".0%")),
+        y=alt.Y("days_since_funding:Q", title="Days Since Funding"),
+        size=alt.Size("risk_score:Q", title="Risk Score"),
+        color=alt.Color("risk_score:Q", scale=alt.Scale(scheme="orangered"), title="Risk Score"),
+        tooltip=[
+            alt.Tooltip("dba:N", title="Deal"),
+            alt.Tooltip("status_category:N", title="Status"),
+            alt.Tooltip("funding_date:T", title="Funded"),
+            alt.Tooltip("risk_score:Q", title="Risk Score", format=".2f"),
+            alt.Tooltip("past_due_pct:Q", title="% Past Due", format=".2%"),
+            alt.Tooltip("days_since_funding:Q", title="Days Since Funding")
+        ]
+    ).properties(
+        width=700,
+        height=400,
+        title="📉 Risk Score by Past Due % and Deal Age"
+    )
 
-# ----------------------------
-# Scatter Plot
-# ----------------------------
-scatter = alt.Chart(risk_df).mark_circle().encode(
-    x=alt.X("past_due_pct:Q", title="% Past Due", axis=alt.Axis(format=".0%")),
-    y=alt.Y("days_since_funding:Q", title="Days Since Funding"),
-    size=alt.Size("risk_score:Q", title="Risk Score"),
-    color=alt.Color("risk_score:Q", scale=alt.Scale(scheme="orangered"), title="Risk Score"),
-    tooltip=[
-        alt.Tooltip("dba:N", title="Deal"),
-        alt.Tooltip("status_category:N", title="Status"),
-        alt.Tooltip("funding_date:T", title="Funded"),
-        alt.Tooltip("risk_score:Q", title="Risk Score", format=".2f"),
-        alt.Tooltip("past_due_pct:Q", title="% Past Due", format=".2%"),  # 0.123 -> 12.30%
-        alt.Tooltip("days_since_funding:Q", title="Days Since Funding")
-    ]
-).properties(
-    width=700,
-    height=400,
-    title="📉 Risk Score by Past Due % and Deal Age"
-)
+    threshold_x = alt.Chart(pd.DataFrame({"x": [0.10]})).mark_rule(
+        strokeDash=[4, 4], color="gray"
+    ).encode(x="x:Q")
 
-threshold_x = alt.Chart(pd.DataFrame({"x": [0.10]})).mark_rule(
-    strokeDash=[4, 4], color="gray"
-).encode(x="x:Q")
+    threshold_y = alt.Chart(pd.DataFrame({"y": [90]})).mark_rule(
+        strokeDash=[4, 4], color="gray"
+    ).encode(y="y:Q")
 
-threshold_y = alt.Chart(pd.DataFrame({"y": [90]})).mark_rule(
-    strokeDash=[4, 4], color="gray"
-).encode(y="y:Q")
+    st.altair_chart(
+        scatter + threshold_x + threshold_y,
+        use_container_width=True
+    )
+else:
+    st.info("No deals meet the risk criteria for analysis.")
 
-st.altair_chart(
-    scatter + threshold_x + threshold_y,
-    use_container_width=True
-)
 st.markdown("""
 '*' Risk Score is calculated using:
 - **70% weight** on the percentage of the loan that is past due,
@@ -314,7 +319,9 @@ st.markdown("""
 New deals (< 30 days old), those with low delinquency (<1%), or with status 'Current' are excluded.
 """)
 
-#-------
+# ----------------------------
+# Download buttons
+# ----------------------------
 csv = loan_tape.to_csv(index=False).encode("utf-8")
 st.download_button(
     label="📄 Download Loan Tape as CSV",
@@ -323,10 +330,11 @@ st.download_button(
     mime="text/csv"
 )
 
-csv_risk = top_risk_display.to_csv(index=False).encode("utf-8")
-st.download_button(
-    label="📄 Download Top 10 Risk Deals as CSV",
-    data=csv_risk,
-    file_name="top_risk_deals.csv",
-    mime="text/csv"
-)
+if len(risk_df) > 0:
+    csv_risk = top_risk_display.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="📄 Download Top 10 Risk Deals as CSV",
+        data=csv_risk,
+        file_name="top_risk_deals.csv",
+        mime="text/csv"
+    )
