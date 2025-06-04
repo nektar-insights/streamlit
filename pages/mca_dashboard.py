@@ -171,7 +171,7 @@ loan_tape.rename(columns={
 }, inplace=True)
 
 # Clean up numeric data for proper sorting
-loan_tape["Past Due %"] = loan_tape["Past Due %"].fillna(0)
+loan_tape["Past Due %"] = pd.to_numeric(loan_tape["Past Due %"], errors='coerce').fillna(0)
 loan_tape["Past Due ($)"] = loan_tape["Past Due ($)"].fillna(0)
 loan_tape["Remaining to Recover ($)"] = loan_tape["Remaining to Recover ($)"].fillna(0)
 loan_tape["Performance Ratio"] = loan_tape["Performance Ratio"].fillna(0)
