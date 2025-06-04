@@ -12,19 +12,19 @@ key = st.secrets["supabase"]["service_role"]
 supabase = create_client(url, key)
 
 # ----------------------------
-# Load and prepare data - Hubspot data
+# Load and prepare data - Hubspot data (COMMENTED OUT)
 # ----------------------------
-@st.cache_data(ttl=3600)
-def load_deals():
-    res = supabase.table("deals").select("*").execute()
-    return pd.DataFrame(res.data)
+# @st.cache_data(ttl=3600)
+# def load_deals():
+#     res = supabase.table("deals").select("*").execute()
+#     return pd.DataFrame(res.data)
 
-deals_df = load_deals()
+# deals_df = load_deals()
 
-# Cleanup
-deals_df["loan_id"] = deals_df["loan_id"].astype(str)
-deals_df = deals_df[deals_df["loan_id"].notna()]
-deals_df["amount"] = pd.to_numeric(deals_df["amount"], errors="coerce")  # our investment
+# # Cleanup
+# deals_df["loan_id"] = deals_df["loan_id"].astype(str)
+# deals_df = deals_df[deals_df["loan_id"].notna()]
+# deals_df["amount"] = pd.to_numeric(deals_df["amount"], errors="coerce")  # our investment
 
 # ----------------------------
 # Load and prepare data - MCA workforce data
@@ -100,21 +100,11 @@ st.metric("Total Past Due", f"${total_past_due:,.0f}")
 # ----------------------------
 # Loan Tape Display
 # ----------------------------
-# Prepare columns for merge
-df["deal_number"] = df["deal_number"].astype(str)
-deals_df["loan_id"] = deals_df["loan_id"].astype(str)
-
-# Merge using deal_number from df and loan_id from deals_df
-df = df.merge(deals_df[["loan_id", "amount"]], left_on="deal_number", right_on="loan_id", how="left")
-
-# Rename the amount column to CSL Participation
-df.rename(columns={"amount": "CSL Participation ($)"}, inplace=True)
-
 # Create loan tape display
 loan_tape = df[[
     "deal_number", "dba", "funding_date", "status_category",
     "past_due_amount", "past_due_pct", "performance_ratio",
-    "rtr_balance", "performance_details", "CSL Participation ($)"
+    "rtr_balance", "performance_details"
 ]].copy()
 
 # Rename columns for display
@@ -134,7 +124,6 @@ loan_tape.rename(columns={
 loan_tape["Past Due %"] = loan_tape["Past Due %"].apply(lambda x: f"{x:.1%}" if pd.notnull(x) else "0.0%")
 loan_tape["Past Due ($)"] = loan_tape["Past Due ($)"].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "$0")
 loan_tape["Remaining to Recover ($)"] = loan_tape["Remaining to Recover ($)"].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "$0")
-loan_tape["CSL Participation ($)"] = loan_tape["CSL Participation ($)"].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "-")
 
 # Display
 st.subheader("📋 Loan Tape")
