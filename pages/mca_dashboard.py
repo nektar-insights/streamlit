@@ -115,9 +115,9 @@ RISK_COLOR = "#dc3545"  # Professional red for risk
 st.title("MCA Deals Dashboard")
 
 # ---- Summary Metrics ----
+# Core metrics
 total_deals = len(df)
 total_funded = df["purchase_price"].sum()
-total_receivables = df["receivables_amount"].sum()
 total_past_due = df["past_due_amount"].sum()
 
 # Categorization based on status
@@ -125,20 +125,22 @@ total_matured = (df["status_category"] == "Matured").sum()
 total_current = (df["status_category"] == "Current").sum()
 total_non_current = (df["status_category"] == "Not Current").sum()
 
-pct_current = total_current / total_deals if total_deals > 0 else 0
-pct_non_current = total_non_current / total_deals if total_deals > 0 else 0
+# For percentage calculations: only consider outstanding deals
+outstanding_total = total_current + total_non_current
+pct_current = total_current / outstanding_total if outstanding_total > 0 else 0
+pct_non_current = total_non_current / outstanding_total if outstanding_total > 0 else 0
 
 # Row 1: Deal counts
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Total Deals", total_deals)
 col2.metric("Total Matured Deals", total_matured)
 col3.metric("Current Deals", total_current)
-col4.metric("Total Non-Current Deals", total_non_current)
+col4.metric("Non-Current Deals", total_non_current)
 
-# Row 2: Percentage metrics
+# Row 2: Corrected percentage metrics
 col5, col6 = st.columns(2)
-col5.metric("% of Deals Current", f"{pct_current:.1%}")
-col6.metric("% of Deals Not Current", f"{pct_non_current:.1%}")
+col5.metric("% of Outstanding Deals Current", f"{pct_current:.1%}")
+col6.metric("% of Outstanding Deals Not Current", f"{pct_non_current:.1%}")
 
 # Row 3: Dollar values
 col7, col8 = st.columns(2)
