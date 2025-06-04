@@ -114,22 +114,38 @@ RISK_COLOR = "#dc3545"  # Professional red for risk
 # ----------------------------
 st.title("MCA Deals Dashboard")
 
+# ---- Summary Metrics ----
 total_deals = len(df)
 total_funded = df["purchase_price"].sum()
 total_receivables = df["receivables_amount"].sum()
 total_past_due = df["past_due_amount"].sum()
-# Count only outstanding deals (exclude Matured)
-outstanding_deals = df[df["status_category"] != "Matured"]
+
+# Compute maturity date and determine matured deals
+df["maturity_date"] = pd.to_datetime(df["funding_date"]) + pd.to_timedelta(df["loan_term"] * 30, unit="D")
+df["is_matured"] = pd.Timestamp.today() > df["maturity_date"]
+total_matured = df["is_matured"].sum()
+
+# Filter for outstanding deals (exclude matured)
+outstanding_deals = df[~df["is_matured"]]
 total_outstanding = len(outstanding_deals)
 total_current = (outstanding_deals["status_category"] == "Current").sum()
 pct_current = total_current / total_outstanding if total_outstanding > 0 else 0
 
+# Display top-row metrics
 col1, col2, col3 = st.columns(3)
-col1.metric("Total Deals", total_deals)
-col2.metric("Current % (Outstanding)", f"{pct_current:.1%}")
-col3.metric("Total Funded", f"${df['purchase_price'].sum():,.0f}")
+with col1:
+    st.metric("📊 Total Deals", total_deals)
+with col2:
+    st.metric("💰 Total Funded", f"${total_funded:,.0f}")
+with col3:
+    st.metric("📈 Current % (Outstanding)", f"{pct_current:.1%}")
 
-st.metric("Total Past Due", f"${total_past_due:,.0f}")
+# Display secondary row of metrics
+col4, col5 = st.columns(2)
+with col4:
+    st.metric("📅 Matured Deals", total_matured)
+with col5:
+    st.metric("⚠️ Total Past Due", f"${total_past_due:,.0f}")
 
 # ----------------------------
 # Loan Tape Display
