@@ -106,7 +106,7 @@ df.rename(columns={"amount": "CSL Participation ($)"}, inplace=True)
 loan_tape = df[[
     "deal_number", "dba", "funding_date", "status_category",
     "past_due_amount", "past_due_pct", "performance_ratio",
-    "rtr_balance", "performance_details", "Our Capital ($)"
+    "rtr_balance", "performance_details", "CSL Participation ($)"
 ]].copy()
 
 # Rename for display
