@@ -184,7 +184,7 @@ st.dataframe(
     column_config={
         "Past Due %": st.column_config.NumberColumn(
             "Past Due %",
-            format="%.0%%",
+            format="%.0%",
             help="Percentage of balance past due"
         ),
         "Past Due ($)": st.column_config.NumberColumn(
