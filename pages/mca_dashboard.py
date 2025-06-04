@@ -267,6 +267,7 @@ if len(not_current) > 0:
         ),
         tooltip=[
             alt.Tooltip("dba:N", title="Deal"),
+            alt.Tooltip("deal_number:N", title="Loan ID"),
             alt.Tooltip("past_due_amount:Q", title="Past Due ($)", format="$,.0f"),
             alt.Tooltip("current_balance:Q", title="Current Balance ($)", format="$,.0f"),
             alt.Tooltip("at_risk_pct:Q", title="% at Risk", format=".2%")
@@ -320,7 +321,7 @@ if len(risk_df) > 0:
             "dba:N",
             title="Deal",
             sort="-y",
-            axis=alt.Axis(labelAngle=-45)
+            axis=alt.Axis(labelAngle=-90)
         ),
         y=alt.Y("risk_score:Q", title="Risk Score"),
         color=alt.Color(
