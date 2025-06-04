@@ -12,9 +12,8 @@ key = st.secrets["supabase"]["service_role"]
 supabase = create_client(url, key)
 
 # ----------------------------
-# Load and prepare data
+# Load and prepare data  Hubspot data...
 # ----------------------------
-# Hubspot data...
 @st.cache_data(ttl=3600)
 def load_deals():
     res = supabase.table("deals").select("*").execute()
@@ -27,7 +26,12 @@ deals_df["loan_id"] = deals_df["loan_id"].astype(str)
 deals_df = deals_df[deals_df["loan_id"].notna()]
 deals_df["amount"] = pd.to_numeric(deals_df["amount"], errors="coerce")  # our investment
 
-# 1 workforce
+st.write("📦 `deals_df` Columns:", deals_df.columns.tolist())
+st.dataframe(deals_df.head())  # Optional: to see the top few rows
+
+# ----------------------------
+# Load and prepare data  # 1 workforce data
+# ----------------------------
 @st.cache_data(ttl=3600)
 def load_mca_deals():
     res = supabase.table("mca_deals").select("*").execute()
