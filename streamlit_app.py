@@ -28,6 +28,12 @@ df["factor_rate"] = pd.to_numeric(df["factor_rate"], errors="coerce")
 df["loan_term"] = pd.to_numeric(df["loan_term"], errors="coerce")
 df["commission"] = pd.to_numeric(df["commission"], errors="coerce")
 
+
+# adding header 
+st.set_page_config(page_title="CSL Capital", page_icon="💼", layout="wide")
+st.sidebar.title("CSL Capital")
+st.sidebar.markdown("## Deal Pipeline")
+
 # --- Filters ---
 min_date = df["date_created"].min()
 max_date = df["date_created"].max()
