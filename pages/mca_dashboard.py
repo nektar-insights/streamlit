@@ -101,7 +101,11 @@ COLOR_PALETTE = [
     "#6f42c1",  # Professional purple
 ]
 
-# Simple single colors for charts (no gradients)
+# Gradient colors for risk visualization (light to dark)
+RISK_GRADIENT = ["#fef9e7", "#f39c12", "#dc3545"]  # Light yellow -> Orange -> Red
+PERFORMANCE_GRADIENT = ["#e8f5e8", "#34a853", "#1e7e34"]  # Light green -> Green -> Dark green
+
+# Simple single colors for charts
 CHART_COLOR = PRIMARY_COLOR
 RISK_COLOR = "#dc3545"  # Professional red for risk
 
@@ -192,8 +196,8 @@ status_category_chart = pd.DataFrame({
     "Share": status_category_counts.values
 })
 
-# Build chart
-bar = alt.Chart(status_category_chart).mark_bar(color=CHART_COLOR).encode(
+# Build chart with gradient colors
+bar = alt.Chart(status_category_chart).mark_bar().encode(
     x=alt.X(
         "status_category:N",
         title="Status Category",
@@ -201,6 +205,11 @@ bar = alt.Chart(status_category_chart).mark_bar(color=CHART_COLOR).encode(
         axis=alt.Axis(labelAngle=-45)
     ),
     y=alt.Y("Share:Q", title="Percent of Deals", axis=alt.Axis(format=".0%")),
+    color=alt.Color(
+        "Share:Q",
+        scale=alt.Scale(range=PERFORMANCE_GRADIENT),
+        legend=None
+    ),
     tooltip=[
         alt.Tooltip("status_category", title="Status"),
         alt.Tooltip("Share:Q", title="Share", format=".2%")
@@ -222,7 +231,7 @@ not_current["at_risk_pct"] = not_current["past_due_amount"] / not_current["curre
 not_current = not_current[not_current["at_risk_pct"] > 0]
 
 if len(not_current) > 0:
-    risk_chart = alt.Chart(not_current).mark_bar(color=RISK_COLOR).encode(
+    risk_chart = alt.Chart(not_current).mark_bar().encode(
         x=alt.X(
             "dba:N",
             title="Deal",
@@ -230,6 +239,11 @@ if len(not_current) > 0:
             axis=alt.Axis(labelAngle=-45)
         ),
         y=alt.Y("at_risk_pct:Q", title="% of Balance at Risk", axis=alt.Axis(format=".0%")),
+        color=alt.Color(
+            "at_risk_pct:Q",
+            scale=alt.Scale(range=RISK_GRADIENT),
+            legend=alt.Legend(title="Risk Level")
+        ),
         tooltip=[
             alt.Tooltip("dba:N", title="Deal"),
             alt.Tooltip("past_due_amount:Q", title="Past Due ($)", format="$,.0f"),
@@ -279,25 +293,8 @@ if len(risk_df) > 0:
     # Top 10 by risk score
     top_risk = risk_df.sort_values("risk_score", ascending=False).head(10).copy()
 
-    # Create display table with proper formatting
-    top_risk_display = top_risk[[
-        "deal_number", "dba", "status_category", "funding_date", "risk_score",
-        "past_due_amount", "current_balance"
-    ]].copy()
-
-    # Rename columns
-    top_risk_display.rename(columns={
-        "deal_number": "Loan ID",
-        "dba": "Deal",
-        "status_category": "Status",
-        "funding_date": "Funded",
-        "risk_score": "Risk Score",
-        "past_due_amount": "Past Due ($)",
-        "current_balance": "Current Balance ($)"
-    }, inplace=True)
-
-    # Risk score bar chart
-    bar_chart = alt.Chart(top_risk).mark_bar(color=RISK_COLOR).encode(
+    # Risk score bar chart with gradient
+    bar_chart = alt.Chart(top_risk).mark_bar().encode(
         x=alt.X(
             "dba:N",
             title="Deal",
@@ -305,6 +302,11 @@ if len(risk_df) > 0:
             axis=alt.Axis(labelAngle=-45)
         ),
         y=alt.Y("risk_score:Q", title="Risk Score"),
+        color=alt.Color(
+            "risk_score:Q",
+            scale=alt.Scale(range=RISK_GRADIENT),
+            legend=alt.Legend(title="Risk Score")
+        ),
         tooltip=[
             alt.Tooltip("deal_number:N", title="Loan ID"),
             alt.Tooltip("status_category", title="Status Category"),
@@ -360,9 +362,15 @@ if len(risk_df) > 0:
     # ----------------------------
     # Scatter Plot
     # ----------------------------
-    scatter = alt.Chart(risk_df).mark_circle(color=CHART_COLOR, size=60).encode(
+    scatter = alt.Chart(risk_df).mark_circle(size=80).encode(
         x=alt.X("past_due_pct:Q", title="% Past Due", axis=alt.Axis(format=".0%")),
         y=alt.Y("days_since_funding:Q", title="Days Since Funding"),
+        size=alt.Size("risk_score:Q", title="Risk Score", scale=alt.Scale(range=[50, 400])),
+        color=alt.Color(
+            "risk_score:Q",
+            scale=alt.Scale(range=RISK_GRADIENT),
+            title="Risk Score"
+        ),
         tooltip=[
             alt.Tooltip("dba:N", title="Deal"),
             alt.Tooltip("status_category:N", title="Status"),
@@ -409,7 +417,6 @@ The **Risk Score** ranges between **0.00 and 1.00** and blends two key factors:
 🔎 *Example*: A score of **0.80** implies the deal is either **very delinquent**, **very old**, or both.
 New deals (< 30 days old), those with low delinquency (<1%), or with status 'Current' are excluded.
 """)
-
 
 # ----------------------------
 # Download buttons
