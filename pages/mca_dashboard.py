@@ -22,13 +22,13 @@ def load_deals():
 deals_df = load_deals()
 
 # debug
-if "amount" in df.columns:
-    df.rename(columns={"amount": "CSL Participation ($)"}, inplace=True)
+if "amount" in deals_df.columns:
+    deals_df.rename(columns={"amount": "CSL Participation ($)"}, inplace=True)
 else:
-    df["CSL Participation ($)"] = None  # ensure it exists to prevent downstream KeyError
+    deals_df["CSL Participation ($)"] = None  # ensure it exists to prevent downstream KeyError
     
-st.write("Merged df columns:", df.columns.tolist())
-st.write("Sample rows:", df.head())
+st.write("Merged deals_df columns:", deals_df.columns.tolist())
+st.write("Sample rows:", deals_df.head())
 # debug 
 
 # Cleanup
