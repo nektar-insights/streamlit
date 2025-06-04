@@ -1,5 +1,7 @@
 import streamlit as st
 import pandas as pd
+import altair as alt
+from numpy import busday_count
 from supabase import create_client
 
 # Supabase connection
@@ -15,40 +17,15 @@ def load_qbo_data():
 
 df = load_qbo_data()
 df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
+df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
-# Grouped by Name
-by_name = df.groupby("name", dropna=False)["amount"].sum().reset_index()
-by_name = by_name.sort_values(by="amount", ascending=False)
-by_name["amount"] = by_name["amount"].map("${:,.2f}".format)
-
-# Add total row
-total_name = pd.DataFrame([{"name": "TOTAL", "amount": "${:,.2f}".format(df["amount"].sum())}])
-by_name_display = pd.concat([by_name, total_name], ignore_index=True)
-
-# Grouped by Transaction Type
-by_type = df.groupby("transaction_type", dropna=False)["amount"].sum().reset_index()
-by_type = by_type.sort_values(by="amount", ascending=False)
-by_type["amount"] = by_type["amount"].map("${:,.2f}".format)
-
-# Add total row
-total_type = pd.DataFrame([{"transaction_type": "TOTAL", "amount": "${:,.2f}".format(df["amount"].sum())}])
-by_type_display = pd.concat([by_type, total_type], ignore_index=True)
-
-# Display
 st.title("QBO Transaction Summary")
 
-st.subheader("💰 Total Amount by Name")
-st.dataframe(by_name_display, use_container_width=True)
-
-st.subheader("📄 Total Amount by Transaction Type")
-st.dataframe(by_type_display, use_container_width=True)
-
-# Filter to relevant types and clean names
+# --- Loan Performance ---
 filtered_df = df[df["transaction_type"].isin(["Invoice", "Payment"])].copy()
 filtered_df = filtered_df[~filtered_df["name"].isin(["CSL", "VEEM"])]
 filtered_df["amount"] = filtered_df["amount"].abs()
 
-# Pivot by name and type
 pivot = filtered_df.pivot_table(
     index="name",
     columns="transaction_type",
@@ -57,10 +34,8 @@ pivot = filtered_df.pivot_table(
     fill_value=0
 ).reset_index()
 
-# Add outstanding balance = Invoice - Payment
 pivot["balance"] = pivot.get("Invoice", 0) - pivot.get("Payment", 0)
 
-# Format output
 pivot_display = pivot.copy()
 for col in ["Invoice", "Payment", "balance"]:
     if col in pivot_display.columns:
@@ -69,8 +44,7 @@ for col in ["Invoice", "Payment", "balance"]:
 st.subheader("📊 Loan Performance by Customer")
 st.dataframe(pivot_display.sort_values("balance", ascending=False), use_container_width=True)
 
-import altair as alt
-
+# --- Charts ---
 top_balances = pivot.sort_values("balance", ascending=False).head(15)
 
 bar_chart = alt.Chart(top_balances).mark_bar(color="#e45756").encode(
@@ -82,7 +56,7 @@ bar_chart = alt.Chart(top_balances).mark_bar(color="#e45756").encode(
 st.altair_chart(bar_chart, use_container_width=True)
 
 melted = pivot.melt(id_vars="name", value_vars=["Invoice", "Payment"], var_name="Type", value_name="Amount")
-melted = melted[melted["name"].isin(top_balances["name"])]  # focus on top 15
+melted = melted[melted["name"].isin(top_balances["name"])]
 
 bar_compare = alt.Chart(melted).mark_bar().encode(
     x=alt.X("Amount:Q", axis=alt.Axis(format="$,.0f")),
@@ -93,6 +67,7 @@ bar_compare = alt.Chart(melted).mark_bar().encode(
 
 st.altair_chart(bar_compare, use_container_width=True)
 
+# --- Monthly Payments Trend ---
 payments_df = df[df["transaction_type"] == "Payment"].copy()
 payments_df["amount"] = payments_df["amount"].abs()
 payments_df["month"] = payments_df["date"].dt.to_period("M").astype(str)
@@ -108,8 +83,7 @@ payment_trend = alt.Chart(monthly_payments).mark_line(point=True).encode(
 
 st.altair_chart(payment_trend, use_container_width=True)
 
-from numpy import busday_count
-
+# --- Payment Averages ---
 first_payment_date = payments_df["date"].min().date()
 today = pd.Timestamp.today().date()
 working_days = busday_count(first_payment_date, today)
@@ -117,7 +91,7 @@ working_days = busday_count(first_payment_date, today)
 total_payments = payments_df["amount"].sum()
 avg_per_day = total_payments / working_days if working_days else 0
 avg_per_week = avg_per_day * 5
-avg_per_month = avg_per_day * 21  # Approx. 21 business days/month
+avg_per_month = avg_per_day * 21
 
 st.subheader("📊 Average Payment Inflow")
 st.markdown(f"""
@@ -128,6 +102,7 @@ st.markdown(f"""
 - **Avg/Month:** ${avg_per_month:,.2f}
 """)
 
+# --- Expenses ---
 expenses_df = df[df["transaction_type"].isin(["Expense", "Check", "Bill"])].copy()
 expenses_df["amount"] = expenses_df["amount"].abs()
 total_expenses = expenses_df["amount"].sum()
@@ -144,6 +119,7 @@ st.markdown(f"""
 - **Avg/Month:** ${avg_exp_month:,.2f}
 """)
 
+# --- Monthly Trend: Payments vs Expenses ---
 expenses_df["month"] = expenses_df["date"].dt.to_period("M").astype(str)
 
 monthly_expenses = expenses_df.groupby("month")["amount"].sum().reset_index()
