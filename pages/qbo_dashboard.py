@@ -88,26 +88,30 @@ problem_loans = pivot[pivot["Invoice"] > 0].copy()
 problem_loans["percentage"] = (problem_loans["balance"] / problem_loans["Invoice"]) * 100
 problem_loans = problem_loans.sort_values("percentage", ascending=False).head(15)
 
-ratio_chart = alt.Chart(problem_loans).mark_bar().encode(
-    x=alt.X("percentage:Q", title="Balance as % of Invoice", axis=alt.Axis(format="~%")),
-    y=alt.Y("name:N", title="Deal Name", sort="-x"),
-    tooltip=[
-        alt.Tooltip("name", title="Deal Name"),
-        alt.Tooltip("percentage:Q", title="Balance %", format=".2f"),
-    ],
-    color=alt.condition(
-        alt.datum.percentage >= 25,
-        alt.value("#e45756"),  # red
-        alt.condition(
-            alt.datum.percentage >= 10,
-            alt.value("#ffcc00"),  # yellow
-            alt.value("#34a853")  # green
-        )
+ratio_chart = (
+    alt.Chart(problem_loans)
+    .transform_calculate(
+        risk_color="""
+        datum.percentage >= 25 ? '#e45756' :
+        datum.percentage >= 10 ? '#ffcc00' :
+        '#34a853'
+        """
     )
-).properties(
-    width=800,
-    height=400,
-    title="🚨 Problem Loan Ratios (Top 15 by Balance %)"
+    .mark_bar()
+    .encode(
+        x=alt.X("percentage:Q", title="Balance as % of Invoice", axis=alt.Axis(format=".1f")),
+        y=alt.Y("name:N", title="Deal Name", sort="-x"),
+        tooltip=[
+            alt.Tooltip("name", title="Deal Name"),
+            alt.Tooltip("percentage:Q", title="Balance %", format=".2f")
+        ],
+        color=alt.Color("risk_color:N", scale=None, legend=None)
+    )
+    .properties(
+        width=800,
+        height=400,
+        title="🚨 Problem Loan Ratios (Top 15 by Balance %)"
+    )
 )
 
 st.altair_chart(ratio_chart, use_container_width=True)
