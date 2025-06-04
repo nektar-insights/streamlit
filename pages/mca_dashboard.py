@@ -120,27 +120,22 @@ total_funded = df["purchase_price"].sum()
 total_receivables = df["receivables_amount"].sum()
 total_past_due = df["past_due_amount"].sum()
 
-# Filter outstanding deals (not matured)
-outstanding_deals = df[df["status_category"] != "Matured"]
-total_outstanding = len(outstanding_deals)
-total_current = (outstanding_deals["status_category"] == "Current").sum()
-pct_current = total_current / total_outstanding if total_outstanding > 0 else 0
-
-# Totals for matured and non-current
+# Categorization based on status
 total_matured = (df["status_category"] == "Matured").sum()
+total_current = (df["status_category"] == "Current").sum()
 total_non_current = (df["status_category"] == "Not Current").sum()
 
-# Display metrics
-col1, col2, col3 = st.columns(3)
+# Row 1: Deal counts
+col1, col2, col3, col4 = st.columns(4)
 col1.metric("Total Deals", total_deals)
-col2.metric("Current % (Outstanding)", f"{pct_current:.1%}")
-col3.metric("Total Funded", f"${total_funded:,.0f}")
+col2.metric("Total Matured Deals", total_matured)
+col3.metric("Current Deals", total_current)
+col4.metric("Total Non-Current Deals", total_non_current)
 
-col4, col5 = st.columns(2)
-col4.metric("Total Matured Deals", total_matured)
-col5.metric("Total Non-Current Deals", total_non_current)
-
-st.metric("Total Past Due", f"${total_past_due:,.0f}")
+# Row 2: Dollar values
+col5, col6 = st.columns(2)
+col5.metric("Total Funded", f"${total_funded:,.0f}")
+col6.metric("Total Past Due", f"${total_past_due:,.0f}")
 
 # ----------------------------
 # Loan Tape Display
