@@ -27,7 +27,7 @@ df["total_funded_amount"] = pd.to_numeric(df["total_funded_amount"], errors="coe
 df["factor_rate"] = pd.to_numeric(df["factor_rate"], errors="coerce")
 df["loan_term"] = pd.to_numeric(df["loan_term"], errors="coerce")
 df["commission"] = pd.to_numeric(df["commission"], errors="coerce")
-
+df["loan_id"] = df["loan_id"].astype("string")  # allows for NA-compatible string dtype
 
 # --- Filters ---
 min_date = df["date_created"].min()
