@@ -21,16 +21,6 @@ def load_deals():
 
 deals_df = load_deals()
 
-# debug
-if "amount" in deals_df.columns:
-    deals_df.rename(columns={"amount": "CSL Participation ($)"}, inplace=True)
-else:
-    deals_df["CSL Participation ($)"] = None  # ensure it exists to prevent downstream KeyError
-    
-st.write("Merged deals_df columns:", deals_df.columns.tolist())
-st.write("Sample rows:", deals_df.head())
-# debug 
-
 # Cleanup
 deals_df["loan_id"] = deals_df["loan_id"].astype(str)
 deals_df = deals_df[deals_df["loan_id"].notna()]
@@ -106,6 +96,9 @@ st.metric("Total Past Due", f"${total_past_due:,.0f}")
 df["deal_number"] = df["deal_number"].astype(str)
 deals_df["loan_id"] = deals_df["loan_id"].astype(str)
 
+if "CSL Participation ($)" not in df.columns:
+    df["CSL Participation ($)"] = None
+    
 # Merge using deal_number from df and loan_id from deals_df
 df = df.merge(deals_df[["loan_id", "amount"]], left_on="deal_number", right_on="loan_id", how="left")
 
@@ -113,11 +106,11 @@ df = df.merge(deals_df[["loan_id", "amount"]], left_on="deal_number", right_on="
 df.rename(columns={"amount": "CSL Participation ($)"}, inplace=True)
 
 # Now select display columns
-loan_tape = df[[
+loan_tape = df.rename(columns={"amount": "CSL Participation ($)"}).copy()[[
     "deal_number", "dba", "funding_date", "status_category",
     "past_due_amount", "past_due_pct", "performance_ratio",
     "rtr_balance", "performance_details", "CSL Participation ($)"
-]].copy()
+]]
 
 # Rename for display
 loan_tape.rename(columns={
