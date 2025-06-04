@@ -236,11 +236,14 @@ top_risk_display = top_risk[[
     "current_balance": "Current Balance ($)"
 })
 
+# Ensure numeric before applying formatting
 for col in ["Past Due ($)", "Current Balance ($)", "CSL Participation ($)"]:
-    top_risk_display[col] = top_risk_display[col].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "-")
-
-for col in ["past_due_amount", "current_balance", "CSL Participation ($)"]:
     top_risk_display[col] = pd.to_numeric(top_risk_display[col], errors="coerce")
+
+# Apply formatting for display
+top_risk_display["Past Due ($)"] = top_risk_display["Past Due ($)"].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "-")
+top_risk_display["Current Balance ($)"] = top_risk_display["Current Balance ($)"].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "-")
+top_risk_display["CSL Participation ($)"] = top_risk_display["CSL Participation ($)"].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "-")
     
 bar_chart = alt.Chart(top_risk).mark_bar().encode(
     x=alt.X("dba:N", title="Deal", sort="-y"),
