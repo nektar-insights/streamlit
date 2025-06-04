@@ -206,12 +206,12 @@ st.subheader("📅 Cash Flow Forecast (Projected Net Inflow)")
 daily_net_inflow = avg_per_day - avg_exp_day
 
 forecast_df = pd.DataFrame({
-    "Days Out": [30, 60, 90],
+    "Forecast Horizon (Days)": [30, 60, 90],
     "Business Days": [30, 60, 90],
     "Projected Net Inflow ($)": [
-        round(daily_net_inflow * 30, 2),
-        round(daily_net_inflow * 60, 2),
-        round(daily_net_inflow * 90, 2)
+        f"${daily_net_inflow * 30:,.2f}",
+        f"${daily_net_inflow * 60:,.2f}",
+        f"${daily_net_inflow * 90:,.2f}"
     ]
 })
 
