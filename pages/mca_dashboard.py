@@ -223,7 +223,7 @@ top_risk = risk_df.sort_values("risk_score", ascending=False).head(10).copy()
 # Remove string formatting from earlier step
 top_risk_display = top_risk[[
     "deal_number", "dba", "status_category", "funding_date", "risk_score",
-    "past_due_amount", "current_balance", "our_investment"
+    "past_due_amount", "current_balance", "CSL Participation ($)"
 ]].rename(columns={
     "deal_number": "Loan ID",
     "dba": "Deal",
@@ -231,8 +231,7 @@ top_risk_display = top_risk[[
     "funding_date": "Funded",
     "risk_score": "Risk Score",
     "past_due_amount": "Past Due ($)",
-    "current_balance": "Current Balance ($)",
-    "our_investment": "CSL Participation ($)"
+    "current_balance": "Current Balance ($)"
 })
 
 for col in ["Past Due ($)", "Current Balance ($)", "CSL Participation ($)"]:
