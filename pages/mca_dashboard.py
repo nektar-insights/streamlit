@@ -178,27 +178,18 @@ loan_tape["Performance Ratio"] = loan_tape["Performance Ratio"].fillna(0)
 
 # Display with both sorting AND formatting
 st.subheader("📋 Loan Tape")
+
+# Create formatted version for display while keeping sortable
+loan_tape_styled = loan_tape.style.format({
+    "Past Due %": "{:.1%}",
+    "Past Due ($)": "${:,.0f}",
+    "Remaining to Recover ($)": "${:,.0f}",
+    "Performance Ratio": "{:.2f}"
+})
+
 st.dataframe(
-    loan_tape,
-    use_container_width=True,
-    column_config={
-        "Past Due %": st.column_config.NumberColumn(
-            "Past Due %",
-            format="%.1%%"
-        ),
-        "Past Due ($)": st.column_config.NumberColumn(
-            "Past Due ($)",
-            format="$%,.0f"
-        ),
-        "Remaining to Recover ($)": st.column_config.NumberColumn(
-            "Remaining to Recover ($)",
-            format="$%,.0f"
-        ),
-        "Performance Ratio": st.column_config.NumberColumn(
-            "Performance Ratio",
-            format="%.2f"
-        ),
-    }
+    loan_tape_styled,
+    use_container_width=True
 )
 
 # ----------------------------
@@ -362,24 +353,16 @@ if len(risk_df) > 0:
     top_risk_display["Past Due ($)"] = top_risk_display["Past Due ($)"].fillna(0)
     top_risk_display["Current Balance ($)"] = top_risk_display["Current Balance ($)"].fillna(0)
 
-    # Display with both sorting AND formatting
+    # Display with both sorting AND formatting using style.format
+    top_risk_styled = top_risk_display.style.format({
+        "Past Due ($)": "${:,.0f}",
+        "Current Balance ($)": "${:,.0f}",
+        "Risk Score": "{:.3f}"
+    })
+
     st.dataframe(
-        top_risk_display,
-        use_container_width=True,
-        column_config={
-            "Past Due ($)": st.column_config.NumberColumn(
-                "Past Due ($)",
-                format="$%,.0f"
-            ),
-            "Current Balance ($)": st.column_config.NumberColumn(
-                "Current Balance ($)",
-                format="$%,.0f"
-            ),
-            "Risk Score": st.column_config.NumberColumn(
-                "Risk Score",
-                format="%.3f"
-            ),
-        }
+        top_risk_styled,
+        use_container_width=True
     )
 
     # ----------------------------
