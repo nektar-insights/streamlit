@@ -161,7 +161,7 @@ st.altair_chart(risk_chart, use_container_width=True)
 # ----------------------------
 # Risk Scoring
 # ----------------------------
-st.subheader("🔥 Top 10 Highest Risk Deals (Excludes New and Performing Loans)")
+st.subheader("🔥 Top 10 Highest Risk Deals* (Excludes New and Performing Loans)")
 
 # Calculate days since funding
 df["days_since_funding"] = (pd.Timestamp.today() - pd.to_datetime(df["funding_date"])).dt.days
@@ -201,9 +201,9 @@ top_risk_display = top_risk[[
     "current_balance": "Current Balance ($)"
 })
 
-# Use style before string-formatting anything manually
+# Highlight Risk Score with styling, and format values
 styled_df = top_risk_display.style.background_gradient(
-    subset=["Risk Score"], cmap="Reds"
+    subset=["Risk Score"], cmap="Reds", axis=None  # axis=None avoids vertical bar
 ).format({
     "Past Due ($)": "${:,.0f}",
     "Current Balance ($)": "${:,.0f}",
@@ -211,9 +211,6 @@ styled_df = top_risk_display.style.background_gradient(
 })
 
 st.dataframe(styled_df, use_container_width=True)
-
-# Display
-st.dataframe(top_risk_display, use_container_width=True)
 
 bar_chart = alt.Chart(top_risk).mark_bar().encode(
     x=alt.X("dba:N", title="Deal", sort="-y"),
@@ -242,11 +239,14 @@ styled_df = top_risk_display.style.background_gradient(
 
 st.dataframe(styled_df, use_container_width=True)
 
+# ----------------------------
+# Scatter Plot
+# ----------------------------
 scatter = alt.Chart(risk_df).mark_circle().encode(
     x=alt.X("past_due_pct:Q", title="% Past Due", axis=alt.Axis(format=".0%")),
     y=alt.Y("days_since_funding:Q", title="Days Since Funding"),
     size=alt.Size("risk_score:Q", title="Risk Score"),
-    color=alt.Color("risk_score:Q", scale=alt.Scale(scheme="redblue"), title="Risk Score"),
+    color=alt.Color("risk_score:Q", scale=alt.Scale(scheme="orangered"), title="Risk Score"),
     tooltip=["dba", "status_category", "funding_date", "risk_score", "past_due_pct", "days_since_funding"]
 ).properties(
     width=700,
@@ -255,6 +255,13 @@ scatter = alt.Chart(risk_df).mark_circle().encode(
 )
 
 st.altair_chart(scatter, use_container_width=True)
+
+st.markdown("""
+* Risk Score is calculated using:
+- **70% weight** on the percentage of the loan that is past due,
+- **30% weight** on how long the loan has been outstanding.
+New deals (< 30 days old), those with low delinquency (<1%), or with status 'Current' are excluded.
+""")
 
 #-------
 csv = loan_tape.to_csv(index=False).encode("utf-8")
