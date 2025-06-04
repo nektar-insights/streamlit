@@ -187,9 +187,10 @@ risk_df["risk_score"] = risk_df["past_due_pct"] * 0.7 + risk_df["age_weight"] * 
 top_risk = risk_df.sort_values("risk_score", ascending=False).head(10).copy()
 
 # Format output table
+# Remove string formatting from earlier step
 top_risk_display = top_risk[[
     "deal_number", "dba", "status_category", "funding_date", "risk_score",
-    "past_due_amount", "current_balance", "rtr_balance"
+    "past_due_amount", "current_balance"
 ]].rename(columns={
     "deal_number": "Loan ID",
     "dba": "Deal",
@@ -197,21 +198,19 @@ top_risk_display = top_risk[[
     "funding_date": "Funded",
     "risk_score": "Risk Score",
     "past_due_amount": "Past Due ($)",
-    "current_balance": "Current Balance ($)",
-    "rtr_balance": "Remaining to Recover ($)"
+    "current_balance": "Current Balance ($)"
 })
 
-# Format currency and score columns
-for col in ["Past Due ($)", "Current Balance ($)", "Remaining to Recover ($)"]:
-    top_risk_display[col] = top_risk_display[col].apply(lambda x: f"${x:,.0f}")
-top_risk_display["Risk Score"] = top_risk_display["Risk Score"].apply(lambda x: f"{x:.2f}")
-
+# Use style before string-formatting anything manually
 styled_df = top_risk_display.style.background_gradient(
-    subset=["Risk Score"],
-    cmap="Reds",
-    vmin=0,
-    vmax=1  # assuming your scores fall in that range
-)
+    subset=["Risk Score"], cmap="Reds"
+).format({
+    "Past Due ($)": "${:,.0f}",
+    "Current Balance ($)": "${:,.0f}",
+    "Risk Score": "{:.2f}"
+})
+
+st.dataframe(styled_df, use_container_width=True)
 
 # Display
 st.dataframe(top_risk_display, use_container_width=True)
