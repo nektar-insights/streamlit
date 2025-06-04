@@ -189,7 +189,7 @@ top_risk = risk_df.sort_values("risk_score", ascending=False).head(10).copy()
 # Format output table
 top_risk_display = top_risk[[
     "deal_number", "dba", "status_category", "funding_date", "risk_score",
-    "past_due_amount", "current_balance", "rtr_balance"
+    "past_due_amount", "current_balance"
 ]].rename(columns={
     "deal_number": "Loan ID",
     "dba": "Deal",
@@ -197,8 +197,7 @@ top_risk_display = top_risk[[
     "funding_date": "Funded",
     "risk_score": "Risk Score",
     "past_due_amount": "Past Due ($)",
-    "current_balance": "Current Balance ($)",
-    "rtr_balance": "Remaining to Recover ($)"
+    "current_balance": "Current Balance ($)"
 })
 
 # Format currency and score columns
@@ -209,6 +208,48 @@ top_risk_display["Risk Score"] = top_risk_display["Risk Score"].apply(lambda x: 
 # Display
 st.dataframe(top_risk_display, use_container_width=True)
 
+bar_chart = alt.Chart(top_risk).mark_bar().encode(
+    x=alt.X("dba:N", title="Deal", sort="-y"),
+    y=alt.Y("risk_score:Q", title="Risk Score"),
+    color=alt.Color("risk_score:Q", scale=alt.Scale(scheme="orangered")),
+    tooltip=["deal_number", "status_category", "funding_date", "past_due_amount", "risk_score"]
+).properties(
+    width=700,
+    height=400,
+    title="🔥 Top 10 Risk Scores"
+)
+
+st.altair_chart(bar_chart, use_container_width=True)
+
+from streamlit.components.v1 import html
+
+# Format again after color styling
+styled_df = top_risk_display.style.background_gradient(
+    subset=["Risk Score"], cmap="Reds"
+).format({
+    "Past Due ($)": "${:,.0f}",
+    "Current Balance ($)": "${:,.0f}",
+    "Remaining to Recover ($)": "${:,.0f}",
+    "Risk Score": "{:.2f}"
+})
+
+st.dataframe(styled_df, use_container_width=True)
+
+scatter = alt.Chart(risk_df).mark_circle().encode(
+    x=alt.X("past_due_pct:Q", title="% Past Due", axis=alt.Axis(format=".0%")),
+    y=alt.Y("days_since_funding:Q", title="Days Since Funding"),
+    size=alt.Size("risk_score:Q", title="Risk Score"),
+    color=alt.Color("risk_score:Q", scale=alt.Scale(scheme="redblue"), title="Risk Score"),
+    tooltip=["dba", "status_category", "funding_date", "risk_score", "past_due_pct", "days_since_funding"]
+).properties(
+    width=700,
+    height=400,
+    title="📉 Risk Score by Past Due % and Deal Age"
+)
+
+st.altair_chart(scatter, use_container_width=True)
+
+#-------
 csv = loan_tape.to_csv(index=False).encode("utf-8")
 st.download_button(
     label="📄 Download Loan Tape as CSV",
