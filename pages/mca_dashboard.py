@@ -152,3 +152,17 @@ df["risk_score"] = (
     df["rtr_balance"] / df["principal_amount"].clip(lower=1) * 0.3 +
     (df["funding_date"] < pd.Timestamp.today().date() - pd.Timedelta(days=180)).astype(int) * 0.2
 )
+
+st.subheader("🔥 Top 10 Highest Risk Deals")
+top_risk = df.sort_values("risk_score", ascending=False).head(10)
+st.dataframe(top_risk[["deal_number", "dba", "status", "risk_score", "past_due_amount", "current_balance", "rtr_balance"]], use_container_width=True)
+
+
+
+csv = loan_tape.to_csv(index=False).encode("utf-8")
+st.download_button(
+    label="📄 Download Loan Tape as CSV",
+    data=csv,
+    file_name="loan_tape.csv",
+    mime="text/csv"
+)
