@@ -24,6 +24,7 @@ deals_df = load_deals()
 
 # Cleanup
 deals_df["loan_id"] = deals_df["loan_id"].astype(str)
+deals_df = deals_df[deals_df["loan_id"].notna()]
 deals_df["amount"] = pd.to_numeric(deals_df["amount"], errors="coerce")  # our investment
 
 # 1 workforce
