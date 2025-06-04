@@ -261,6 +261,8 @@ bar_chart = alt.Chart(top_risk).mark_bar().encode(
 st.altair_chart(bar_chart, use_container_width=True)
 
 # Format again after color styling
+top_risk_display["Risk Score"] = pd.to_numeric(top_risk_display["Risk Score"], errors="coerce")
+
 styled_df = top_risk_display.style.background_gradient(
     subset=["Risk Score"], cmap="Reds", axis=None
 ).format({
