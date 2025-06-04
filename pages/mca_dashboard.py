@@ -1,6 +1,7 @@
 # pages/mca_dashboard.py
 import streamlit as st
 import pandas as pd
+import altair as alt
 from supabase import create_client
 
 # Supabase connection
