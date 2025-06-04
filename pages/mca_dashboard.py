@@ -22,6 +22,9 @@ def load_mca_deals():
 
 df = load_mca_deals()
 
+# Filter out Canceled deals
+df = df[df["status_category"] != "Canceled"]
+
 # Convert data types
 df["funding_date"] = pd.to_datetime(df["funding_date"], errors="coerce").dt.date
 df["purchase_price"] = pd.to_numeric(df["purchase_price"], errors="coerce")
@@ -30,6 +33,9 @@ df["current_balance"] = pd.to_numeric(df["current_balance"], errors="coerce")
 df["past_due_amount"] = pd.to_numeric(df["past_due_amount"], errors="coerce")
 df["principal_amount"] = pd.to_numeric(df["principal_amount"], errors="coerce")
 df["rtr_balance"] = pd.to_numeric(df["rtr_balance"], errors="coerce")
+
+# Set past_due_amount to 0 for Matured deals
+df.loc[df["status_category"] == "Matured", "past_due_amount"] = 0
 
 # Add derived field for percent past due
 df["past_due_pct"] = df.apply(
@@ -47,6 +53,8 @@ max_date = df["funding_date"].max()
 start_date, end_date = st.date_input("Filter by Funding Date", [min_date, max_date], min_value=min_date, max_value=max_date)
 df = df[(df["funding_date"] >= start_date) & (df["funding_date"] <= end_date)]
 
+# Filter out Canceled deals
+df = df[df["status_category"] != "Canceled"]
 status_category_filter = st.multiselect("status_category Category", df["status_category"].dropna().unique(), default=list(df["status_category"].dropna().unique()))
 df = df[df["status_category"].isin(status_category_filter)]
 
@@ -110,19 +118,20 @@ status_category_chart = pd.DataFrame({
 
 # Step 3: ensure clean types
 status_category_chart["Share"] = pd.to_numeric(status_category_chart["Share"], errors="coerce")
+not_current = not_current[not_current["at_risk_pct"] > 0]
 
 # Step 4: build chart
 bar = alt.Chart(status_category_chart).mark_bar().encode(
-    x=alt.X("status_category:N", title="status_category Category"),
+    x=alt.X("status_category:N", title="Status Category", sort=alt.EncodingSortField(field="Share", order="ascending")),
     y=alt.Y("Share:Q", title="Percent of Deals", axis=alt.Axis(format=".0%")),
     tooltip=[
-        alt.Tooltip("status_category", title="status_category"),
+        alt.Tooltip("status_category", title="Status"),
         alt.Tooltip("Share:Q", title="Share", format=".2%")
     ]
 ).properties(
     width=700,
     height=350,
-    title="📊 Distribution of Deal status_category"
+    title="📊 Distribution of Deal Status"
 )
 
 st.altair_chart(bar, use_container_width=True)
@@ -153,16 +162,45 @@ st.altair_chart(risk_chart, use_container_width=True)
 # ----------------------------
 # Risk Scoring
 # ----------------------------
-df["risk_score"] = (
-    df["past_due_amount"] / df["current_balance"].clip(lower=1) * 0.5 +
-    df["rtr_balance"] / df["principal_amount"].clip(lower=1) * 0.3 +
-    (df["funding_date"] < pd.Timestamp.today().date() - pd.Timedelta(days=180)).astype(int) * 0.2
+# Risk score only for aged and delinquent loans
+df["days_since_funding"] = (pd.Timestamp.today().date() - pd.to_datetime(df["funding_date"])).dt.days
+
+# Exclude loans funded in the last 30 days or with $0 past due
+risk_df = df[(df["days_since_funding"] > 30) & (df["past_due_amount"] > 0)].copy()
+
+# Risk scoring: past due % + RTR % + age risk
+risk_df["risk_score"] = (
+    risk_df["past_due_amount"] / risk_df["current_balance"].clip(lower=1) * 0.5 +
+    risk_df["rtr_balance"] / risk_df["principal_amount"].clip(lower=1) * 0.3 +
+    (risk_df["days_since_funding"] > 180).astype(int) * 0.2
 )
 
-st.subheader("🔥 Top 10 Highest Risk Deals")
-top_risk = df.sort_values("risk_score", ascending=False).head(10)
-st.dataframe(top_risk[["deal_number", "dba", "status_category", "risk_score", "past_due_amount", "current_balance", "rtr_balance"]], use_container_width=True)
+st.subheader("🚨 Top 10 Highest Risk Deals 🚨")
+st.dataframe(top_risk_display, use_container_width=True)
 
+top_risk = risk_df.sort_values("risk_score", ascending=False).head(10).copy()
+
+top_risk_display = top_risk[[
+    "deal_number", "dba", "status_category", "funding_date", "risk_score",
+    "past_due_amount", "current_balance", "rtr_balance"
+]].rename(columns={
+    "deal_number": "Loan ID",
+    "dba": "Deal",
+    "status_category": "Status",
+    "funding_date": "Funded",
+    "risk_score": "Risk Score",
+    "past_due_amount": "Past Due ($)",
+    "current_balance": "Current Balance ($)",
+    "rtr_balance": "Remaining to Recover ($)"
+})
+
+# Format currency and risk score
+for col in ["Past Due ($)", "Current Balance ($)", "Remaining to Recover ($)"]:
+    top_risk_display[col] = top_risk_display[col].apply(lambda x: f"${x:,.0f}")
+top_risk_display["Risk Score"] = top_risk_display["Risk Score"].apply(lambda x: f"{x:.2f}")
+
+st.subheader("🔥 Top 10 Highest Risk Deals (Excludes New and Performing Loans)")
+st.dataframe(top_risk_display, use_container_width=True)
 
 
 csv = loan_tape.to_csv(index=False).encode("utf-8")
