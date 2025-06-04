@@ -102,11 +102,7 @@ deals_df["loan_id"] = deals_df["loan_id"].astype(str)
 deals_df = deals_df[deals_df["loan_id"].notna()]
 
 # Join MCA data with HubSpot participation data
-df = df.merge(
-    deals_df[["loan_id", "amount"]].rename(columns={"amount": "Our Capital ($)"}),
-    on="loan_id",
-    how="left"
-)
+df = df.merge(deals_df[["loan_id", "amount"]], on="loan_id", how="left")
 
 # Select display columns
 loan_tape = df[[
