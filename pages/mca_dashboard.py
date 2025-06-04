@@ -23,7 +23,7 @@ def load_deals():
 deals_df = load_deals()
 
 # Cleanup
-deals_df["deal_number"] = deals_df["deal_number"].astype(str)
+deals_df["deal_number"] = deals_df["loan_id"].astype(str)
 deals_df["amount"] = pd.to_numeric(deals_df["amount"], errors="coerce")  # our investment
 
 # 1 workforce
