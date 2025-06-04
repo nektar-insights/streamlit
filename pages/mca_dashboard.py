@@ -145,7 +145,12 @@ status_category_chart = pd.DataFrame({
 
 # Build chart
 bar = alt.Chart(status_category_chart).mark_bar().encode(
-    x=alt.X("status_category:N", title="Status Category", sort=alt.EncodingSortField(field="Share", order="descending")),
+    x=alt.X(
+        "status_category:N",
+        title="Status Category",
+        sort=alt.EncodingSortField(field="Share", order="descending"),
+        axis=alt.Axis(labelAngle=-45)  # <-- angled labels
+    ),
     y=alt.Y("Share:Q", title="Percent of Deals", axis=alt.Axis(format=".0%")),
     tooltip=[
         alt.Tooltip("status_category", title="Status"),
@@ -168,7 +173,12 @@ not_current = not_current[not_current["at_risk_pct"] > 0]
 
 if len(not_current) > 0:
     risk_chart = alt.Chart(not_current).mark_bar().encode(
-        x=alt.X("dba:N", title="Deal", sort="-y"),
+        x=alt.X(
+            "dba:N",
+            title="Deal",
+            sort="-y",
+            axis=alt.Axis(labelAngle=-45)  # <-- angled labels
+        ),
         y=alt.Y("at_risk_pct:Q", title="% of Balance at Risk", axis=alt.Axis(format=".0%")),
         tooltip=[
             alt.Tooltip("dba:N", title="Deal"),
@@ -236,24 +246,29 @@ if len(risk_df) > 0:
     }, inplace=True)
 
     # Risk score bar chart
-    bar_chart = alt.Chart(top_risk).mark_bar().encode(
-        x=alt.X("dba:N", title="Deal", sort="-y"),
-        y=alt.Y("risk_score:Q", title="Risk Score"),
-        color=alt.Color("risk_score:Q", scale=alt.Scale(scheme="orangered")),
-        tooltip=[
-            alt.Tooltip("deal_number:N", title="Loan ID"), 
-            alt.Tooltip("status_category", title="Status Category"),
-            alt.Tooltip("funding_date", title="Funding Date"),
-            alt.Tooltip("past_due_amount", title="Past Due Amount"),
-            alt.Tooltip("risk_score", title="Risk Score")
-        ]
-    ).properties(
-        width=700,
-        height=400,
-        title="🔥 Top 10 Risk Scores"
-    )
+bar_chart = alt.Chart(top_risk).mark_bar().encode(
+    x=alt.X(
+        "dba:N",
+        title="Deal",
+        sort="-y",
+        axis=alt.Axis(labelAngle=-45)  # <-- angled labels
+    ),
+    y=alt.Y("risk_score:Q", title="Risk Score"),
+    color=alt.Color("risk_score:Q", scale=alt.Scale(scheme="orangered")),
+    tooltip=[
+        alt.Tooltip("deal_number:N", title="Loan ID"), 
+        alt.Tooltip("status_category", title="Status Category"),
+        alt.Tooltip("funding_date", title="Funding Date"),
+        alt.Tooltip("past_due_amount", title="Past Due Amount"),
+        alt.Tooltip("risk_score", title="Risk Score")
+    ]
+).properties(
+    width=700,
+    height=400,
+    title="🔥 Top 10 Risk Scores"
+)
 
-    st.altair_chart(bar_chart, use_container_width=True)
+st.altair_chart(bar_chart, use_container_width=True)
 
     # Display styled dataframe - fix the formatting issue
     styled_df = top_risk_display.style.background_gradient(
