@@ -135,7 +135,7 @@ col1, col2, col3, col4 = st.columns(4)
 col1.metric("Total Deals", total_deals)
 col2.metric("Total Matured Deals", total_matured)
 col3.metric("Current Deals", total_current)
-col4.metric("Non-Current Deals", total_non_current)
+col4.metric("Not Current Deals", total_non_current)
 
 # Row 2: Corrected percentage metrics
 col5, col6 = st.columns(2)
@@ -174,6 +174,7 @@ loan_tape.rename(columns={
 loan_tape["Past Due %"] = loan_tape["Past Due %"].fillna(0)
 loan_tape["Past Due ($)"] = loan_tape["Past Due ($)"].fillna(0)
 loan_tape["Remaining to Recover ($)"] = loan_tape["Remaining to Recover ($)"].fillna(0)
+loan_tape["Performance Ratio"] = loan_tape["Performance Ratio"].fillna(0)
 
 # Display with both sorting AND formatting
 st.subheader("📋 Loan Tape")
@@ -309,7 +310,7 @@ if len(risk_df) > 0:
     # Top 10 by risk score
     top_risk = risk_df.sort_values("risk_score", ascending=False).head(10).copy()
 
-    # Risk score bar chart with gradient
+    # Risk score bar chart with gradient and FORMATTED tooltips
     bar_chart = alt.Chart(top_risk).mark_bar().encode(
         x=alt.X(
             "dba:N",
@@ -325,10 +326,11 @@ if len(risk_df) > 0:
         ),
         tooltip=[
             alt.Tooltip("deal_number:N", title="Loan ID"),
-            alt.Tooltip("status_category", title="Status Category"),
-            alt.Tooltip("funding_date", title="Funding Date"),
-            alt.Tooltip("past_due_amount", title="Past Due Amount"),
-            alt.Tooltip("risk_score", title="Risk Score")
+            alt.Tooltip("status_category:N", title="Status Category"),
+            alt.Tooltip("funding_date:T", title="Funding Date"),
+            alt.Tooltip("past_due_amount:Q", title="Past Due Amount", format="$,.0f"),
+            alt.Tooltip("current_balance:Q", title="Current Balance", format="$,.0f"),
+            alt.Tooltip("risk_score:Q", title="Risk Score", format=".3f")
         ]
     ).properties(
         width=700,
@@ -354,6 +356,11 @@ if len(risk_df) > 0:
         "past_due_amount": "Past Due ($)",
         "current_balance": "Current Balance ($)"
     }, inplace=True)
+
+    # Clean up numeric data for proper sorting
+    top_risk_display["Risk Score"] = top_risk_display["Risk Score"].fillna(0)
+    top_risk_display["Past Due ($)"] = top_risk_display["Past Due ($)"].fillna(0)
+    top_risk_display["Current Balance ($)"] = top_risk_display["Current Balance ($)"].fillna(0)
 
     # Display with both sorting AND formatting
     st.dataframe(
