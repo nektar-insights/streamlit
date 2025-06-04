@@ -1,14 +1,20 @@
 # pages/mca_dashboard.py
+
 import streamlit as st
 import pandas as pd
 import altair as alt
 from supabase import create_client
 
+# ----------------------------
 # Supabase connection
+# ----------------------------
 url = st.secrets["supabase"]["url"]
 key = st.secrets["supabase"]["service_role"]
 supabase = create_client(url, key)
 
+# ----------------------------
+# Load and prepare data
+# ----------------------------
 @st.cache_data(ttl=3600)
 def load_mca_deals():
     res = supabase.table("mca_deals").select("*").execute()
@@ -16,36 +22,58 @@ def load_mca_deals():
 
 df = load_mca_deals()
 
-# Filters
-min_date = df["funding_date"].min()
-max_date = df["funding_date"].max()
-start_date, end_date = st.date_input("Filter by Funding Date", [min_date, max_date], min_value=min_date, max_value=max_date)
-df = df[(df["funding_date"] >= start_date) & (df["funding_date"] <= end_date)]
-
-status_filter = st.multiselect("Status Category", df["status_category"].dropna().unique(), default=list(df["status_category"].dropna().unique()))
-df = df[df["status_category"].isin(status_filter)]
-
-# Data prep
+# Convert data types
+df["funding_date"] = pd.to_datetime(df["funding_date"], errors="coerce").dt.date
 df["purchase_price"] = pd.to_numeric(df["purchase_price"], errors="coerce")
 df["receivables_amount"] = pd.to_numeric(df["receivables_amount"], errors="coerce")
 df["current_balance"] = pd.to_numeric(df["current_balance"], errors="coerce")
 df["past_due_amount"] = pd.to_numeric(df["past_due_amount"], errors="coerce")
-df["funding_date"] = pd.to_datetime(df["funding_date"], errors="coerce").dt.date
-df["past_due_amount"] = pd.to_numeric(df["past_due_amount"], errors="coerce")
-df["current_balance"] = pd.to_numeric(df["current_balance"], errors="coerce")
-df["purchase_price"] = pd.to_numeric(df["purchase_price"], errors="coerce")
 df["principal_amount"] = pd.to_numeric(df["principal_amount"], errors="coerce")
 df["rtr_balance"] = pd.to_numeric(df["rtr_balance"], errors="coerce")
 
+# Add derived field for percent past due
 df["past_due_pct"] = df.apply(
     lambda row: row["past_due_amount"] / row["current_balance"]
     if row["current_balance"] and row["past_due_amount"] else 0,
     axis=1
 )
 
+# ----------------------------
+# Filters
+# ----------------------------
+min_date = df["funding_date"].min()
+max_date = df["funding_date"].max()
+
+start_date, end_date = st.date_input("Filter by Funding Date", [min_date, max_date], min_value=min_date, max_value=max_date)
+df = df[(df["funding_date"] >= start_date) & (df["funding_date"] <= end_date)]
+
+status_filter = st.multiselect("Status Category", df["status_category"].dropna().unique(), default=list(df["status_category"].dropna().unique()))
+df = df[df["status_category"].isin(status_filter)]
+
+# ----------------------------
+# Metrics Summary
+# ----------------------------
+st.title("MCA Deals Dashboard")
+
+total_deals = len(df)
+total_funded = df["purchase_price"].sum()
+total_receivables = df["receivables_amount"].sum()
+total_past_due = df["past_due_amount"].sum()
+
+col1, col2, col3 = st.columns(3)
+col1.metric("Total Deals", total_deals)
+col2.metric("Total Funded", f"${total_funded:,.0f}")
+col3.metric("Total Receivables", f"${total_receivables:,.0f}")
+
+st.metric("Total Past Due", f"${total_past_due:,.0f}")
+
+# ----------------------------
+# Loan Tape Display
+# ----------------------------
 loan_tape = df[[
-    "deal_number", "dba", "funding_date", "status_category", "past_due_amount", "past_due_pct",
-    "performance_ratio", "rtr_balance", "performance_details"
+    "deal_number", "dba", "funding_date", "status_category",
+    "past_due_amount", "past_due_pct", "performance_ratio",
+    "rtr_balance", "performance_details"
 ]].copy()
 
 loan_tape.rename(columns={
@@ -63,26 +91,22 @@ loan_tape.rename(columns={
 loan_tape["Past Due Amount"] = loan_tape["Past Due Amount"].apply(lambda x: f"{x:.1%}")
 loan_tape["Past Due ($)"] = loan_tape["Past Due ($)"].apply(lambda x: f"${x:,.0f}")
 loan_tape["Remaining to Recover ($)"] = loan_tape["Remaining to Recover ($)"].apply(lambda x: f"${x:,.0f}")
+
 st.subheader("📋 Loan Tape")
 st.dataframe(loan_tape, use_container_width=True)
 
-# Metrics
-total_deals = len(df)
-total_funded = df["purchase_price"].sum()
-total_receivables = df["receivables_amount"].sum()
-total_past_due = df["past_due_amount"].sum()
-
-st.title("MCA Deals Dashboard")
-col1, col2, col3 = st.columns(3)
-col1.metric("Total Deals", total_deals)
-col2.metric("Total Funded", f"${total_funded:,.0f}")
-col3.metric("Total Receivables", f"${total_receivables:,.0f}")
-
-st.metric("Total Past Due", f"${total_past_due:,.0f}")
-
+# ----------------------------
+# Preview Section
+# ----------------------------
 st.subheader("Preview")
-st.dataframe(df[["deal_id", "dba", "funding_date", "status_category", "purchase_price", "receivables_amount", "past_due_amount"]], use_container_width=True)
+st.dataframe(df[[
+    "deal_id", "dba", "funding_date", "status_category",
+    "purchase_price", "receivables_amount", "past_due_amount"
+]], use_container_width=True)
 
+# ----------------------------
+# Distribution of Deal Status (Bar Chart)
+# ----------------------------
 status_chart = (
     df["status_category"]
     .value_counts(normalize=True)
@@ -103,6 +127,9 @@ bar = alt.Chart(status_chart).mark_bar().encode(
 
 st.altair_chart(bar, use_container_width=True)
 
+# ----------------------------
+# Risk Chart: % of Balance at Risk
+# ----------------------------
 not_current = df[df["status_category"] != "Current"].copy()
 not_current["at_risk_pct"] = not_current["past_due_amount"] / not_current["current_balance"]
 
@@ -115,12 +142,19 @@ risk_chart = alt.Chart(not_current).mark_bar().encode(
         alt.Tooltip("current_balance:Q", title="Current Balance ($)", format="$,.0f"),
         alt.Tooltip("at_risk_pct:Q", title="% at Risk", format=".2%")
     ]
-).properties(width=850, height=400, title="🚨 % of Balance at Risk (Non-Current Deals)")
+).properties(
+    width=850,
+    height=400,
+    title="🚨 % of Balance at Risk (Non-Current Deals)"
+)
 
 st.altair_chart(risk_chart, use_container_width=True)
 
+# ----------------------------
+# Risk Scoring
+# ----------------------------
 df["risk_score"] = (
-    df["past_due_amount"] / df["current_balance"].clip(lower=1) * 0.5 +  # Past Due % = high weight
-    df["rtr_balance"] / df["principal_amount"].clip(lower=1) * 0.3 +      # Unrecovered capital
-    (df["funding_date"] < pd.Timestamp.today() - pd.Timedelta(days=180)).astype(int) * 0.2  # Aged deal
+    df["past_due_amount"] / df["current_balance"].clip(lower=1) * 0.5 +
+    df["rtr_balance"] / df["principal_amount"].clip(lower=1) * 0.3 +
+    (df["funding_date"] < pd.Timestamp.today().date() - pd.Timedelta(days=180)).astype(int) * 0.2
 )
