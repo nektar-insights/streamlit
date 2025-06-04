@@ -100,9 +100,11 @@ deals_df["loan_id"] = deals_df["loan_id"].astype(str)
 
 # Merge using deal_number from df and loan_id from deals_df
 df = df.merge(deals_df[["loan_id", "amount"]], left_on="deal_number", right_on="loan_id", how="left")
+
+# ✅ Rename here before referencing in loan_tape
 df.rename(columns={"amount": "CSL Participation ($)"}, inplace=True)
 
-# Select display columns
+# Now select display columns
 loan_tape = df[[
     "deal_number", "dba", "funding_date", "status_category",
     "past_due_amount", "past_due_pct", "performance_ratio",
@@ -126,7 +128,7 @@ loan_tape.rename(columns={
 loan_tape["Past Due Amount"] = loan_tape["Past Due Amount"].apply(lambda x: f"{x:.1%}")
 loan_tape["Past Due ($)"] = loan_tape["Past Due ($)"].apply(lambda x: f"${x:,.0f}")
 loan_tape["Remaining to Recover ($)"] = loan_tape["Remaining to Recover ($)"].apply(lambda x: f"${x:,.0f}")
-loan_tape["Our Capital ($)"] = loan_tape["Our Capital ($)"].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "-")
+loan_tape["CSL Participation ($)"] = loan_tape["CSL Participation ($)"].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "-")
 
 # Display
 st.subheader("📋 Loan Tape")
@@ -232,7 +234,7 @@ top_risk_display = top_risk[[
     "our_investment": "CSL Participation ($)"
 })
 
-for col in ["Past Due ($)", "Current Balance ($)", "Our Participation ($)"]:
+for col in ["Past Due ($)", "Current Balance ($)", "CSL Participation ($)"]:
     top_risk_display[col] = top_risk_display[col].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "-")
     
 bar_chart = alt.Chart(top_risk).mark_bar().encode(
