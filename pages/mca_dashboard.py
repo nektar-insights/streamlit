@@ -107,18 +107,21 @@ st.dataframe(df[[
 # ----------------------------
 # Distribution of Deal Status (Bar Chart)
 # ----------------------------
-status_chart = (
-    df["status_category"]
-    .value_counts(normalize=True)
-    .rename("Share")
-    .reset_index()
-    .rename(columns={"index": "Status"})
-)
+# Handle null status_category safely
+status_counts = df["status_category"].fillna("Unknown").value_counts(normalize=True)
+status_chart = status_counts.rename("Share").reset_index().rename(columns={"index": "Status"})
+
+# Explicit type casting to prevent Altair errors
+status_chart["Status"] = status_chart["Status"].astype(str)
+status_chart["Share"] = pd.to_numeric(status_chart["Share"], errors="coerce")
 
 bar = alt.Chart(status_chart).mark_bar().encode(
     x=alt.X("Status:N", title="Status Category"),
     y=alt.Y("Share:Q", title="Percent of Deals", axis=alt.Axis(format=".0%")),
-    tooltip=["Status", alt.Tooltip("Share:Q", format=".2%")]
+    tooltip=[
+        alt.Tooltip("Status", title="Status"),
+        alt.Tooltip("Share:Q", title="Share", format=".2%")
+    ]
 ).properties(
     width=700,
     height=350,
