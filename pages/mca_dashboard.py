@@ -1,78 +1,49 @@
+# pages/mca_dashboard.py
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-from datetime import datetime, timedelta
+from supabase import create_client
 
-# Import your existing Supabase connection
-from utils import get_supabase_client  # or however you import it
+# Supabase connection
+url = st.secrets["supabase"]["url"]
+key = st.secrets["supabase"]["service_role"]
+supabase = create_client(url, key)
 
-st.set_page_config(page_title="MCA Portfolio", page_icon="💰", layout="wide")
+@st.cache_data(ttl=3600)
+def load_mca_deals():
+    res = supabase.table("mca_deals").select("*").execute()
+    return pd.DataFrame(res.data)
 
-def load_mca_data():
-    """Load MCA portfolio data"""
-    supabase = get_supabase_client()
-    
-    # Get latest extraction
-    result = supabase.table('mca_deals').select('*').order('extracted_at', desc=True).execute()
-    
-    if result.data:
-        return pd.DataFrame(result.data)
-    return pd.DataFrame()
+df = load_mca_deals()
 
-def render_mca_overview():
-    """Render MCA portfolio overview"""
-    st.title("💰 MCA Portfolio Dashboard")
-    
-    df = load_mca_data()
-    
-    if df.empty:
-        st.warning("No MCA data available. Scraper may not have run yet.")
-        return
-    
-    # Get latest data only
-    latest_extraction = df['extracted_at'].max()
-    latest_df = df[df['extracted_at'] == latest_extraction]
-    
-    # Key metrics
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric("Total Deals", f"{len(latest_df):,}")
-    
-    with col2:
-        total_value = latest_df['purchase_price'].sum()
-        st.metric("Portfolio Value", f"${total_value:,.0f}")
-    
-    with col3:
-        current_balance = latest_df['current_balance'].sum()
-        collection_rate = ((total_value - current_balance) / total_value * 100) if total_value > 0 else 0
-        st.metric("Collection Rate", f"{collection_rate:.1f}%")
-    
-    with col4:
-        past_due = latest_df['past_due_amount'].sum()
-        st.metric("Past Due", f"${past_due:,.0f}")
-    
-    # Charts
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Status distribution
-        status_counts = latest_df['status'].value_counts()
-        fig = px.pie(values=status_counts.values, names=status_counts.index, 
-                    title="Deal Status Distribution")
-        st.plotly_chart(fig, use_container_width=True)
-    
-    with col2:
-        # Sales rep performance
-        rep_data = latest_df.groupby('sales_rep')['purchase_price'].sum().sort_values(ascending=False).head(10)
-        fig = px.bar(x=rep_data.values, y=rep_data.index, orientation='h',
-                    title="Top Sales Reps by Portfolio Value")
-        st.plotly_chart(fig, use_container_width=True)
-    
-    # Recent deals table
-    st.subheader("Recent Deals")
-    display_cols = ['deal_id', 'dba', 'status', 'purchase_price', 'current_balance', 'sales_rep']
-    st.dataframe(latest_df[display_cols].head(20), use_container_width=True)
+# Data prep
+df["funding_date"] = pd.to_datetime(df["funding_date"], errors="coerce")
+df["purchase_price"] = pd.to_numeric(df["purchase_price"], errors="coerce")
+df["receivables_amount"] = pd.to_numeric(df["receivables_amount"], errors="coerce")
+df["current_balance"] = pd.to_numeric(df["current_balance"], errors="coerce")
+df["past_due_amount"] = pd.to_numeric(df["past_due_amount"], errors="coerce")
 
-if __name__ == "__main__":
-    render_mca_overview()
+# Filters
+min_date = df["funding_date"].min()
+max_date = df["funding_date"].max()
+start_date, end_date = st.date_input("Filter by Funding Date", [min_date, max_date], min_value=min_date, max_value=max_date)
+df = df[(df["funding_date"] >= pd.to_datetime(start_date)) & (df["funding_date"] <= pd.to_datetime(end_date))]
+
+status_filter = st.multiselect("Status Category", df["status_category"].dropna().unique(), default=list(df["status_category"].dropna().unique()))
+df = df[df["status_category"].isin(status_filter)]
+
+# Metrics
+total_deals = len(df)
+total_funded = df["purchase_price"].sum()
+total_receivables = df["receivables_amount"].sum()
+total_past_due = df["past_due_amount"].sum()
+
+st.title("MCA Deals Dashboard")
+col1, col2, col3 = st.columns(3)
+col1.metric("Total Deals", total_deals)
+col2.metric("Total Funded", f"${total_funded:,.0f}")
+col3.metric("Total Receivables", f"${total_receivables:,.0f}")
+
+st.metric("Total Past Due", f"${total_past_due:,.0f}")
+
+st.subheader("Preview")
+st.dataframe(df[["deal_id", "dba", "funding_date", "status_category", "purchase_price", "receivables_amount", "past_due_amount"]], use_container_width=True)
