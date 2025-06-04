@@ -216,7 +216,8 @@ st.altair_chart(bar, use_container_width=True)
 # ----------------------------
 # Risk Chart: % of Balance at Risk
 # ----------------------------
-not_current = df[df["status_category"] != "Current"].copy()
+# Exclude both Current AND Matured deals from risk analysis
+not_current = df[(df["status_category"] != "Current") & (df["status_category"] != "Matured")].copy()
 not_current["at_risk_pct"] = not_current["past_due_amount"] / not_current["current_balance"]
 not_current = not_current[not_current["at_risk_pct"] > 0]
 
@@ -238,26 +239,27 @@ if len(not_current) > 0:
     ).properties(
         width=850,
         height=400,
-        title="🚨 Percentage of Balance at Risk (Non-Current Deals)"
+        title="🚨 Percentage of Balance at Risk (Non-Current, Non-Matured Deals)"
     )
 
     st.altair_chart(risk_chart, use_container_width=True)
 else:
-    st.info("No non-current deals with past due amounts to display.")
+    st.info("No non-current, non-matured deals with past due amounts to display.")
 
 # ----------------------------
 # Risk Scoring
 # ----------------------------
-st.subheader("🔥 Top 10 Highest Risk Deals (Excludes New and Performing Loans)")
+st.subheader("🔥 Top 10 Highest Risk Deals")
 
 # Calculate days since funding
 df["days_since_funding"] = (pd.Timestamp.today() - pd.to_datetime(df["funding_date"])).dt.days
 
-# Define risk pool: exclude new deals, $0 past due, and current status
+# Define risk pool: exclude new deals, $0 past due, current status, AND matured deals
 risk_df = df[
     (df["days_since_funding"] > 30) &
     (df["past_due_amount"] > df["current_balance"] * 0.01) &  # must be >1% past due
-    (df["status_category"] != "Current")
+    (df["status_category"] != "Current") &
+    (df["status_category"] != "Matured")  # Exclude matured deals
 ].copy()
 
 if len(risk_df) > 0:
@@ -313,7 +315,7 @@ if len(risk_df) > 0:
     ).properties(
         width=700,
         height=400,
-        title="🔥 Top 10 Risk Scores"
+        title="(Excludes New and Performing Loans)"
     )
 
     st.altair_chart(bar_chart, use_container_width=True)
