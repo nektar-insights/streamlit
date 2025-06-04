@@ -247,7 +247,14 @@ scatter = alt.Chart(risk_df).mark_circle().encode(
     y=alt.Y("days_since_funding:Q", title="Days Since Funding"),
     size=alt.Size("risk_score:Q", title="Risk Score"),
     color=alt.Color("risk_score:Q", scale=alt.Scale(scheme="orangered"), title="Risk Score"),
-    tooltip=["dba", "status_category", "funding_date", "risk_score", "past_due_pct", "days_since_funding"]
+    tooltip=[
+        alt.Tooltip("dba:N", title="Deal"),
+        alt.Tooltip("status_category:N", title="Status"),
+        alt.Tooltip("funding_date:T", title="Funded"),
+        alt.Tooltip("risk_score:Q", title="Risk Score", format=".2f"),
+        alt.Tooltip("past_due_pct:Q", title="% Past Due", format=".2%"),  # 0.123 -> 12.30%
+        alt.Tooltip("days_since_funding:Q", title="Days Since Funding")
+    ]
 ).properties(
     width=700,
     height=400,
