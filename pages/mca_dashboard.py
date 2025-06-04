@@ -94,11 +94,11 @@ st.metric("Total Past Due", f"${total_past_due:,.0f}")
 # ----------------------------
 
 # Prepare columns for merge
+# Align types for join
 df["deal_number"] = df["deal_number"].astype(str)
 deals_df["loan_id"] = deals_df["loan_id"].astype(str)
-deals_df = deals_df[deals_df["loan_id"].notna()]
 
-# Merge on deal_number from MCA data and loan_id from HubSpot
+# Merge using deal_number from df and loan_id from deals_df
 df = df.merge(deals_df[["loan_id", "amount"]], left_on="deal_number", right_on="loan_id", how="left")
 df.rename(columns={"amount": "CSL Participation ($)"}, inplace=True)
 
