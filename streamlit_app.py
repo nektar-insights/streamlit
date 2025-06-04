@@ -200,9 +200,3 @@ st.download_button(
     file_name="partner_summary.pdf",
     mime="application/pdf"
 )
-
-
-st.subheader("🔍 Sample Loan IDs")
-st.write(df[["loan_id"]].dropna().drop_duplicates().head(20))
-st.metric("Total Deals with loan_id", df["loan_id"].notna().sum())
-st.metric("Missing loan_id", df["loan_id"].isna().sum())
