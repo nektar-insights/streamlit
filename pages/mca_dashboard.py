@@ -161,24 +161,32 @@ st.altair_chart(risk_chart, use_container_width=True)
 # ----------------------------
 # Risk Scoring
 # ----------------------------
-# Risk score only for aged and delinquent loans
+st.subheader("🔥 Top 10 Highest Risk Deals (Excludes New and Performing Loans)")
+
+# Calculate days since funding
 df["days_since_funding"] = (pd.Timestamp.today() - pd.to_datetime(df["funding_date"])).dt.days
 
-# Exclude loans funded in the last 30 days or with $0 past due
-risk_df = df[(df["days_since_funding"] > 30) & (df["past_due_amount"] > 0)].copy()
+# Define risk pool: exclude new deals, $0 past due, and current status
+risk_df = df[
+    (df["days_since_funding"] > 30) &
+    (df["past_due_amount"] > df["current_balance"] * 0.01) &  # must be >1% past due
+    (df["status_category"] != "Current")
+].copy()
 
-# Risk scoring: past due % + RTR % + age risk
-risk_df["risk_score"] = (
-    risk_df["past_due_amount"] / risk_df["current_balance"].clip(lower=1) * 0.5 +
-    risk_df["rtr_balance"] / risk_df["principal_amount"].clip(lower=1) * 0.3 +
-    (risk_df["days_since_funding"] > 180).astype(int) * 0.2
-)
+# Calculate percent past due
+risk_df["past_due_pct"] = risk_df["past_due_amount"] / risk_df["current_balance"].clip(lower=1)
 
-st.subheader("🚨 Top 10 Highest Risk Deals 🚨")
+# Normalize age for relative weight (to avoid unfairly penalizing very old deals)
+max_days = risk_df["days_since_funding"].max()
+risk_df["age_weight"] = risk_df["days_since_funding"] / max_days
 
+# Final weighted risk score
+risk_df["risk_score"] = risk_df["past_due_pct"] * 0.7 + risk_df["age_weight"] * 0.3
 
+# Top 10 by risk score
 top_risk = risk_df.sort_values("risk_score", ascending=False).head(10).copy()
 
+# Format output table
 top_risk_display = top_risk[[
     "deal_number", "dba", "status_category", "funding_date", "risk_score",
     "past_due_amount", "current_balance", "rtr_balance"
@@ -192,16 +200,14 @@ top_risk_display = top_risk[[
     "current_balance": "Current Balance ($)",
     "rtr_balance": "Remaining to Recover ($)"
 })
-st.dataframe(top_risk_display, use_container_width=True)
 
-# Format currency and risk score
+# Format currency and score columns
 for col in ["Past Due ($)", "Current Balance ($)", "Remaining to Recover ($)"]:
     top_risk_display[col] = top_risk_display[col].apply(lambda x: f"${x:,.0f}")
 top_risk_display["Risk Score"] = top_risk_display["Risk Score"].apply(lambda x: f"{x:.2f}")
 
-st.subheader("🔥 Top 10 Highest Risk Deals (Excludes New and Performing Loans)")
+# Display
 st.dataframe(top_risk_display, use_container_width=True)
-
 
 csv = loan_tape.to_csv(index=False).encode("utf-8")
 st.download_button(
