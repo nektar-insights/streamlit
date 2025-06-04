@@ -47,8 +47,8 @@ max_date = df["funding_date"].max()
 start_date, end_date = st.date_input("Filter by Funding Date", [min_date, max_date], min_value=min_date, max_value=max_date)
 df = df[(df["funding_date"] >= start_date) & (df["funding_date"] <= end_date)]
 
-status_filter = st.multiselect("Status Category", df["status"].dropna().unique(), default=list(df["status"].dropna().unique()))
-df = df[df["status"].isin(status_filter)]
+status_category_filter = st.multiselect("status_category Category", df["status_category"].dropna().unique(), default=list(df["status_category"].dropna().unique()))
+df = df[df["status_category"].isin(status_category_filter)]
 
 # ----------------------------
 # Metrics Summary
@@ -71,7 +71,7 @@ st.metric("Total Past Due", f"${total_past_due:,.0f}")
 # Loan Tape Display
 # ----------------------------
 loan_tape = df[[
-    "deal_number", "dba", "funding_date", "status",
+    "deal_number", "dba", "funding_date", "status_category",
     "past_due_amount", "past_due_pct", "performance_ratio",
     "rtr_balance", "performance_details"
 ]].copy()
@@ -80,7 +80,7 @@ loan_tape.rename(columns={
     "deal_number": "Loan ID",
     "dba": "Deal",
     "funding_date": "Funding Date",
-    "status": "Status",
+    "status_category": "status_category",
     "past_due_amount": "Past Due ($)",
     "past_due_pct": "Past Due Amount",
     "performance_ratio": "Performance Ratio",
@@ -96,33 +96,33 @@ st.subheader("📋 Loan Tape")
 st.dataframe(loan_tape, use_container_width=True)
 
 # ----------------------------
-# Distribution of Deal Status (Bar Chart)
+# Distribution of Deal status_category (Bar Chart)
 # ----------------------------
 
 # Step 1: calculate normalized value counts safely
-status_counts = df["status"].fillna("Unknown").value_counts(normalize=True)
+status_category_counts = df["status_category"].fillna("Unknown").value_counts(normalize=True)
 
 # Step 2: convert to DataFrame
-status_chart = pd.DataFrame({
-    "Status": status_counts.index.astype(str),
-    "Share": status_counts.values
+status_category_chart = pd.DataFrame({
+    "status_category": status_category_counts.index.astype(str),
+    "Share": status_category_counts.values
 })
 
 # Step 3: ensure clean types
-status_chart["Share"] = pd.to_numeric(status_chart["Share"], errors="coerce")
+status_category_chart["Share"] = pd.to_numeric(status_category_chart["Share"], errors="coerce")
 
 # Step 4: build chart
-bar = alt.Chart(status_chart).mark_bar().encode(
-    x=alt.X("Status:N", title="Status Category"),
+bar = alt.Chart(status_category_chart).mark_bar().encode(
+    x=alt.X("status_category:N", title="status_category Category"),
     y=alt.Y("Share:Q", title="Percent of Deals", axis=alt.Axis(format=".0%")),
     tooltip=[
-        alt.Tooltip("Status", title="Status"),
+        alt.Tooltip("status_category", title="status_category"),
         alt.Tooltip("Share:Q", title="Share", format=".2%")
     ]
 ).properties(
     width=700,
     height=350,
-    title="📊 Distribution of Deal Status"
+    title="📊 Distribution of Deal status_category"
 )
 
 st.altair_chart(bar, use_container_width=True)
@@ -130,7 +130,7 @@ st.altair_chart(bar, use_container_width=True)
 # ----------------------------
 # Risk Chart: % of Balance at Risk
 # ----------------------------
-not_current = df[df["status"] != "Current"].copy()
+not_current = df[df["status_category"] != "Current"].copy()
 not_current["at_risk_pct"] = not_current["past_due_amount"] / not_current["current_balance"]
 
 risk_chart = alt.Chart(not_current).mark_bar().encode(
@@ -161,7 +161,7 @@ df["risk_score"] = (
 
 st.subheader("🔥 Top 10 Highest Risk Deals")
 top_risk = df.sort_values("risk_score", ascending=False).head(10)
-st.dataframe(top_risk[["deal_number", "dba", "status", "risk_score", "past_due_amount", "current_balance", "rtr_balance"]], use_container_width=True)
+st.dataframe(top_risk[["deal_number", "dba", "status_category", "risk_score", "past_due_amount", "current_balance", "rtr_balance"]], use_container_width=True)
 
 
 
