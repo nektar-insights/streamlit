@@ -1,5 +1,4 @@
 # pages/mca_dashboard.py
-
 import streamlit as st
 import pandas as pd
 import altair as alt
@@ -15,6 +14,19 @@ supabase = create_client(url, key)
 # ----------------------------
 # Load and prepare data
 # ----------------------------
+# Hubspot data...
+@st.cache_data(ttl=3600)
+def load_deals():
+    res = supabase.table("deals").select("*").execute()
+    return pd.DataFrame(res.data)
+
+deals_df = load_deals()
+
+# Cleanup
+deals_df["deal_number"] = deals_df["deal_number"].astype(str)
+deals_df["amount"] = pd.to_numeric(deals_df["amount"], errors="coerce")  # our investment
+
+# 1 workforce
 @st.cache_data(ttl=3600)
 def load_mca_deals():
     res = supabase.table("mca_deals").select("*").execute()
@@ -57,6 +69,7 @@ df = df[(df["funding_date"] >= start_date) & (df["funding_date"] <= end_date)]
 status_category_filter = st.multiselect("status_category Category", df["status_category"].dropna().unique(), default=list(df["status_category"].dropna().unique()))
 df = df[df["status_category"].isin(status_category_filter)]
 
+
 # ----------------------------
 # Metrics Summary
 # ----------------------------
@@ -77,12 +90,23 @@ st.metric("Total Past Due", f"${total_past_due:,.0f}")
 # ----------------------------
 # Loan Tape Display
 # ----------------------------
+
+# Make sure deal_number is str for join
+df["deal_number"] = df["deal_number"].astype(str)
+deals_df["deal_number"] = deals_df["deal_number"].astype(str)
+
+# Merge in our capital
+df = df.merge(deals_df[["deal_number", "amount"]], on="deal_number", how="left")
+df.rename(columns={"amount": "CSL Participation ($)"}, inplace=True)
+
+# Display columns
 loan_tape = df[[
     "deal_number", "dba", "funding_date", "status_category",
     "past_due_amount", "past_due_pct", "performance_ratio",
-    "rtr_balance", "performance_details"
+    "rtr_balance", "performance_details", "Our Capital ($)"
 ]].copy()
 
+# Rename for display
 loan_tape.rename(columns={
     "deal_number": "Loan ID",
     "dba": "Deal",
@@ -95,9 +119,11 @@ loan_tape.rename(columns={
     "performance_details": "Performance Notes"
 }, inplace=True)
 
+# Format display columns
 loan_tape["Past Due Amount"] = loan_tape["Past Due Amount"].apply(lambda x: f"{x:.1%}")
 loan_tape["Past Due ($)"] = loan_tape["Past Due ($)"].apply(lambda x: f"${x:,.0f}")
 loan_tape["Remaining to Recover ($)"] = loan_tape["Remaining to Recover ($)"].apply(lambda x: f"${x:,.0f}")
+loan_tape["Our Capital ($)"] = loan_tape["Our Capital ($)"].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "-")
 
 st.subheader("📋 Loan Tape")
 st.dataframe(loan_tape, use_container_width=True)
@@ -190,7 +216,7 @@ top_risk = risk_df.sort_values("risk_score", ascending=False).head(10).copy()
 # Remove string formatting from earlier step
 top_risk_display = top_risk[[
     "deal_number", "dba", "status_category", "funding_date", "risk_score",
-    "past_due_amount", "current_balance"
+    "past_due_amount", "current_balance", "our_investment"
 ]].rename(columns={
     "deal_number": "Loan ID",
     "dba": "Deal",
@@ -198,25 +224,24 @@ top_risk_display = top_risk[[
     "funding_date": "Funded",
     "risk_score": "Risk Score",
     "past_due_amount": "Past Due ($)",
-    "current_balance": "Current Balance ($)"
+    "current_balance": "Current Balance ($)",
+    "our_investment": "CSL Participation ($)"
 })
 
-# Highlight Risk Score with styling, and format values
-styled_df = top_risk_display.style.background_gradient(
-    subset=["Risk Score"], cmap="Reds", axis=None  # axis=None avoids vertical bar
-).format({
-    "Past Due ($)": "${:,.0f}",
-    "Current Balance ($)": "${:,.0f}",
-    "Risk Score": "{:.2f}"
-})
-
-st.dataframe(styled_df, use_container_width=True)
-
+for col in ["Past Due ($)", "Current Balance ($)", "Our Participation ($)"]:
+    top_risk_display[col] = top_risk_display[col].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "-")
+    
 bar_chart = alt.Chart(top_risk).mark_bar().encode(
     x=alt.X("dba:N", title="Deal", sort="-y"),
     y=alt.Y("risk_score:Q", title="Risk Score"),
     color=alt.Color("risk_score:Q", scale=alt.Scale(scheme="orangered")),
-    tooltip=["deal_number", "status_category", "funding_date", "past_due_amount", "risk_score"]
+    tooltip=[
+        alt.Tooltip("deal_number:N", title = "Loan ID"), 
+        alt.Tooltip( "status_category", title = "Status Category"),
+        alt.Tooltip("funding_date", title = "Funding Date"),
+        alt.Tooltip("past_due_amount", title = "Past Due Amount"),
+        alt.Tooltip("risk_score", title = "Risk Score")
+        ]
 ).properties(
     width=700,
     height=400,
@@ -225,15 +250,12 @@ bar_chart = alt.Chart(top_risk).mark_bar().encode(
 
 st.altair_chart(bar_chart, use_container_width=True)
 
-from streamlit.components.v1 import html
-
 # Format again after color styling
 styled_df = top_risk_display.style.background_gradient(
-    subset=["Risk Score"], cmap="Reds"
+    subset=["Risk Score"], cmap="Reds", axis=None
 ).format({
     "Past Due ($)": "${:,.0f}",
     "Current Balance ($)": "${:,.0f}",
-    "Remaining to Recover ($)": "${:,.0f}",
     "Risk Score": "{:.2f}"
 })
 
