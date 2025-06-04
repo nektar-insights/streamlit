@@ -86,8 +86,9 @@ st.dataframe(df[["deal_id", "dba", "funding_date", "status_category", "purchase_
 status_chart = (
     df["status_category"]
     .value_counts(normalize=True)
+    .rename("Share")
     .reset_index()
-    .rename(columns={"index": "Status", "status_category": "Share"})
+    .rename(columns={"index": "Status"})
 )
 
 bar = alt.Chart(status_chart).mark_bar().encode(
