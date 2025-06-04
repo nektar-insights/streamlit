@@ -216,8 +216,7 @@ risk_df["age_weight"] = risk_df["days_since_funding"] / max_days
 # Final weighted risk score
 risk_df["risk_score"] = risk_df["past_due_pct"] * 0.7 + risk_df["age_weight"] * 0.3
 risk_df["risk_score"] = pd.to_numeric(risk_df["risk_score"], errors="coerce")
-for col in ["past_due_amount", "current_balance", "CSL Participation ($)"]:
-    top_risk_display[col] = pd.to_numeric(top_risk_display[col], errors="coerce")
+
     
 # Top 10 by risk score
 top_risk = risk_df.sort_values("risk_score", ascending=False).head(10).copy()
@@ -239,6 +238,9 @@ top_risk_display = top_risk[[
 
 for col in ["Past Due ($)", "Current Balance ($)", "CSL Participation ($)"]:
     top_risk_display[col] = top_risk_display[col].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "-")
+
+for col in ["past_due_amount", "current_balance", "CSL Participation ($)"]:
+    top_risk_display[col] = pd.to_numeric(top_risk_display[col], errors="coerce")
     
 bar_chart = alt.Chart(top_risk).mark_bar().encode(
     x=alt.X("dba:N", title="Deal", sort="-y"),
