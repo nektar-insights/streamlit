@@ -215,7 +215,7 @@ risk_df["age_weight"] = risk_df["days_since_funding"] / max_days
 
 # Final weighted risk score
 risk_df["risk_score"] = risk_df["past_due_pct"] * 0.7 + risk_df["age_weight"] * 0.3
-df["Risk Score"] = pd.to_numeric(df["Risk Score"], errors="coerce")
+df["risk_score"] = pd.to_numeric(df["risk_score"], errors="coerce")
 
 # Top 10 by risk score
 top_risk = risk_df.sort_values("risk_score", ascending=False).head(10).copy()
