@@ -21,6 +21,16 @@ def load_deals():
 
 deals_df = load_deals()
 
+# debug
+if "amount" in df.columns:
+    df.rename(columns={"amount": "CSL Participation ($)"}, inplace=True)
+else:
+    df["CSL Participation ($)"] = None  # ensure it exists to prevent downstream KeyError
+    
+st.write("Merged df columns:", df.columns.tolist())
+st.write("Sample rows:", df.head())
+# debug 
+
 # Cleanup
 deals_df["loan_id"] = deals_df["loan_id"].astype(str)
 deals_df = deals_df[deals_df["loan_id"].notna()]
@@ -71,7 +81,6 @@ df = df[(df["funding_date"] >= start_date) & (df["funding_date"] <= end_date)]
 status_category_filter = st.multiselect("status_category Category", df["status_category"].dropna().unique(), default=list(df["status_category"].dropna().unique()))
 df = df[df["status_category"].isin(status_category_filter)]
 
-
 # ----------------------------
 # Metrics Summary
 # ----------------------------
@@ -92,7 +101,6 @@ st.metric("Total Past Due", f"${total_past_due:,.0f}")
 # ----------------------------
 # Loan Tape Display
 # ----------------------------
-
 # Prepare columns for merge
 # Align types for join
 df["deal_number"] = df["deal_number"].astype(str)
