@@ -271,7 +271,7 @@ bar_chart = alt.Chart(top_risk).mark_bar().encode(
 st.altair_chart(bar_chart, use_container_width=True)
 
     # Display styled dataframe - fix the formatting issue
-    styled_df = top_risk_display.style.background_gradient(
+styled_df = top_risk_display.style.background_gradient(
         subset=["Risk Score"], cmap="Reds", axis=None
     ).format({
         "Past Due ($)": "${:,.0f}",
