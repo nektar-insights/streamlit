@@ -189,7 +189,7 @@ top_risk = risk_df.sort_values("risk_score", ascending=False).head(10).copy()
 # Format output table
 top_risk_display = top_risk[[
     "deal_number", "dba", "status_category", "funding_date", "risk_score",
-    "past_due_amount", "current_balance"
+    "past_due_amount", "current_balance", "rtr_balance"
 ]].rename(columns={
     "deal_number": "Loan ID",
     "dba": "Deal",
@@ -197,13 +197,21 @@ top_risk_display = top_risk[[
     "funding_date": "Funded",
     "risk_score": "Risk Score",
     "past_due_amount": "Past Due ($)",
-    "current_balance": "Current Balance ($)"
+    "current_balance": "Current Balance ($)",
+    "rtr_balance": "Remaining to Recover ($)"
 })
 
 # Format currency and score columns
 for col in ["Past Due ($)", "Current Balance ($)", "Remaining to Recover ($)"]:
     top_risk_display[col] = top_risk_display[col].apply(lambda x: f"${x:,.0f}")
 top_risk_display["Risk Score"] = top_risk_display["Risk Score"].apply(lambda x: f"{x:.2f}")
+
+styled_df = top_risk_display.style.background_gradient(
+    subset=["Risk Score"],
+    cmap="Reds",
+    vmin=0,
+    vmax=1  # assuming your scores fall in that range
+)
 
 # Display
 st.dataframe(top_risk_display, use_container_width=True)
@@ -255,5 +263,13 @@ st.download_button(
     label="📄 Download Loan Tape as CSV",
     data=csv,
     file_name="loan_tape.csv",
+    mime="text/csv"
+)
+
+csv_risk = top_risk_display.to_csv(index=False).encode("utf-8")
+st.download_button(
+    label="📄 Download Top 10 Risk Deals as CSV",
+    data=csv_risk,
+    file_name="top_risk_deals.csv",
     mime="text/csv"
 )
