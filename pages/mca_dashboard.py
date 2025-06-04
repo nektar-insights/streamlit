@@ -92,15 +92,19 @@ st.metric("Total Past Due", f"${total_past_due:,.0f}")
 # Loan Tape Display
 # ----------------------------
 
-# Make sure deal_number is str for join
 # Ensure types match before merge
 df["loan_id"] = df["loan_id"].astype(str)
 deals_df["loan_id"] = deals_df["loan_id"].astype(str)
+deals_df = deals_df[deals_df["loan_id"].notna()]
 
-df = df.merge(deals_df[["loan_id", "amount"]], on="loan_id", how="left")
-df.rename(columns={"amount": "CSL Participation ($)"}, inplace=True)
+# Join MCA data with HubSpot participation data
+df = df.merge(
+    deals_df[["loan_id", "amount"]].rename(columns={"amount": "Our Capital ($)"}),
+    on="loan_id",
+    how="left"
+)
 
-# Display columns
+# Select display columns
 loan_tape = df[[
     "deal_number", "dba", "funding_date", "status_category",
     "past_due_amount", "past_due_pct", "performance_ratio",
@@ -126,6 +130,7 @@ loan_tape["Past Due ($)"] = loan_tape["Past Due ($)"].apply(lambda x: f"${x:,.0f
 loan_tape["Remaining to Recover ($)"] = loan_tape["Remaining to Recover ($)"].apply(lambda x: f"${x:,.0f}")
 loan_tape["Our Capital ($)"] = loan_tape["Our Capital ($)"].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "-")
 
+# Display
 st.subheader("📋 Loan Tape")
 st.dataframe(loan_tape, use_container_width=True)
 
