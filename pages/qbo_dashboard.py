@@ -141,7 +141,11 @@ st.altair_chart(payment_trend, use_container_width=True)
 # -------------------------
 from numpy import busday_count
 
-first_day = gl_df["date"].min().date()
+if "date" in gl_df.columns:
+    first_day = pd.to_datetime(gl_df["date"], errors="coerce").min().date()
+else:
+    first_day = pd.Timestamp.today().date()  # fallback to avoid crash
+    
 today = pd.Timestamp.today().date()
 working_days = busday_count(first_day, today)
 
