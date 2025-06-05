@@ -25,7 +25,7 @@ def load_mca_deals():
 df = load_mca_deals()
 combined_df = combine_deals()
 st.dataframe(combined_df)
-combined_df.rename(columns={"amount_hubspot": "CSL Participation"}, inplace=True)
+combined_df.rename(columns={"amount_hubspot": "csl_participation"}, inplace=True)
 
 # Filter and type conversion
 df = df[df["status_category"] != "Canceled"]
@@ -65,7 +65,7 @@ if "All" not in status_category_filter:
 st.title("MCA Deals Dashboard")
 
 # Participation calc
-combined_df["participation_ratio"] = combined_df["CSL Participation"] / combined_df["total_funded_amount"].replace(0, pd.NA)
+combined_df["participation_ratio"] = combined_df["csl_participation"] / combined_df["total_funded_amount"].replace(0, pd.NA)
 combined_df["csl_past_due"] = combined_df["participation_ratio"] * combined_df["past_due_amount"]
 combined_df["remaining_balance"] = combined_df["receivables_amount"] - combined_df["payments_made"]
 combined_df["csl_principal_at_risk"] = combined_df["participation_ratio"] * combined_df["remaining_balance"]
@@ -74,7 +74,7 @@ combined_df["csl_principal_at_risk"] = combined_df["participation_ratio"] * comb
 total_deals = len(df)
 total_funded = df["purchase_price"].sum()
 total_past_due = df["past_due_amount"].sum()
-csl_capital_deployed = combined_df["amount"].sum()
+csl_capital_deployed = combined_df["csl_participation"].sum()
 total_csl_past_due = combined_df["csl_past_due"].sum()
 total_csl_at_risk = combined_df["csl_principal_at_risk"].sum()
 
