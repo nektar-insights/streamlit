@@ -25,7 +25,6 @@ def load_mca_deals():
     return pd.DataFrame(res.data)
 
 # Use combined dataframe as the single source of truth
-combined_df = combine_deals()
 df = combine_deals()
 
 # Filter out Canceled deals completely
@@ -86,9 +85,9 @@ start_date, end_date = st.date_input(
 df = df[(df["funding_date"] >= start_date) & (df["funding_date"] <= end_date)]
 
 status_options = ["All"] + list(df["status_category"].dropna().unique())
-status_category_filter = st.multiselect("Status Category", status_options, default=["All"])
-if "All" not in status_category_filter:
-    df = df[df["status_category"].isin(status_category_filter)]
+status_category_filter = st.radio("Status Category", status_options, index=0)
+if status_category_filter != "All":
+    df = df[df["status_category"] == status_category_filter]
 
 # ----------------------------
 # Calculate all metrics
@@ -158,7 +157,7 @@ st.subheader("💰 CSL Investment Overview")
 col7, col8, col9 = st.columns(3)
 col7.metric("Capital Deployed", f"${csl_capital_deployed:,.0f}")
 col8.metric("Past Due Exposure", f"${total_csl_past_due:,.0f}")
-col9.metric("Unpaid CSL Principal (Est.)", f"${total_csl_at_risk:,.0f}")
+col9.metric("Outstanding CSL Principal", f"${total_csl_at_risk:,.0f}")
 
 # CSL Commission Summary
 st.subheader("💼 CSL Commission Summary")
@@ -209,9 +208,14 @@ st.dataframe(
 
 # Distribution of Deal Status (Bar Chart)
 status_category_counts = df["status_category"].fillna("Unknown").value_counts(normalize=True)
+
+# Calculate unpaid CSL Principal by status category
+status_csl_principal = df.groupby(df["status_category"].fillna("Unknown"))["csl_principal_at_risk"].sum()
+
 status_category_chart = pd.DataFrame({
     "status_category": status_category_counts.index.astype(str),
-    "Share": status_category_counts.values
+    "Share": status_category_counts.values,
+    "unpaid_csl_principal": status_csl_principal.reindex(status_category_counts.index).fillna(0).values
 })
 
 bar = alt.Chart(status_category_chart).mark_bar().encode(
@@ -229,7 +233,8 @@ bar = alt.Chart(status_category_chart).mark_bar().encode(
     ),
     tooltip=[
         alt.Tooltip("status_category", title="Status"),
-        alt.Tooltip("Share:Q", title="Share", format=".2%")
+        alt.Tooltip("Share:Q", title="Share", format=".2%"),
+        alt.Tooltip("unpaid_csl_principal:Q", title="Unpaid CSL Principal (Est.)", format="$,.0f")
     ]
 ).properties(
     width=700,
@@ -424,22 +429,3 @@ if len(risk_df) > 0:
         file_name="top_risk_deals.csv",
         mime="text/csv"
     )
-
-# Load MCA deal metadata and filter out canceled
-all_mca_deals = pd.DataFrame(
-    supabase.table("mca_deals")
-    .select("deal_number", "dba", "status", "status_category", "funding_date")
-    .execute()
-    .data
-)
-all_mca_deals["deal_number"] = all_mca_deals["deal_number"].astype(str)
-active_mca_deals = all_mca_deals[all_mca_deals["status_category"] != "Canceled"]
-
-# Find unmatched (not in combined deals)
-matched_deal_ids = combined_df["deal_number"].astype(str).unique()
-unmatched_mca = active_mca_deals[~active_mca_deals["deal_number"].isin(matched_deal_ids)]
-
-# Display alert if relevant
-if not unmatched_mca.empty:
-    with st.expander(f"⚠️ {len(unmatched_mca)} Active MCA deals with no HubSpot match"):
-        st.dataframe(unmatched_mca)
