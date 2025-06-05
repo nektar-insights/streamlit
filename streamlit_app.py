@@ -180,7 +180,7 @@ funded_chart = alt.Chart(monthly_funded).mark_bar(
     x=alt.X("month:T", axis=alt.Axis(labelAngle=0, title="")),
     y=alt.Y("total_funded_amount:Q", 
             title="Total Funded ($)", 
-            axis=alt.Axis(format="$.0s", titlePadding=20, labelPadding=15, tickCount=5)),
+            axis=alt.Axis(format="$.1s", titlePadding=25, labelPadding=20, tickCount=4, labelFontSize=10)),
     tooltip=[alt.Tooltip("total_funded_amount", title="Total Funded", format="$,.0f")]
 )
 
@@ -195,8 +195,11 @@ avg_line = alt.Chart(monthly_funded).mark_rule(
 )
 
 funded_combined = (funded_chart + avg_line).properties(
-    width=700, 
-    height=400
+    width=600, 
+    height=450
+).configure_axis(
+    labelFontSize=10,
+    titleFontSize=12
 )
 
 st.altair_chart(funded_combined, use_container_width=True)
@@ -207,7 +210,7 @@ partner_chart = alt.Chart(monthly_partner).mark_bar(size=45).encode(
     x=alt.X("month:T", title=None, axis=alt.Axis(labelAngle=0)),
     y=alt.Y("count:Q", 
             title="Deal Count", 
-            axis=alt.Axis(titlePadding=20, labelPadding=15, tickCount=5)),
+            axis=alt.Axis(titlePadding=25, labelPadding=20, tickCount=4, labelFontSize=10)),
     color=alt.Color(
         "partner_source:N",
         scale=alt.Scale(range=COLOR_PALETTE),
@@ -218,8 +221,11 @@ partner_chart = alt.Chart(monthly_partner).mark_bar(size=45).encode(
         alt.Tooltip("count", title="Deal Count")
     ]
 ).properties(
-    width=700, 
-    height=400
+    width=600, 
+    height=450
+).configure_axis(
+    labelFontSize=10,
+    titleFontSize=12
 )
 
 st.altair_chart(partner_chart, use_container_width=True)
@@ -235,7 +241,7 @@ amount_chart = alt.Chart(monthly_amount).mark_bar(
     x=alt.X("month:T", axis=alt.Axis(labelAngle=0, title="")),
     y=alt.Y("amount:Q", 
             title="Amount ($)", 
-            axis=alt.Axis(format="$.0s", titlePadding=20, labelPadding=15, tickCount=5)),
+            axis=alt.Axis(format="$.1s", titlePadding=25, labelPadding=20, tickCount=4, labelFontSize=10)),
     tooltip=[alt.Tooltip("amount", title="Amount", format="$,.0f")]
 )
 
@@ -250,8 +256,11 @@ amount_avg_line = alt.Chart(monthly_amount).mark_rule(
 )
 
 amount_combined = (amount_chart + amount_avg_line).properties(
-    width=700, 
-    height=400
+    width=600, 
+    height=450
+).configure_axis(
+    labelFontSize=10,
+    titleFontSize=12
 )
 
 st.altair_chart(amount_combined, use_container_width=True)
