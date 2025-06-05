@@ -67,8 +67,13 @@ st.title("MCA Deals Dashboard")
 # Participation calc
 combined_df["participation_ratio"] = combined_df["csl_participation"] / combined_df["total_funded_amount"].replace(0, pd.NA)
 combined_df["csl_past_due"] = combined_df["participation_ratio"] * combined_df["past_due_amount"]
-combined_df["remaining_balance"] = combined_df["receivables_amount"] - combined_df["payments_made"]
-combined_df["csl_principal_at_risk"] = combined_df["participation_ratio"] * combined_df["remaining_balance"]
+combined_df["principal_remaining_est"] = combined_df.apply(
+    lambda row: row["principal_amount"] if pd.isna(row["payments_made"])
+    else max(row["principal_amount"] - row["payments_made"], 0),
+    axis=1
+)
+
+combined_df["csl_principal_at_risk"] = combined_df["participation_ratio"] * combined_df["principal_remaining_est"]
 
 # Metrics
 total_deals = len(df)
@@ -101,17 +106,24 @@ col8, col9 = st.columns(2)
 col8.metric("Pct. of Outstanding Deals Current", f"{pct_current:.1%}")
 col9.metric("Pct. of Outstanding Deals Not Current", f"{pct_non_current:.1%}")
 
-col10, col11 = st.columns(2)
-col10.metric("Total Funded", f"${total_funded:,.0f}")
-col11.metric("Total Past Due", f"${total_past_due:,.0f}")
+st.subheader("💼 CSL Commission Summary")
+
+# Calculate commission metrics
+combined_df["commission_rate"] = pd.to_numeric(combined_df["commission"], errors="coerce")
+average_commission_pct = combined_df["commission_rate"].mean()
+total_commission_paid = (combined_df["CSL Participation"] * combined_df["commission_rate"]).sum()
+average_commission_on_loan = total_commission_paid / combined_df["CSL Participation"].sum()
+
+col_comm1, col_comm2, col_comm3 = st.columns(3)
+col_comm1.metric("Avg. Commission Rate", f"{average_commission_pct:.2%}")
+col_comm2.metric("Avg. Rate Applied to CSL Participation", f"{average_commission_on_loan:.2%}")
+col_comm3.metric("Total Commission Paid", f"${total_commission_paid:,.0f}")
 
 # ----------------------------
 # Loan Tape Display
 # ----------------------------
-# Merge combined_df into df to grab CSL-specific columns
-df_merged = pd.merge(df, combined_df[["deal_number", "csl_past_due"]], on="deal_number", how="left")
 
-loan_tape = df_merged[[
+loan_tape = combined_df[[
     "deal_number", "dba", "funding_date", "status_category",
     "csl_past_due", "past_due_pct", "performance_ratio",
     "rtr_balance", "performance_details"
