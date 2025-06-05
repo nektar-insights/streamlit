@@ -75,20 +75,12 @@ combined_df["principal_remaining_est"] = combined_df.apply(
 
 combined_df["csl_principal_at_risk"] = combined_df["participation_ratio"] * combined_df["principal_remaining_est"]
 
-# Metrics
+# ----------------------------
+# 🧮 Portfolio Summary
+# ----------------------------
+st.subheader("📊 CSL Portfolio Summary")
+
 total_deals = len(df)
-total_funded = df["purchase_price"].sum()
-total_past_due = df["past_due_amount"].sum()
-csl_capital_deployed = combined_df["csl_participation"].sum()
-total_csl_past_due = combined_df["csl_past_due"].sum()
-total_csl_at_risk = combined_df["csl_principal_at_risk"].sum()
-
-col1, col2, col3 = st.columns(3)
-col1.metric("CSL Capital Deployed", f"${csl_capital_deployed:,.0f}")
-col2.metric("CSL Past Due", f"${total_csl_past_due:,.0f}")
-col3.metric("CSL Principal at Risk", f"${total_csl_at_risk:,.0f}")
-
-# Categorization based on status
 total_matured = (df["status_category"] == "Matured").sum()
 total_current = (df["status_category"] == "Current").sum()
 total_non_current = (df["status_category"] == "Not Current").sum()
@@ -96,28 +88,44 @@ outstanding_total = total_current + total_non_current
 pct_current = total_current / outstanding_total if outstanding_total > 0 else 0
 pct_non_current = total_non_current / outstanding_total if outstanding_total > 0 else 0
 
-col4, col5, col6, col7 = st.columns(4)
-col4.metric("Total Deals", total_deals)
-col5.metric("Total Matured Deals", total_matured)
-col6.metric("Current Deals", total_current)
-col7.metric("Not Current Deals", total_non_current)
+col1, col2, col3 = st.columns(3)
+col1.metric("Total Deals", total_deals)
+col2.metric("Matured Deals", total_matured)
+col3.metric("Current Deals", total_current)
 
-col8, col9 = st.columns(2)
-col8.metric("Pct. of Outstanding Deals Current", f"{pct_current:.1%}")
-col9.metric("Pct. of Outstanding Deals Not Current", f"{pct_non_current:.1%}")
+col4, col5, col6 = st.columns(3)
+col4.metric("Not Current Deals", total_non_current)
+col5.metric("Pct. Outstanding Deals Current", f"{pct_current:.1%}")
+col6.metric("Pct. Outstanding Deals Not Current", f"{pct_non_current:.1%}")
 
+# ----------------------------
+# 💰 CSL Investment Overview
+# ----------------------------
+st.subheader("💰 CSL Investment Overview")
+
+csl_capital_deployed = combined_df["csl_participation"].sum()
+total_csl_past_due = combined_df["csl_past_due"].sum()
+total_csl_at_risk = combined_df["csl_principal_at_risk"].sum()
+
+col7, col8, col9 = st.columns(3)
+col7.metric("Capital Deployed", f"${csl_capital_deployed:,.0f}")
+col8.metric("Past Due Exposure", f"${total_csl_past_due:,.0f}")
+col9.metric("Principal at Risk", f"${total_csl_at_risk:,.0f}")
+
+# ----------------------------
+# 💼 CSL Commission Summary
+# ----------------------------
 st.subheader("💼 CSL Commission Summary")
 
-# Calculate commission metrics
 combined_df["commission_rate"] = pd.to_numeric(combined_df["commission"], errors="coerce")
 average_commission_pct = combined_df["commission_rate"].mean()
 total_commission_paid = (combined_df["csl_participation"] * combined_df["commission_rate"]).sum()
 average_commission_on_loan = total_commission_paid / combined_df["csl_participation"].sum()
 
-col_comm1, col_comm2, col_comm3 = st.columns(3)
-col_comm1.metric("Avg. Commission Rate", f"{average_commission_pct:.2%}")
-col_comm2.metric("Avg. Rate Applied to CSL Participation", f"{average_commission_on_loan:.2%}")
-col_comm3.metric("Total Commission Paid", f"${total_commission_paid:,.0f}")
+col10, col11, col12 = st.columns(3)
+col10.metric("Avg. Commission Rate", f"{average_commission_pct:.2%}")
+col11.metric("Avg. Applied to Participation", f"{average_commission_on_loan:.2%}")
+col12.metric("Total Commission Paid", f"${total_commission_paid:,.0f}")
 
 # ----------------------------
 # Loan Tape Display
