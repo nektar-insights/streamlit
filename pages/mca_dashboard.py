@@ -30,15 +30,14 @@ df = load_mca_deals()
 combined_df = combine_deals()
 
 # Display the df to confirm columns
-# Commented out 
-# st.dataframe(combined_df)
-# combined_df.rename(columns={"amount_hubspot": "csl_participation"}, inplace=True)
-# combined_df["past_due_pct"] = combined_df.apply(
-#     lambda row: row["past_due_amount"] / row["current_balance"]
-#     if pd.notna(row["past_due_amount"]) and pd.notna(row["current_balance"]) and row["current_balance"] > 0
-#     else 0,
-#     axis=1
-# )
+st.dataframe(combined_df)
+combined_df.rename(columns={"amount_hubspot": "csl_participation"}, inplace=True)
+combined_df["past_due_pct"] = combined_df.apply(
+     lambda row: row["past_due_amount"] / row["current_balance"]
+     if pd.notna(row["past_due_amount"]) and pd.notna(row["current_balance"]) and row["current_balance"] > 0
+     else 0,
+     axis=1
+ )
 
 
 # Filter and type conversion
