@@ -23,6 +23,7 @@ def load_mca_deals():
 
 df = load_mca_deals()
 combined_df = combine_deals()
+st.dataframe(combined_df)
 
 # Filter and type conversion
 df = df[df["status_category"] != "Canceled"]
