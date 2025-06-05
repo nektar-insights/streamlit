@@ -23,7 +23,7 @@ df = load_qbo_data()
 df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
 df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
-st.title("QBO Transaction Dashboard")
+st.title("QBO Dashboard")
 
 # -------------------------
 # Loan Performance by Deal
