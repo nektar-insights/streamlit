@@ -1,8 +1,10 @@
 # pages/mca_dashboard.py
+
 import streamlit as st
 import pandas as pd
 import altair as alt
 from supabase import create_client
+from scripts.combine_hubspot_mca import combine_deals
 
 # ----------------------------
 # Supabase connection
@@ -12,47 +14,23 @@ key = st.secrets["supabase"]["service_role"]
 supabase = create_client(url, key)
 
 # ----------------------------
-# Load and prepare data - Hubspot data (COMMENTED OUT)
-# ----------------------------
-# @st.cache_data(ttl=3600)
-# def load_deals():
-#     res = supabase.table("deals").select("*").execute()
-#     return pd.DataFrame(res.data)
-
-# deals_df = load_deals()
-
-# # Cleanup
-# deals_df["loan_id"] = deals_df["loan_id"].astype(str)
-# deals_df = deals_df[deals_df["loan_id"].notna()]
-# deals_df["amount"] = pd.to_numeric(deals_df["amount"], errors="coerce")  # our investment
-
-# ----------------------------
-# Load and prepare data - MCA workforce data
+# Load MCA data
 # ----------------------------
 @st.cache_data(ttl=3600)
 def load_mca_deals():
     res = supabase.table("mca_deals").select("*").execute()
     return pd.DataFrame(res.data)
 
-
 df = load_mca_deals()
+combined_df = combine_deals()
 
-# Filter out Canceled deals
+# Filter and type conversion
 df = df[df["status_category"] != "Canceled"]
-
-# Convert data types
 df["funding_date"] = pd.to_datetime(df["funding_date"], errors="coerce").dt.date
-df["purchase_price"] = pd.to_numeric(df["purchase_price"], errors="coerce")
-df["receivables_amount"] = pd.to_numeric(df["receivables_amount"], errors="coerce")
-df["current_balance"] = pd.to_numeric(df["current_balance"], errors="coerce")
-df["past_due_amount"] = pd.to_numeric(df["past_due_amount"], errors="coerce")
-df["principal_amount"] = pd.to_numeric(df["principal_amount"], errors="coerce")
-df["rtr_balance"] = pd.to_numeric(df["rtr_balance"], errors="coerce")
-
-# Set past_due_amount to 0 for Matured deals
+for col in ["purchase_price", "receivables_amount", "current_balance", "past_due_amount", 
+            "principal_amount", "rtr_balance"]:
+    df[col] = pd.to_numeric(df[col], errors="coerce")
 df.loc[df["status_category"] == "Matured", "past_due_amount"] = 0
-
-# Add derived field for percent past due
 df["past_due_pct"] = df.apply(
     lambda row: row["past_due_amount"] / row["current_balance"]
     if row["current_balance"] and row["past_due_amount"] 
@@ -65,7 +43,6 @@ df["past_due_pct"] = df.apply(
 # ----------------------------
 min_date = df["funding_date"].min()
 max_date = df["funding_date"].max()
-
 start_date, end_date = st.date_input(
     "Filter by Funding Date",
     [min_date, max_date],
@@ -74,134 +51,95 @@ start_date, end_date = st.date_input(
 )
 df = df[(df["funding_date"] >= start_date) & (df["funding_date"] <= end_date)]
 
-# Filter by status category
 status_options = ["All"] + list(df["status_category"].dropna().unique())
-status_category_filter = st.multiselect(
-    "Status Category",
-    status_options,
-    default=["All"]
-)
+status_category_filter = st.multiselect("Status Category", status_options, default=["All"])
 if "All" not in status_category_filter:
     df = df[df["status_category"].isin(status_category_filter)]
-
-# ----------------------------
-# Color Palette for Visualizations
-# ----------------------------
-# Primary color: #34a853 (Professional Green)
-# Professional palette derived from primary
-PRIMARY_COLOR = "#34a853"
-COLOR_PALETTE = [
-    "#34a853",  # Primary green
-    "#2d5a3d",  # Dark green
-    "#4a90e2",  # Professional blue
-    "#6c757d",  # Neutral gray
-    "#495057",  # Dark gray
-    "#28a745",  # Success green
-    "#17a2b8",  # Info blue
-    "#6f42c1",  # Professional purple
-]
-
-# Gradient colors for risk visualization (light to dark)
-RISK_GRADIENT = ["#fef9e7", "#f39c12", "#dc3545"]  # Light yellow -> Orange -> Red
-PERFORMANCE_GRADIENT = ["#e8f5e8", "#34a853", "#1e7e34"]  # Light green -> Green -> Dark green
-
-# Simple single colors for charts
-CHART_COLOR = PRIMARY_COLOR
-RISK_COLOR = "#dc3545"  # Professional red for risk
 
 # ----------------------------
 # Metrics Summary
 # ----------------------------
 st.title("MCA Deals Dashboard")
 
-# ---- Summary Metrics ----
-# Core metrics
+# Participation calc
+combined_df["participation_ratio"] = combined_df["amount"] / combined_df["total_funded_amount"].replace(0, pd.NA)
+combined_df["csl_past_due"] = combined_df["participation_ratio"] * combined_df["past_due_amount"]
+combined_df["remaining_balance"] = combined_df["receivables_amount"] - combined_df["payments_made"]
+combined_df["csl_principal_at_risk"] = combined_df["participation_ratio"] * combined_df["remaining_balance"]
+
+# Metrics
 total_deals = len(df)
 total_funded = df["purchase_price"].sum()
 total_past_due = df["past_due_amount"].sum()
+csl_capital_deployed = combined_df["amount"].sum()
+total_csl_past_due = combined_df["csl_past_due"].sum()
+total_csl_at_risk = combined_df["csl_principal_at_risk"].sum()
+
+col1, col2, col3 = st.columns(3)
+col1.metric("CSL Capital Deployed", f"${csl_capital_deployed:,.0f}")
+col2.metric("CSL Past Due", f"${total_csl_past_due:,.0f}")
+col3.metric("CSL Principal at Risk", f"${total_csl_at_risk:,.0f}")
 
 # Categorization based on status
 total_matured = (df["status_category"] == "Matured").sum()
 total_current = (df["status_category"] == "Current").sum()
 total_non_current = (df["status_category"] == "Not Current").sum()
-
-# For percentage calculations: only consider outstanding deals
 outstanding_total = total_current + total_non_current
 pct_current = total_current / outstanding_total if outstanding_total > 0 else 0
 pct_non_current = total_non_current / outstanding_total if outstanding_total > 0 else 0
 
-# Row 1: Deal counts
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Total Deals", total_deals)
-col2.metric("Total Matured Deals", total_matured)
-col3.metric("Current Deals", total_current)
-col4.metric("Not Current Deals", total_non_current)
+col4, col5, col6, col7 = st.columns(4)
+col4.metric("Total Deals", total_deals)
+col5.metric("Total Matured Deals", total_matured)
+col6.metric("Current Deals", total_current)
+col7.metric("Not Current Deals", total_non_current)
 
-# Row 2: Corrected percentage metrics
-col5, col6 = st.columns(2)
-col5.metric("% of Outstanding Deals Current", f"{pct_current:.1%}")
-col6.metric("% of Outstanding Deals Not Current", f"{pct_non_current:.1%}")
+col8, col9 = st.columns(2)
+col8.metric("Pct. of Outstanding Deals Current", f"{pct_current:.1%}")
+col9.metric("Pct. of Outstanding Deals Not Current", f"{pct_non_current:.1%}")
 
-# Row 3: Dollar values
-col7, col8 = st.columns(2)
-col7.metric("Total Funded", f"${total_funded:,.0f}")
-col8.metric("Total Past Due", f"${total_past_due:,.0f}")
+col10, col11 = st.columns(2)
+col10.metric("Total Funded", f"${total_funded:,.0f}")
+col11.metric("Total Past Due", f"${total_past_due:,.0f}")
 
 # ----------------------------
 # Loan Tape Display
 # ----------------------------
-# Create loan tape display (keep raw numeric data for sorting)
-loan_tape = df[[
+# Merge combined_df into df to grab CSL-specific columns
+df_merged = pd.merge(df, combined_df[["deal_number", "csl_past_due"]], on="deal_number", how="left")
+
+loan_tape = df_merged[[
     "deal_number", "dba", "funding_date", "status_category",
-    "past_due_amount", "past_due_pct", "performance_ratio",
+    "csl_past_due", "past_due_pct", "performance_ratio",
     "rtr_balance", "performance_details"
 ]].copy()
 
-# Rename columns for display
 loan_tape.rename(columns={
     "deal_number": "Loan ID",
     "dba": "Deal",
     "funding_date": "Funding Date",
     "status_category": "Status Category",
-    "past_due_amount": "Past Due ($)",
+    "csl_past_due": "CSL Past Due ($)",
     "past_due_pct": "Past Due %",
     "performance_ratio": "Performance Ratio",
     "rtr_balance": "Remaining to Recover ($)",
     "performance_details": "Performance Notes"
 }, inplace=True)
 
-# Clean up numeric data for proper sorting (do this only once)
 loan_tape["Past Due %"] = pd.to_numeric(loan_tape["Past Due %"], errors='coerce').fillna(0)*100
-loan_tape["Past Due ($)"] = pd.to_numeric(loan_tape["Past Due ($)"], errors='coerce').fillna(0)
+loan_tape["CSL Past Due ($)"] = pd.to_numeric(loan_tape["CSL Past Due ($)"], errors='coerce').fillna(0)
 loan_tape["Remaining to Recover ($)"] = pd.to_numeric(loan_tape["Remaining to Recover ($)"], errors='coerce').fillna(0)
 loan_tape["Performance Ratio"] = pd.to_numeric(loan_tape["Performance Ratio"], errors='coerce').fillna(0)
 
-# Display with both sorting AND formatting
 st.subheader("📋 Loan Tape")
 st.dataframe(
     loan_tape,
     use_container_width=True,
     column_config={
-        "Past Due %": st.column_config.NumberColumn(
-            "Past Due %",
-            format="%.2f",
-            help="Percentage of balance past due"
-        ),
-        "Past Due ($)": st.column_config.NumberColumn(
-            "Past Due ($)",
-            format="$%.0f",
-            help="Dollar amount past due"
-        ),
-        "Remaining to Recover ($)": st.column_config.NumberColumn(
-            "Remaining to Recover ($)",
-            format="$%.0f",
-            help="Remaining balance to recover"
-        ),
-        "Performance Ratio": st.column_config.NumberColumn(
-            "Performance Ratio",
-            format="%.2f",
-            help="Performance ratio"
-        ),
+        "Past Due %": st.column_config.NumberColumn("Past Due %", format="%.2f"),
+        "CSL Past Due ($)": st.column_config.NumberColumn("CSL Past Due ($)", format="$%.0f"),
+        "Remaining to Recover ($)": st.column_config.NumberColumn("Remaining to Recover ($)", format="$%.0f"),
+        "Performance Ratio": st.column_config.NumberColumn("Performance Ratio", format="%.2f"),
     }
 )
 
@@ -244,7 +182,7 @@ bar = alt.Chart(status_category_chart).mark_bar().encode(
 st.altair_chart(bar, use_container_width=True)
 
 # ----------------------------
-# Risk Chart: % of Balance at Risk
+# Risk Chart: Pct. of Balance at Risk
 # ----------------------------
 # Exclude both Current AND Matured deals from risk analysis
 not_current = df[(df["status_category"] != "Current") & (df["status_category"] != "Matured")].copy()
@@ -259,7 +197,7 @@ if len(not_current) > 0:
             sort="-y",
             axis=alt.Axis(labelAngle=-90)
         ),
-        y=alt.Y("at_risk_pct:Q", title="% of Balance at Risk", axis=alt.Axis(format=".0%")),
+        y=alt.Y("at_risk_pct:Q", title="Pct. of Balance at Risk", axis=alt.Axis(format=".0%")),
         color=alt.Color(
             "at_risk_pct:Q",
             scale=alt.Scale(range=RISK_GRADIENT),
