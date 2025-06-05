@@ -60,6 +60,9 @@ df["principal_remaining_est"] = df.apply(
 )
 df["csl_principal_at_risk"] = df["participation_ratio"] * df["principal_remaining_est"]
 
+# Set CSL principal at risk to 0 for Matured deals (they're closed, no remaining principal)
+df.loc[df["status_category"] == "Matured", "csl_principal_at_risk"] = 0
+
 # Set CSL past due to 0 for Current deals
 df.loc[df["status_category"] == "Current", "csl_past_due"] = 0
 
@@ -172,11 +175,38 @@ col12.metric("Total Commission Paid", f"${total_commission_paid:,.0f}")
 
 # Loan Tape Display
 st.subheader("📋 Loan Tape")
+
+# Add sorting options
+sort_options = [
+    "Default", 
+    "Risk Score (High to Low)", 
+    "CSL Past Due (High to Low)",
+    "Past Due % (High to Low)",
+    "Deal Name (A-Z)",
+    "Funding Date (Recent First)"
+]
+sort_choice = st.selectbox("Sort table by:", sort_options)
+
 loan_tape = df[[
     "deal_number", "dba", "funding_date", "status_category",
     "csl_past_due", "past_due_pct", "performance_ratio",
     "rtr_balance", "performance_details"
 ]].copy()
+
+# Apply sorting based on user choice
+if sort_choice == "Risk Score (High to Low)":
+    # Calculate a simple risk score for sorting
+    loan_tape["temp_risk_score"] = loan_tape["past_due_pct"] * 0.7 + (loan_tape["csl_past_due"] / loan_tape["csl_past_due"].max() if loan_tape["csl_past_due"].max() > 0 else 0) * 0.3
+    loan_tape = loan_tape.sort_values("temp_risk_score", ascending=False)
+    loan_tape = loan_tape.drop("temp_risk_score", axis=1)
+elif sort_choice == "CSL Past Due (High to Low)":
+    loan_tape = loan_tape.sort_values("csl_past_due", ascending=False)
+elif sort_choice == "Past Due % (High to Low)":
+    loan_tape = loan_tape.sort_values("past_due_pct", ascending=False)
+elif sort_choice == "Deal Name (A-Z)":
+    loan_tape = loan_tape.sort_values("dba", ascending=True)
+elif sort_choice == "Funding Date (Recent First)":
+    loan_tape = loan_tape.sort_values("funding_date", ascending=False)
 
 loan_tape.rename(columns={
     "deal_number": "Loan ID",
@@ -311,11 +341,31 @@ if len(risk_df) > 0:
 
     st.altair_chart(bar_chart, use_container_width=True)
 
-    # Top 10 Risk table with CSL Past Due
+    # Top 10 Risk table with sorting options
+    st.subheader("📊 Top 10 Risk Table")
+    
+    risk_sort_options = [
+        "Risk Score (High to Low)",
+        "CSL Past Due (High to Low)", 
+        "Current Balance (High to Low)",
+        "Deal Name (A-Z)"
+    ]
+    risk_sort_choice = st.selectbox("Sort risk table by:", risk_sort_options, key="risk_sort")
+    
     top_risk_display = top_risk[[
         "deal_number", "dba", "status_category", "funding_date", "risk_score",
         "csl_past_due", "current_balance"
     ]].copy()
+
+    # Apply sorting
+    if risk_sort_choice == "Risk Score (High to Low)":
+        top_risk_display = top_risk_display.sort_values("risk_score", ascending=False)
+    elif risk_sort_choice == "CSL Past Due (High to Low)":
+        top_risk_display = top_risk_display.sort_values("csl_past_due", ascending=False)
+    elif risk_sort_choice == "Current Balance (High to Low)":
+        top_risk_display = top_risk_display.sort_values("current_balance", ascending=False)
+    elif risk_sort_choice == "Deal Name (A-Z)":
+        top_risk_display = top_risk_display.sort_values("dba", ascending=True)
 
     top_risk_display.rename(columns={
         "deal_number": "Loan ID",
