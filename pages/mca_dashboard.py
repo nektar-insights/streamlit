@@ -425,15 +425,21 @@ if len(risk_df) > 0:
         mime="text/csv"
     )
 
-# Identify unmatched MCA deals
-mca_df = combined_df[["deal_number"]].drop_duplicates()
-all_mca_deals = pd.DataFrame(supabase.table("mca_deals").select("deal_number", "dba", "status", "funding_date").execute().data)
+# Load MCA deal metadata and filter out canceled
+all_mca_deals = pd.DataFrame(
+    supabase.table("mca_deals")
+    .select("deal_number", "dba", "status", "status_category", "funding_date")
+    .execute()
+    .data
+)
 all_mca_deals["deal_number"] = all_mca_deals["deal_number"].astype(str)
+active_mca_deals = all_mca_deals[all_mca_deals["status_category"] != "Canceled"]
 
-# Filter deals that are in mca_deals but NOT in the combined_df
-unmatched_mca = all_mca_deals[~all_mca_deals["deal_number"].isin(mca_df["deal_number"])]
+# Find unmatched (not in combined deals)
+matched_deal_ids = combined_df["deal_number"].astype(str).unique()
+unmatched_mca = active_mca_deals[~active_mca_deals["deal_number"].isin(matched_deal_ids)]
 
-# Display alert if any are missing
+# Display alert if relevant
 if not unmatched_mca.empty:
-    with st.expander(f"⚠️ {len(unmatched_mca)} MCA deals with no HubSpot match"):
+    with st.expander(f"⚠️ {len(unmatched_mca)} Active MCA deals with no HubSpot match"):
         st.dataframe(unmatched_mca)
