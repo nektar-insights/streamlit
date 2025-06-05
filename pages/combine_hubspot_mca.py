@@ -33,3 +33,17 @@ def combine_deals():
     )
 
     return combined
+
+
+
+st.set_page_config(page_title="Combined HubSpot + MCA Deals", layout="wide")
+st.title("🔗 Combined HubSpot + MCA Deals")
+
+with st.spinner("Loading and merging data..."):
+    df = combine_deals()
+
+if df.empty:
+    st.warning("No matching records found.")
+else:
+    st.success(f"{len(df)} matched deals found.")
+    st.dataframe(df)
