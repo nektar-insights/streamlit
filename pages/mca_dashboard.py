@@ -326,17 +326,10 @@ if len(risk_df) > 0:
 
     st.altair_chart(bar_chart, use_container_width=True)
 
-    # Merge with combined_df to get CSL past due data for the table
-    top_risk_with_csl = top_risk.merge(
-        combined_df[["deal_number", "csl_past_due"]], 
-        on="deal_number", 
-        how="left"
-    )
-
-    # Create display table with CSL Past Due instead of overall Past Due
-    top_risk_display = top_risk_with_csl[[
+    # Create display table with proper formatting - use the original fields from top_risk
+    top_risk_display = top_risk[[
         "deal_number", "dba", "status_category", "funding_date", "risk_score",
-        "csl_past_due", "current_balance"
+        "past_due_amount", "current_balance"
     ]].copy()
 
     # Rename columns
@@ -346,28 +339,28 @@ if len(risk_df) > 0:
         "status_category": "Status",
         "funding_date": "Funded",
         "risk_score": "Risk Score",
-        "csl_past_due": "CSL Past Due ($)",
+        "past_due_amount": "Past Due ($)",
         "current_balance": "Current Balance ($)"
     }, inplace=True)
 
     # Clean up numeric data for proper sorting
     top_risk_display["Risk Score"] = top_risk_display["Risk Score"].fillna(0)
-    top_risk_display["CSL Past Due ($)"] = top_risk_display["CSL Past Due ($)"].fillna(0)
+    top_risk_display["Past Due ($)"] = top_risk_display["Past Due ($)"].fillna(0)
     top_risk_display["Current Balance ($)"] = top_risk_display["Current Balance ($)"].fillna(0)
 
     # Ensure all numeric columns are properly typed for sorting
     top_risk_display["Risk Score"] = pd.to_numeric(top_risk_display["Risk Score"], errors="coerce").fillna(0)
-    top_risk_display["CSL Past Due ($)"] = pd.to_numeric(top_risk_display["CSL Past Due ($)"], errors="coerce").fillna(0)
+    top_risk_display["Past Due ($)"] = pd.to_numeric(top_risk_display["Past Due ($)"], errors="coerce").fillna(0)
     top_risk_display["Current Balance ($)"] = pd.to_numeric(top_risk_display["Current Balance ($)"], errors="coerce").fillna(0)
 
     st.dataframe(
         top_risk_display,
         use_container_width=True,
         column_config={
-            "CSL Past Due ($)": st.column_config.NumberColumn(
-                "CSL Past Due ($)",
+            "Past Due ($)": st.column_config.NumberColumn(
+                "Past Due ($)",
                 format="$%.0f",
-                help="CSL portion of past due amount"
+                help="Dollar amount past due"
             ),
             "Current Balance ($)": st.column_config.NumberColumn(
                 "Current Balance ($)",
