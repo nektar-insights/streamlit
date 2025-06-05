@@ -187,13 +187,3 @@ forecast_df = pd.DataFrame({
 })
 forecast_df["Projected Net Burn"] = forecast_df["Projected Net Burn"].map("${:,.2f}".format)
 st.dataframe(forecast_df, use_container_width=True)
-
-# -------------------------
-# Deduplication Strategy Suggestion (not executed)
-# -------------------------
-# UUID hash by date, amount, description, txn_type
-if "dedupe" not in gl_df.columns:
-    gl_df["dedupe"] = gl_df.apply(
-        lambda row: hashlib.md5(f"{row['date']}-{row['amount']}-{row['description']}-{row['txn_type']}".encode()).hexdigest(),
-        axis=1
-    )
