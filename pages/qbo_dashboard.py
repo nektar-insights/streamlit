@@ -119,75 +119,58 @@ ratio_chart = (
 
 st.altair_chart(ratio_chart, use_container_width=True)
 
-# -----------------------------------------
-# 🔁 Cash Flow Summary & Forecast (Hybrid)
-# -----------------------------------------
+# -------------------------
+# Net Cash Flow Forecast
+# -------------------------
+st.subheader("📅 Net Cash Flow Forecast (Projected Change in Cash)")
 
-st.subheader("🧮 Cash Flow Analysis Based on General Ledger + Transactions")
+# Use general ledger for date boundaries (more reliable)
+gl_dates = gl_df["txn_date"].dropna()
+gl_dates = pd.to_datetime(gl_dates, errors="coerce")
+start = gl_dates.min().date()
+end = gl_dates.max().date()
+working_days = busday_count(start, end)
 
-# 1. Working Days from General Ledger
-gl_start = gl_df["txn_date"].min().date()
-gl_end = gl_df["txn_date"].max().date()
-working_days = busday_count(gl_start, gl_end)
+# Sum inflows & outflows from qbo transactions
+inflows_df = df[df["transaction_type"].isin(["Payment", "SalesReceipt", "BankDeposit"])].copy()
+outflows_df = df[df["transaction_type"].isin(["Expense", "Check", "Bill", "VendorCredit"])].copy()
 
-# 2. Total Inflows (Payments)
-inflows = df[df["transaction_type"] == "Payment"].copy()
-inflows_amt = inflows["amount"].abs().sum()
+inflows_df["amount"] = inflows_df["amount"].abs()
+outflows_df["amount"] = outflows_df["amount"].abs()
 
-# 3. Total Outflows (Expenses, Checks, Bills)
-outflows = df[df["transaction_type"].isin(["Expense", "Check", "Bill"])].copy()
-outflows_amt = outflows["amount"].abs().sum()
+total_inflows = inflows_df["amount"].sum()
+total_outflows = outflows_df["amount"].sum()
 
-# 4. Averages
-avg_inflow_day = inflows_amt / working_days if working_days else 0
-avg_outflow_day = outflows_amt / working_days if working_days else 0
+avg_inflow_day = total_inflows / working_days if working_days else 0
+avg_outflow_day = total_outflows / working_days if working_days else 0
 
 avg_inflow_week = avg_inflow_day * 5
 avg_outflow_week = avg_outflow_day * 5
-
 avg_inflow_month = avg_inflow_day * 21
 avg_outflow_month = avg_outflow_day * 21
 
-net_burn_day = avg_outflow_day - avg_inflow_day
+net_cash_gain_per_day = avg_inflow_day - avg_outflow_day
 
-# 5. Display
 st.markdown(f"""
 - **Working Days:** {working_days}  
-- **Total Inflows:** ${inflows_amt:,.2f}  
-- **Total Outflows:** ${outflows_amt:,.2f}  
+- **Total Inflows:** ${total_inflows:,.2f}  
+- **Total Outflows:** ${total_outflows:,.2f}  
 - **Avg Inflow/Day:** ${avg_inflow_day:,.2f}  
 - **Avg Outflow/Day:** ${avg_outflow_day:,.2f}  
 - **Avg Inflow/Week:** ${avg_inflow_week:,.2f}  
 - **Avg Outflow/Week:** ${avg_outflow_week:,.2f}  
 - **Avg Inflow/Month:** ${avg_inflow_month:,.2f}  
-- **Avg Outflow/Month:** ${avg_outflow_month:,.2f}
+- **Avg Outflow/Month:** ${avg_outflow_month:,.2f}  
+- **Net Cash Change/Day:** ${net_cash_gain_per_day:,.2f}
 """)
 
-# 6. Forecast Net Burn
-st.subheader("📉 Net Burn Forecast")
+# Forecast over next 30/60/90 days
 forecast_days = [30, 60, 90]
 forecast_df = pd.DataFrame({
-    "Days": forecast_days,
-    "Net Burn ($)": [f"${day * net_burn_day:,.2f}" for day in forecast_days]
+    "Forecast Horizon (Days)": forecast_days,
+    "Projected Net Change ($)": [
+        f"${day * net_cash_gain_per_day:,.2f}" for day in forecast_days
+    ]
 })
+
 st.dataframe(forecast_df, use_container_width=True)
-
-# 7. Net Burn Visualization
-st.subheader("📊 Net Cash Flow Breakdown")
-
-burn_chart = pd.DataFrame({
-    "Category": ["Inflows", "Outflows", "Net Burn"],
-    "Amount": [inflows_amt, outflows_amt, outflows_amt - inflows_amt]
-})
-
-bar = alt.Chart(burn_chart).mark_bar().encode(
-    x="Category:N",
-    y=alt.Y("Amount:Q", title="Total ($)", axis=alt.Axis(format="$,.0f")),
-    color=alt.Color("Category:N", scale=alt.Scale(
-        domain=["Inflows", "Outflows", "Net Burn"],
-        range=["#34a853", "#ea4335", "#fbbc04"]
-    )),
-    tooltip=["Category", alt.Tooltip("Amount", format="$,.2f")]
-).properties(width=700, height=300)
-
-st.altair_chart(bar, use_container_width=True)
