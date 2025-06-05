@@ -119,51 +119,75 @@ ratio_chart = (
 
 st.altair_chart(ratio_chart, use_container_width=True)
 
-# -------------------------
-# Cash Inflow/Outflow Analysis (GL)
-# -------------------------
-gl_df = gl_df.dropna(subset=["amount", "txn_date"])
-gl_df["month"] = gl_df["txn_date"].dt.strftime("%b %Y")
-gl_df["amount"] = pd.to_numeric(gl_df["amount"], errors="coerce")
+# -----------------------------------------
+# 🔁 Cash Flow Summary & Forecast (Hybrid)
+# -----------------------------------------
 
-today = pd.Timestamp.today().normalize()
-start = gl_df["txn_date"].min().normalize()
-working_days = busday_count(start.date(), today.date())
+st.subheader("🧮 Cash Flow Analysis Based on General Ledger + Transactions")
 
-inflows = gl_df[gl_df["debit"] > 0]["amount"].sum()
-outflows = gl_df[gl_df["credit"] > 0]["amount"].sum()
+# 1. Working Days from General Ledger
+gl_start = gl_df["txn_date"].min().date()
+gl_end = gl_df["txn_date"].max().date()
+working_days = busday_count(gl_start, gl_end)
 
-avg_in_day = inflows / working_days if working_days else 0
-avg_out_day = outflows / working_days if working_days else 0
+# 2. Total Inflows (Payments)
+inflows = df[df["transaction_type"] == "Payment"].copy()
+inflows_amt = inflows["amount"].abs().sum()
 
-avg_in_week = avg_in_day * 5
-avg_out_week = avg_out_day * 5
+# 3. Total Outflows (Expenses, Checks, Bills)
+outflows = df[df["transaction_type"].isin(["Expense", "Check", "Bill"])].copy()
+outflows_amt = outflows["amount"].abs().sum()
 
-avg_in_month = avg_in_day * 21
-avg_out_month = avg_out_day * 21
+# 4. Averages
+avg_inflow_day = inflows_amt / working_days if working_days else 0
+avg_outflow_day = outflows_amt / working_days if working_days else 0
 
-st.subheader("\U0001F4C8 Average Cash Flow Based on General Ledger")
+avg_inflow_week = avg_inflow_day * 5
+avg_outflow_week = avg_outflow_day * 5
+
+avg_inflow_month = avg_inflow_day * 21
+avg_outflow_month = avg_outflow_day * 21
+
+net_burn_day = avg_outflow_day - avg_inflow_day
+
+# 5. Display
 st.markdown(f"""
 - **Working Days:** {working_days}  
-- **Total Inflows:** ${inflows:,.2f}  
-- **Total Outflows:** ${outflows:,.2f}  
-- **Avg Inflow/Day:** ${avg_in_day:,.2f}  
-- **Avg Outflow/Day:** ${avg_out_day:,.2f}  
-- **Avg Inflow/Week:** ${avg_in_week:,.2f}  
-- **Avg Outflow/Week:** ${avg_out_week:,.2f}  
-- **Avg Inflow/Month:** ${avg_in_month:,.2f}  
-- **Avg Outflow/Month:** ${avg_out_month:,.2f}
+- **Total Inflows:** ${inflows_amt:,.2f}  
+- **Total Outflows:** ${outflows_amt:,.2f}  
+- **Avg Inflow/Day:** ${avg_inflow_day:,.2f}  
+- **Avg Outflow/Day:** ${avg_outflow_day:,.2f}  
+- **Avg Inflow/Week:** ${avg_inflow_week:,.2f}  
+- **Avg Outflow/Week:** ${avg_outflow_week:,.2f}  
+- **Avg Inflow/Month:** ${avg_inflow_month:,.2f}  
+- **Avg Outflow/Month:** ${avg_outflow_month:,.2f}
 """)
 
-# -------------------------
-# Cash Flow Forecast
-# -------------------------
-st.subheader("\U0001F4C5 Cash Flow Forecast")
-daily_net_inflow = avg_in_day - avg_out_day
-
+# 6. Forecast Net Burn
+st.subheader("📉 Net Burn Forecast")
+forecast_days = [30, 60, 90]
 forecast_df = pd.DataFrame({
-    "Forecast Horizon (Days)": [30, 60, 90],
-    "Projected Net Inflow ($)": [f"${daily_net_inflow * d:,.2f}" for d in [30, 60, 90]]
+    "Days": forecast_days,
+    "Net Burn ($)": [f"${day * net_burn_day:,.2f}" for day in forecast_days]
+})
+st.dataframe(forecast_df, use_container_width=True)
+
+# 7. Net Burn Visualization
+st.subheader("📊 Net Cash Flow Breakdown")
+
+burn_chart = pd.DataFrame({
+    "Category": ["Inflows", "Outflows", "Net Burn"],
+    "Amount": [inflows_amt, outflows_amt, outflows_amt - inflows_amt]
 })
 
-st.dataframe(forecast_df, use_container_width=True)
+bar = alt.Chart(burn_chart).mark_bar().encode(
+    x="Category:N",
+    y=alt.Y("Amount:Q", title="Total ($)", axis=alt.Axis(format="$,.0f")),
+    color=alt.Color("Category:N", scale=alt.Scale(
+        domain=["Inflows", "Outflows", "Net Burn"],
+        range=["#34a853", "#ea4335", "#fbbc04"]
+    )),
+    tooltip=["Category", alt.Tooltip("Amount", format="$,.2f")]
+).properties(width=700, height=300)
+
+st.altair_chart(bar, use_container_width=True)
