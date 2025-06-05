@@ -29,8 +29,7 @@ def load_mca_deals():
 df = load_mca_deals()
 combined_df = combine_deals()
 
-# Display the df to confirm columns
-st.dataframe(combined_df)
+# Remove the combined_df display as requested
 combined_df.rename(columns={"amount_hubspot": "csl_participation"}, inplace=True)
 combined_df["past_due_pct"] = combined_df.apply(
      lambda row: row["past_due_amount"] / row["current_balance"]
@@ -39,9 +38,11 @@ combined_df["past_due_pct"] = combined_df.apply(
      axis=1
  )
 
+# Filter out Canceled deals completely and early
+df = df[df["status_category"] != "Canceled"]
+combined_df = combined_df[combined_df["status_category"] != "Canceled"]
 
 # Filter and type conversion
-df = df[df["status_category"] != "Canceled"]
 df["funding_date"] = pd.to_datetime(df["funding_date"], errors="coerce").dt.date
 for col in ["purchase_price", "receivables_amount", "current_balance", "past_due_amount", 
             "principal_amount", "rtr_balance"]:
@@ -152,6 +153,9 @@ loan_tape = combined_df[[
     "rtr_balance", "performance_details"
 ]].copy()
 
+# Set CSL Past Due to 0 for Current deals
+loan_tape.loc[loan_tape["status_category"] == "Current", "csl_past_due"] = 0
+
 loan_tape.rename(columns={
     "deal_number": "Loan ID",
     "dba": "Deal",
@@ -164,10 +168,10 @@ loan_tape.rename(columns={
     "performance_details": "Performance Notes"
 }, inplace=True)
 
-loan_tape["Past Due %"] = pd.to_numeric(loan_tape["Past Due %"], errors='coerce').fillna(0)*100
-loan_tape["CSL Past Due ($)"] = pd.to_numeric(loan_tape["CSL Past Due ($)"], errors='coerce').fillna(0)
-loan_tape["Remaining to Recover ($)"] = pd.to_numeric(loan_tape["Remaining to Recover ($)"], errors='coerce').fillna(0)
-loan_tape["Performance Ratio"] = pd.to_numeric(loan_tape["Performance Ratio"], errors='coerce').fillna(0)
+loan_tape["Past Due %"] = pd.to_numeric(loan_tape["Past Due %"], errors="coerce").fillna(0)*100
+loan_tape["CSL Past Due ($)"] = pd.to_numeric(loan_tape["CSL Past Due ($)"], errors="coerce").fillna(0)
+loan_tape["Remaining to Recover ($)"] = pd.to_numeric(loan_tape["Remaining to Recover ($)"], errors="coerce").fillna(0)
+loan_tape["Performance Ratio"] = pd.to_numeric(loan_tape["Performance Ratio"], errors="coerce").fillna(0)
 
 st.subheader("📋 Loan Tape")
 st.dataframe(
@@ -230,8 +234,8 @@ not_current = not_current[not_current["at_risk_pct"] > 0]
 if len(not_current) > 0:
     risk_chart = alt.Chart(not_current).mark_bar().encode(
         x=alt.X(
-            "dba:N",
-            title="Deal",
+            "deal_number:N",
+            title="Loan ID",
             sort="-y",
             axis=alt.Axis(labelAngle=-90)
         ),
@@ -242,8 +246,8 @@ if len(not_current) > 0:
             legend=alt.Legend(title="Risk Level")
         ),
         tooltip=[
-            alt.Tooltip("dba:N", title="Deal"),
             alt.Tooltip("deal_number:N", title="Loan ID"),
+            alt.Tooltip("dba:N", title="Deal Name"),
             alt.Tooltip("past_due_amount:Q", title="Past Due ($)", format="$,.0f"),
             alt.Tooltip("current_balance:Q", title="Current Balance ($)", format="$,.0f"),
             alt.Tooltip("at_risk_pct:Q", title="% at Risk", format=".2%")
@@ -291,11 +295,11 @@ if len(risk_df) > 0:
     # Top 10 by risk score
     top_risk = risk_df.sort_values("risk_score", ascending=False).head(10).copy()
 
-    # Risk score bar chart with gradient and FORMATTED tooltips
+    # Risk score bar chart with Loan ID on x-axis and name in tooltip
     bar_chart = alt.Chart(top_risk).mark_bar().encode(
         x=alt.X(
-            "dba:N",
-            title="Deal",
+            "deal_number:N",
+            title="Loan ID",
             sort="-y",
             axis=alt.Axis(labelAngle=-90)
         ),
@@ -307,6 +311,7 @@ if len(risk_df) > 0:
         ),
         tooltip=[
             alt.Tooltip("deal_number:N", title="Loan ID"),
+            alt.Tooltip("dba:N", title="Deal Name"),
             alt.Tooltip("status_category:N", title="Status Category"),
             alt.Tooltip("funding_date:T", title="Funding Date"),
             alt.Tooltip("past_due_amount:Q", title="Past Due Amount", format="$,.0f"),
@@ -321,10 +326,17 @@ if len(risk_df) > 0:
 
     st.altair_chart(bar_chart, use_container_width=True)
 
-    # Create display table with proper formatting
-    top_risk_display = top_risk[[
+    # Merge with combined_df to get CSL past due data for the table
+    top_risk_with_csl = top_risk.merge(
+        combined_df[["deal_number", "csl_past_due"]], 
+        on="deal_number", 
+        how="left"
+    )
+
+    # Create display table with CSL Past Due instead of overall Past Due
+    top_risk_display = top_risk_with_csl[[
         "deal_number", "dba", "status_category", "funding_date", "risk_score",
-        "past_due_amount", "current_balance"
+        "csl_past_due", "current_balance"
     ]].copy()
 
     # Rename columns
@@ -334,28 +346,28 @@ if len(risk_df) > 0:
         "status_category": "Status",
         "funding_date": "Funded",
         "risk_score": "Risk Score",
-        "past_due_amount": "Past Due ($)",
+        "csl_past_due": "CSL Past Due ($)",
         "current_balance": "Current Balance ($)"
     }, inplace=True)
 
     # Clean up numeric data for proper sorting
     top_risk_display["Risk Score"] = top_risk_display["Risk Score"].fillna(0)
-    top_risk_display["Past Due ($)"] = top_risk_display["Past Due ($)"].fillna(0)
+    top_risk_display["CSL Past Due ($)"] = top_risk_display["CSL Past Due ($)"].fillna(0)
     top_risk_display["Current Balance ($)"] = top_risk_display["Current Balance ($)"].fillna(0)
 
     # Ensure all numeric columns are properly typed for sorting
-    top_risk_display["Risk Score"] = pd.to_numeric(top_risk_display["Risk Score"], errors='coerce').fillna(0)
-    top_risk_display["Past Due ($)"] = pd.to_numeric(top_risk_display["Past Due ($)"], errors='coerce').fillna(0)
-    top_risk_display["Current Balance ($)"] = pd.to_numeric(top_risk_display["Current Balance ($)"], errors='coerce').fillna(0)
+    top_risk_display["Risk Score"] = pd.to_numeric(top_risk_display["Risk Score"], errors="coerce").fillna(0)
+    top_risk_display["CSL Past Due ($)"] = pd.to_numeric(top_risk_display["CSL Past Due ($)"], errors="coerce").fillna(0)
+    top_risk_display["Current Balance ($)"] = pd.to_numeric(top_risk_display["Current Balance ($)"], errors="coerce").fillna(0)
 
     st.dataframe(
         top_risk_display,
         use_container_width=True,
         column_config={
-            "Past Due ($)": st.column_config.NumberColumn(
-                "Past Due ($)",
+            "CSL Past Due ($)": st.column_config.NumberColumn(
+                "CSL Past Due ($)",
                 format="$%.0f",
-                help="Dollar amount past due"
+                help="CSL portion of past due amount"
             ),
             "Current Balance ($)": st.column_config.NumberColumn(
                 "Current Balance ($)",
@@ -383,7 +395,8 @@ if len(risk_df) > 0:
             title="Risk Score"
         ),
         tooltip=[
-            alt.Tooltip("dba:N", title="Deal"),
+            alt.Tooltip("deal_number:N", title="Loan ID"),
+            alt.Tooltip("dba:N", title="Deal Name"),
             alt.Tooltip("status_category:N", title="Status"),
             alt.Tooltip("funding_date:T", title="Funded"),
             alt.Tooltip("risk_score:Q", title="Risk Score", format=".2f"),
