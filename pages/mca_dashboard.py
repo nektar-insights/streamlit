@@ -423,3 +423,16 @@ if len(risk_df) > 0:
         file_name="top_risk_deals.csv",
         mime="text/csv"
     )
+
+# Identify unmatched MCA deals
+mca_df = combined_df[["deal_number"]].drop_duplicates()
+all_mca_deals = pd.DataFrame(supabase.table("mca_deals").select("deal_number", "dba", "status", "funding_date").execute().data)
+all_mca_deals["deal_number"] = all_mca_deals["deal_number"].astype(str)
+
+# Filter deals that are in mca_deals but NOT in the combined_df
+unmatched_mca = all_mca_deals[~all_mca_deals["deal_number"].isin(mca_df["deal_number"])]
+
+# Display alert if any are missing
+if not unmatched_mca.empty:
+    with st.expander(f"⚠️ {len(unmatched_mca)} MCA deals with no HubSpot match"):
+        st.dataframe(unmatched_mca)
