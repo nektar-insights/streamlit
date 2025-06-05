@@ -185,7 +185,7 @@ sort_options = [
     "Deal Name (A-Z)",
     "Funding Date (Recent First)"
 ]
-sort_choice = st.selectbox("Sort table by:", sort_options)
+sort_choice = st.radio("Sort table by:", sort_options, horizontal=True)
 
 loan_tape = df[[
     "deal_number", "dba", "funding_date", "status_category",
@@ -350,7 +350,7 @@ if len(risk_df) > 0:
         "Current Balance (High to Low)",
         "Deal Name (A-Z)"
     ]
-    risk_sort_choice = st.selectbox("Sort risk table by:", risk_sort_options, key="risk_sort")
+    risk_sort_choice = st.radio("Sort risk table by:", risk_sort_options, horizontal=True, key="risk_sort")
     
     top_risk_display = top_risk[[
         "deal_number", "dba", "status_category", "funding_date", "risk_score",
