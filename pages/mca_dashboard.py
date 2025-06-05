@@ -158,7 +158,7 @@ st.subheader("💰 CSL Investment Overview")
 col7, col8, col9 = st.columns(3)
 col7.metric("Capital Deployed", f"${csl_capital_deployed:,.0f}")
 col8.metric("Past Due Exposure", f"${total_csl_past_due:,.0f}")
-col9.metric("Outstanding CSL Principal", f"${total_csl_at_risk:,.0f}")
+col9.metric("Unpaid CSL Principal (Est.)", f"${total_csl_at_risk:,.0f}")
 
 # CSL Commission Summary
 st.subheader("💼 CSL Commission Summary")
