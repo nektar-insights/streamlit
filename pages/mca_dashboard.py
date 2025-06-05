@@ -3,6 +3,7 @@
 import streamlit as st
 import pandas as pd
 import altair as alt
+PERFORMANCE_GRADIENT = ["#e8f5e8", "#34a853", "#1e7e34"]  # Light green → Mid → Dark green
 from supabase import create_client
 from scripts.combine_hubspot_mca import combine_deals
 
