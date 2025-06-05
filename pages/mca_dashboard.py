@@ -111,8 +111,8 @@ st.subheader("💼 CSL Commission Summary")
 # Calculate commission metrics
 combined_df["commission_rate"] = pd.to_numeric(combined_df["commission"], errors="coerce")
 average_commission_pct = combined_df["commission_rate"].mean()
-total_commission_paid = (combined_df["CSL Participation"] * combined_df["commission_rate"]).sum()
-average_commission_on_loan = total_commission_paid / combined_df["CSL Participation"].sum()
+total_commission_paid = (combined_df["csl_participation"] * combined_df["commission_rate"]).sum()
+average_commission_on_loan = total_commission_paid / combined_df["csl_participation"].sum()
 
 col_comm1, col_comm2, col_comm3 = st.columns(3)
 col_comm1.metric("Avg. Commission Rate", f"{average_commission_pct:.2%}")
