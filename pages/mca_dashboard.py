@@ -25,6 +25,7 @@ def load_mca_deals():
     return pd.DataFrame(res.data)
 
 # Use combined dataframe as the single source of truth
+combined_df = combine_deals()
 df = combine_deals()
 
 # Filter out Canceled deals completely
