@@ -4,8 +4,12 @@ import pandas as pd
 from supabase import create_client
 import os
 
-# Setup Supabase
-supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
+# -------------------------
+# Setup: Supabase Connection
+# -------------------------
+url = st.secrets["supabase"]["url"]
+key = st.secrets["supabase"]["service_role"]
+supabase = create_client(url, key)
 
 def fetch_table(table_name):
     return pd.DataFrame(supabase.table(table_name).select("*").execute().data)
