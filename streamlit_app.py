@@ -182,11 +182,6 @@ funded_chart = alt.Chart(monthly_funded).mark_bar(
             title="Total Funded ($)", 
             axis=alt.Axis(format="$.0s", titlePadding=20, labelPadding=15, tickCount=5)),
     tooltip=[alt.Tooltip("total_funded_amount", title="Total Funded", format="$,.0f")]
-).properties(
-    width=700, 
-    height=400
-).resolve_scale(
-    y='independent'
 )
 
 # Add average line
@@ -199,7 +194,12 @@ avg_line = alt.Chart(monthly_funded).mark_rule(
     y=alt.Y("mean(total_funded_amount):Q")
 )
 
-st.altair_chart(funded_chart + avg_line, use_container_width=True)
+funded_combined = (funded_chart + avg_line).properties(
+    width=700, 
+    height=400
+)
+
+st.altair_chart(funded_combined, use_container_width=True)
 
 # Deals per Month by Partner Source
 st.subheader("🤝 Deals per Month by Partner Source")
@@ -237,11 +237,6 @@ amount_chart = alt.Chart(monthly_amount).mark_bar(
             title="Amount ($)", 
             axis=alt.Axis(format="$.0s", titlePadding=20, labelPadding=15, tickCount=5)),
     tooltip=[alt.Tooltip("amount", title="Amount", format="$,.0f")]
-).properties(
-    width=700, 
-    height=400
-).resolve_scale(
-    y='independent'
 )
 
 # Add average line
@@ -254,7 +249,12 @@ amount_avg_line = alt.Chart(monthly_amount).mark_rule(
     y=alt.Y("mean(amount):Q")
 )
 
-st.altair_chart(amount_chart + amount_avg_line, use_container_width=True)
+amount_combined = (amount_chart + amount_avg_line).properties(
+    width=700, 
+    height=400
+)
+
+st.altair_chart(amount_combined, use_container_width=True)
 
 # ----------------------------
 # Partner Summary Table
