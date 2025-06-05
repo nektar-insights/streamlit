@@ -25,9 +25,11 @@ def load_qbo_data():
 df, gl_df = load_qbo_data()
 
 # Preprocess Transactions
-for d in [df, gl_df]:
-    d["amount"] = pd.to_numeric(d["amount"], errors="coerce")
-    d["date"] = pd.to_datetime(d["date"], errors="coerce")
+df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
+df["date"] = pd.to_datetime(df["date"], errors="coerce")
+
+gl_df["amount"] = pd.to_numeric(gl_df["amount"], errors="coerce")
+gl_df["txn_date"] = pd.to_datetime(gl_df["txn_date"], errors="coerce")
 
 st.title("QBO Dashboard")
 
