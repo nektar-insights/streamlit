@@ -178,11 +178,15 @@ funded_chart = alt.Chart(monthly_funded).mark_bar(
     color=PRIMARY_COLOR
 ).encode(
     x=alt.X("month:T", axis=alt.Axis(labelAngle=0, title="")),
-    y=alt.Y("total_funded_amount:Q", title="Total Funded ($)", axis=alt.Axis(format="$,.0s", titlePadding=15, labelPadding=10)),
+    y=alt.Y("total_funded_amount:Q", 
+            title="Total Funded ($)", 
+            axis=alt.Axis(format="$.0s", titlePadding=20, labelPadding=15, tickCount=5)),
     tooltip=[alt.Tooltip("total_funded_amount", title="Total Funded", format="$,.0f")]
 ).properties(
-    width=850, 
-    height=350
+    width=700, 
+    height=400
+).resolve_scale(
+    y='independent'
 )
 
 # Add average line
@@ -201,7 +205,9 @@ st.altair_chart(funded_chart + avg_line, use_container_width=True)
 st.subheader("🤝 Deals per Month by Partner Source")
 partner_chart = alt.Chart(monthly_partner).mark_bar(size=45).encode(
     x=alt.X("month:T", title=None, axis=alt.Axis(labelAngle=0)),
-    y=alt.Y("count:Q", title="Deal Count", axis=alt.Axis(titlePadding=15, labelPadding=10)),
+    y=alt.Y("count:Q", 
+            title="Deal Count", 
+            axis=alt.Axis(titlePadding=20, labelPadding=15, tickCount=5)),
     color=alt.Color(
         "partner_source:N",
         scale=alt.Scale(range=COLOR_PALETTE),
@@ -212,7 +218,7 @@ partner_chart = alt.Chart(monthly_partner).mark_bar(size=45).encode(
         alt.Tooltip("count", title="Deal Count")
     ]
 ).properties(
-    width=850, 
+    width=700, 
     height=400
 )
 
@@ -227,11 +233,15 @@ amount_chart = alt.Chart(monthly_amount).mark_bar(
     color=bar_color
 ).encode(
     x=alt.X("month:T", axis=alt.Axis(labelAngle=0, title="")),
-    y=alt.Y("amount:Q", title="Amount ($)", axis=alt.Axis(format="$,.0s", titlePadding=15, labelPadding=10)),
+    y=alt.Y("amount:Q", 
+            title="Amount ($)", 
+            axis=alt.Axis(format="$.0s", titlePadding=20, labelPadding=15, tickCount=5)),
     tooltip=[alt.Tooltip("amount", title="Amount", format="$,.0f")]
 ).properties(
-    width=850, 
-    height=350
+    width=700, 
+    height=400
+).resolve_scale(
+    y='independent'
 )
 
 # Add average line
