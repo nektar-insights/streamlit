@@ -26,6 +26,13 @@ df = load_mca_deals()
 combined_df = combine_deals()
 st.dataframe(combined_df)
 combined_df.rename(columns={"amount_hubspot": "csl_participation"}, inplace=True)
+combined_df["past_due_pct"] = combined_df.apply(
+    lambda row: row["past_due_amount"] / row["current_balance"]
+    if pd.notna(row["past_due_amount"]) and pd.notna(row["current_balance"]) and row["current_balance"] > 0
+    else 0,
+    axis=1
+)
+
 
 # Filter and type conversion
 df = df[df["status_category"] != "Canceled"]
@@ -87,6 +94,8 @@ total_non_current = (df["status_category"] == "Not Current").sum()
 outstanding_total = total_current + total_non_current
 pct_current = total_current / outstanding_total if outstanding_total > 0 else 0
 pct_non_current = total_non_current / outstanding_total if outstanding_total > 0 else 0
+at_risk = combined_df[combined_df["status_category"] == "Not Current"]
+true_principal_at_risk = (at_risk["participation_ratio"] * at_risk["principal_remaining_est"]).sum()
 
 col1, col2, col3 = st.columns(3)
 col1.metric("Total Deals", total_deals)
@@ -110,7 +119,7 @@ total_csl_at_risk = combined_df["csl_principal_at_risk"].sum()
 col7, col8, col9 = st.columns(3)
 col7.metric("Capital Deployed", f"${csl_capital_deployed:,.0f}")
 col8.metric("Past Due Exposure", f"${total_csl_past_due:,.0f}")
-col9.metric("Principal at Risk", f"${total_csl_at_risk:,.0f}")
+col9.metric("Outstanding CSL Principal", f"${true_principal_at_risk:,.0f}")
 
 # ----------------------------
 # 💼 CSL Commission Summary
