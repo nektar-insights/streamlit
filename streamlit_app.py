@@ -166,6 +166,102 @@ partner_summary = all_deals.join(won_deals, how="left").fillna(0)
 partner_summary["closed_won_pct"] = partner_summary["participated_deals"] / partner_summary["total_deals"]
 partner_summary["avg_participation_pct"] = partner_summary["participated_amount"] / partner_summary["total_won_amount"]
 
+
+# ----------------------------
+# Data type conversions and basic calculations
+# ----------------------------
+df["date_created"] = pd.to_datetime(df["date_created"], errors="coerce")
+df["month"] = df["date_created"].dt.to_period("M").astype(str)
+df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
+df["total_funded_amount"] = pd.to_numeric(df["total_funded_amount"], errors="coerce")
+df["factor_rate"] = pd.to_numeric(df["factor_rate"], errors="coerce")
+df["loan_term"] = pd.to_numeric(df["loan_term"], errors="coerce")
+df["commission"] = pd.to_numeric(df["commission"], errors="coerce")
+df["loan_id"] = df["loan_id"].astype("string")
+
+# Platform fee rate
+PLATFORM_FEE_RATE = 0.04
+
+# ----------------------------
+# Filters
+# ----------------------------
+st.title("Pipeline Dashboard")
+
+min_date = df["date_created"].min()
+max_date = df["date_created"].max()
+
+start_date, end_date = st.date_input(
+    "Filter by Date Range", 
+    [min_date, max_date], 
+    min_value=min_date, 
+    max_value=max_date
+)
+
+df = df[(df["date_created"] >= pd.to_datetime(start_date)) &
+        (df["date_created"] <= pd.to_datetime(end_date))]
+
+partner_options = sorted(df["partner_source"].dropna().unique())
+all_label = "All Partners"
+partner_options_with_all = [all_label] + partner_options
+
+selected_partner = st.selectbox("Filter by Partner Source", options=partner_options_with_all)
+if selected_partner != all_label:
+    df = df[df["partner_source"] == selected_partner]
+
+participation_options = ["All Deals", "Participated Only", "Not Participated"]
+participation_filter = st.radio("Show Deals", participation_options)
+if participation_filter == "Participated Only":
+    df = df[df["is_closed_won"] == True]
+elif participation_filter == "Not Participated":
+    df = df[df["is_closed_won"] != True]
+
+# ----------------------------
+# Calculate all metrics
+# ----------------------------
+
+# Core deal metrics
+closed_won = df[df["is_closed_won"] == True]
+total_deals = len(df)
+participation_ratio = len(closed_won) / total_deals if total_deals > 0 else 0
+months = df["month"].nunique()
+pacing = len(closed_won) / months if months > 0 else 0
+
+# Deal characteristics
+avg_amount = closed_won["amount"].mean()
+avg_factor = closed_won["factor_rate"].mean()
+avg_term = closed_won["loan_term"].mean()
+avg_participation_pct = (closed_won["amount"] / closed_won["total_funded_amount"]).mean()
+avg_commission = closed_won["commission"].mean()
+
+# Financial calculations
+total_capital_deployed = closed_won["amount"].sum()
+total_commissions_paid = (closed_won["amount"] * closed_won["commission"]).sum()
+total_platform_fee = total_capital_deployed * PLATFORM_FEE_RATE
+total_expected_return = (closed_won["amount"] * closed_won["factor_rate"]) - closed_won["commission"] - (closed_won["amount"] * PLATFORM_FEE_RATE)
+total_expected_return_sum = total_expected_return.sum()
+moic = total_expected_return_sum / total_capital_deployed if total_capital_deployed > 0 else 0
+projected_irr = (moic ** (12 / avg_term) - 1) if avg_term > 0 else 0
+
+# Monthly aggregations for charts
+monthly_funded = df.groupby("month")["total_funded_amount"].sum().round(0).reset_index()
+monthly_partner = df.groupby(["month", "partner_source"]).size().reset_index(name="count")
+monthly_amount = df.groupby("month")["amount"].sum().round(0).reset_index()
+
+# Partner summary calculations
+all_deals = df.groupby("partner_source").agg(
+    total_deals=("id", "count"),
+    total_amount=("total_funded_amount", "sum")
+)
+won_deals = closed_won.groupby("partner_source").agg(
+    participated_deals=("id", "count"),
+    participated_amount=("amount", "sum"),
+    total_won_amount=("total_funded_amount", "sum")
+)
+
+partner_summary = all_deals.join(won_deals, how="left").fillna(0)
+partner_summary["closed_won_pct"] = partner_summary["participated_deals"] / partner_summary["total_deals"]
+partner_summary["avg_participation_pct"] = partner_summary["participated_amount"] / partner_summary["total_won_amount"]
+
 # ----------------------------
 # Display metrics sections
 # ----------------------------
