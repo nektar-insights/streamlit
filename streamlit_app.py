@@ -158,8 +158,22 @@ st.altair_chart(flow_chart, use_container_width=True)
 st.altair_chart(funded_chart, use_container_width=True)
 
 # ----------------------------
+# Monthly Aggregations (Post-Filter)
+# ----------------------------
+monthly_funded = df.groupby("month")["total_funded_amount"].sum().reset_index()
+monthly_deals = df.groupby("month").size().reset_index(name="deal_count")
+monthly_amount = df.groupby("month")["amount"].sum().reset_index()
+
+df["is_participated"] = df["is_closed_won"] == True
+participation_trend = df.groupby(["month", "is_participated"]).agg(
+    deal_count=("id", "count"),
+    total_amount=("amount", "sum")
+).reset_index()
+
+# ----------------------------
 # Partner Summary Table
 # ----------------------------
+
 all_deals = df.groupby("partner_source").agg(
     total_deals=("id", "count"),
     total_amount=("total_funded_amount", "sum")
