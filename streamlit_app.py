@@ -180,8 +180,18 @@ def create_pdf_from_html(html: str):
     return result.getvalue()
 
 csv = summary_display.to_csv(index=False).encode("utf-8")
-st.download_button("\ud83d\udcc5 Download Partner Summary as CSV", data=csv, file_name="partner_summary.csv", mime="text/csv")
+st.download_button(
+    label="Download Partner Summary as CSV",  # Removed emoji to avoid Unicode error
+    data=csv,
+    file_name="partner_summary.csv",
+    mime="text/csv"
+)
 
 html = summary_display.to_html(index=False)
 pdf = create_pdf_from_html(html)
-st.download_button("\ud83d\udcc4 Download Partner Summary as PDF", data=pdf, file_name="partner_summary.pdf", mime="application/pdf")
+st.download_button(
+    label="Download Partner Summary as PDF",  # Removed emoji to avoid Unicode error
+    data=pdf,
+    file_name="partner_summary.pdf",
+    mime="application/pdf"
+)
