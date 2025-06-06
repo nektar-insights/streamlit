@@ -103,12 +103,17 @@ total_expected_return_sum = total_expected_return.sum()
 moic = total_expected_return_sum / total_capital_deployed if total_capital_deployed > 0 else 0
 projected_irr = (moic ** (12 / avg_term) - 1) if avg_term > 0 else 0
 
-# Rolling deal flow calculations
-periods = [("0–30 Days", 0, 30), ("30–60 Days", 30, 60), ("60–90 Days", 60, 90), ("90–120 Days", 90, 120)]
+# Rolling deal flow calculations - Fixed to look back from today
+periods = [
+    ("0-30 Days", 0, 30), 
+    ("31-60 Days", 31, 60), 
+    ("61-90 Days", 61, 90), 
+    ("91-120 Days", 91, 120)
+]
 flow_data = []
 for label, start, end in periods:
     window = df[(df["date_created"] >= today - pd.Timedelta(days=end)) & 
-                (df["date_created"] < today - pd.Timedelta(days=start))]
+                (df["date_created"] <= today - pd.Timedelta(days=start))]
     flow_data.append({
         "Period": label, 
         "Deals": len(window), 
@@ -150,13 +155,13 @@ partner_summary["avg_participation_pct"] = partner_summary["participated_amount"
 # ----------------------------
 # Display metrics sections
 # ----------------------------
-st.subheader("📊 Deal Overview")
+st.subheader("Deal Overview")
 col1, col2, col3 = st.columns(3)
 col1.metric("Total Deals", total_deals)
 col2.metric("Closed Won", len(closed_won))
 col3.metric("Close Ratio", f"{participation_ratio:.2%}")
 
-st.subheader("💰 Financial Performance")
+st.subheader("Financial Performance")
 col4, col5, col6 = st.columns(3)
 col4.metric("Total Capital Deployed", f"${total_capital_deployed:,.0f}")
 col5.metric("Total Expected Return", f"${total_expected_return_sum:,.0f}")
@@ -167,7 +172,7 @@ col7.metric("Projected IRR", f"{projected_irr:.2%}")
 col8.metric("Avg % of Deal", f"{avg_participation_pct:.2%}")
 col9.metric("Commission Paid", f"${total_commissions_paid:,.0f}")
 
-st.subheader("📋 Deal Characteristics")
+st.subheader("Deal Characteristics")
 col10, col11, col12 = st.columns(3)
 col10.metric("Avg Participation ($)", f"${avg_amount:,.0f}")
 col11.metric("Avg Factor", f"{avg_factor:.2f}")
@@ -176,22 +181,27 @@ col12.metric("Avg Term (mo)", f"{avg_term:.1f}")
 # ----------------------------
 # Rolling Deal Flow
 # ----------------------------
-st.subheader("📈 Rolling Deal Flow Trends")
+st.subheader("Rolling Deal Flow Trends")
 
 # Add change calculations
-flow_df["Deals Δ"] = flow_df["Deals"].diff().fillna(0).astype(int)
-flow_df["Deals %"] = flow_df["Deals"].pct_change().fillna(0).apply(lambda x: f"{x:.1%}")
-flow_df["Total Funded Δ"] = flow_df["Total Funded"].diff().fillna(0).astype(int)
-flow_df["Funded %"] = flow_df["Total Funded"].pct_change().fillna(0).apply(lambda x: f"{x:.1%}")
+flow_df["Deal Change"] = flow_df["Deals"].diff().fillna(0).astype(int)
+flow_df["Deal Change %"] = flow_df["Deals"].pct_change().fillna(0).apply(lambda x: f"{x:.1%}")
+flow_df["Funded Change"] = flow_df["Total Funded"].diff().fillna(0).astype(int)
+flow_df["Funded Change %"] = flow_df["Total Funded"].pct_change().fillna(0).apply(lambda x: f"{x:.1%}")
 
 # Display formatted table
 flow_df_display = flow_df.copy()
-flow_df_display["Total Funded"] = flow_df_display["Total Funded"].apply(lambda x: f"${x:,.0f}")
-flow_df_display["Total Funded Δ"] = flow_df_display["Total Funded Δ"].apply(lambda x: f"${x:,.0f}")
+flow_df_display["Total Funded Display"] = flow_df_display["Total Funded"].apply(lambda x: f"${x:,.0f}")
+flow_df_display["Funded Change Display"] = flow_df_display["Funded Change"].apply(lambda x: f"${x:,.0f}")
 
 st.dataframe(
-    flow_df_display[["Period", "Deals", "Deals Δ", "Deals %", "Total Funded", "Total Funded Δ", "Funded %"]], 
-    use_container_width=True
+    flow_df_display[["Period", "Deals", "Deal Change", "Deal Change %", 
+                     "Total Funded Display", "Funded Change Display", "Funded Change %"]], 
+    use_container_width=True,
+    column_config={
+        "Total Funded Display": "Total Funded",
+        "Funded Change Display": "Funded Change"
+    }
 )
 
 # Rolling flow charts
@@ -202,14 +212,14 @@ flow_chart = alt.Chart(flow_df).mark_bar(
     cornerRadiusTopRight=3
 ).encode(
     x=alt.X("Period:N", 
-            sort=["90–120 Days", "60–90 Days", "30–60 Days", "0–30 Days"],
+            sort=["91-120 Days", "61-90 Days", "31-60 Days", "0-30 Days"],
             axis=alt.Axis(labelAngle=0)),
     y=alt.Y("Deals:Q", title="Deal Count"),
     tooltip=[
         alt.Tooltip("Period", title="Period"),
         alt.Tooltip("Deals", title="Deal Count"),
-        alt.Tooltip("Deals Δ", title="Change"),
-        alt.Tooltip("Deals %", title="% Change")
+        alt.Tooltip("Deal Change", title="Change vs Previous"),
+        alt.Tooltip("Deal Change %", title="Percent Change")
     ]
 ).properties(
     height=350,
@@ -223,7 +233,7 @@ funded_flow_chart = alt.Chart(flow_df).mark_bar(
     cornerRadiusTopRight=3
 ).encode(
     x=alt.X("Period:N", 
-            sort=["90–120 Days", "60–90 Days", "30–60 Days", "0–30 Days"],
+            sort=["91-120 Days", "61-90 Days", "31-60 Days", "0-30 Days"],
             axis=alt.Axis(labelAngle=0)),
     y=alt.Y("Total Funded:Q", 
             title="Total Funded ($)", 
@@ -231,8 +241,8 @@ funded_flow_chart = alt.Chart(flow_df).mark_bar(
     tooltip=[
         alt.Tooltip("Period", title="Period"),
         alt.Tooltip("Total Funded", title="Total Funded", format="$,.0f"),
-        alt.Tooltip("Total Funded Δ", title="Change", format="$,.0f"),
-        alt.Tooltip("Funded %", title="% Change")
+        alt.Tooltip("Funded Change", title="Change vs Previous", format="$,.0f"),
+        alt.Tooltip("Funded Change %", title="Percent Change")
     ]
 ).properties(
     height=350,
@@ -245,7 +255,7 @@ st.altair_chart(funded_flow_chart, use_container_width=True)
 # ----------------------------
 # Monthly trend charts
 # ----------------------------
-st.subheader("📊 Total Funded Amount by Month")
+st.subheader("Total Funded Amount by Month")
 funded_chart = alt.Chart(monthly_funded).mark_bar(
     size=50, 
     color=PRIMARY_COLOR,
@@ -256,7 +266,10 @@ funded_chart = alt.Chart(monthly_funded).mark_bar(
     y=alt.Y("total_funded_amount:Q", 
             title="Total Funded ($)", 
             axis=alt.Axis(format="$.1s", titlePadding=15)),
-    tooltip=[alt.Tooltip("total_funded_amount", title="Total Funded", format="$,.0f")]
+    tooltip=[
+        alt.Tooltip("month", title="Month"),
+        alt.Tooltip("total_funded_amount", title="Total Funded Amount", format="$,.0f")
+    ]
 )
 
 funded_avg = alt.Chart(monthly_funded).mark_rule(
@@ -268,21 +281,23 @@ funded_avg = alt.Chart(monthly_funded).mark_rule(
     y=alt.Y("mean(total_funded_amount):Q")
 )
 
-funded_trend = alt.Chart(monthly_funded).mark_line(
+# Add regression line
+funded_regression = alt.Chart(monthly_funded).mark_line(
     color="#1f77b4", 
-    strokeWidth=3,
-    point=alt.OverlayMarkDef(color="#1f77b4", size=50)
+    strokeWidth=3
+).transform_regression(
+    'month', 'total_funded_amount'
 ).encode(
-    x="month:T",
-    y="total_funded_amount:Q"
+    x='month:T',
+    y='total_funded_amount:Q'
 )
 
 st.altair_chart(
-    (funded_chart + funded_avg + funded_trend).properties(height=400), 
+    (funded_chart + funded_avg + funded_regression).properties(height=400), 
     use_container_width=True
 )
 
-st.subheader("📈 Total Deal Count by Month")
+st.subheader("Total Deal Count by Month")
 deal_chart = alt.Chart(monthly_deals).mark_bar(
     size=50, 
     color=COLOR_PALETTE[2],
@@ -291,7 +306,10 @@ deal_chart = alt.Chart(monthly_deals).mark_bar(
 ).encode(
     x=alt.X("month:T", title="Month", axis=alt.Axis(labelAngle=0)),
     y=alt.Y("deal_count:Q", title="Deal Count"),
-    tooltip=[alt.Tooltip("deal_count", title="Deal Count")]
+    tooltip=[
+        alt.Tooltip("month", title="Month"),
+        alt.Tooltip("deal_count", title="Deal Count")
+    ]
 )
 
 deal_avg = alt.Chart(monthly_deals).mark_rule(
@@ -303,21 +321,23 @@ deal_avg = alt.Chart(monthly_deals).mark_rule(
     y=alt.Y("mean(deal_count):Q")
 )
 
-deal_trend = alt.Chart(monthly_deals).mark_line(
+# Add regression line
+deal_regression = alt.Chart(monthly_deals).mark_line(
     color="#e45756", 
-    strokeWidth=3,
-    point=alt.OverlayMarkDef(color="#e45756", size=50)
+    strokeWidth=3
+).transform_regression(
+    'month', 'deal_count'
 ).encode(
-    x="month:T",
-    y="deal_count:Q"
+    x='month:T',
+    y='deal_count:Q'
 )
 
 st.altair_chart(
-    (deal_chart + deal_avg + deal_trend).properties(height=400), 
+    (deal_chart + deal_avg + deal_regression).properties(height=400), 
     use_container_width=True
 )
 
-st.subheader("🎯 Participation Trends by Month")
+st.subheader("Participation Trends by Month")
 participation_chart = alt.Chart(monthly_participation).mark_bar(
     size=60, 
     color=PRIMARY_COLOR,
@@ -326,7 +346,10 @@ participation_chart = alt.Chart(monthly_participation).mark_bar(
 ).encode(
     x=alt.X("month:T", title="Month", axis=alt.Axis(labelAngle=0)),
     y=alt.Y("deal_count:Q", title="Participated Deals"),
-    tooltip=[alt.Tooltip("deal_count", title="Participated Count")]
+    tooltip=[
+        alt.Tooltip("month", title="Month"),
+        alt.Tooltip("deal_count", title="Participated Count")
+    ]
 )
 
 participation_avg = alt.Chart(monthly_participation).mark_rule(
@@ -338,21 +361,23 @@ participation_avg = alt.Chart(monthly_participation).mark_rule(
     y=alt.Y("mean(deal_count):Q")
 )
 
-participation_trend = alt.Chart(monthly_participation).mark_line(
+# Add regression line
+participation_regression = alt.Chart(monthly_participation).mark_line(
     color="#FF9900", 
-    strokeWidth=3,
-    point=alt.OverlayMarkDef(color="#FF9900", size=50)
+    strokeWidth=3
+).transform_regression(
+    'month', 'deal_count'
 ).encode(
-    x="month:T",
-    y="deal_count:Q"
+    x='month:T',
+    y='deal_count:Q'
 )
 
 st.altair_chart(
-    (participation_chart + participation_avg + participation_trend).properties(height=400), 
+    (participation_chart + participation_avg + participation_regression).properties(height=400), 
     use_container_width=True
 )
 
-st.subheader("💵 Participation Amount by Month")
+st.subheader("Participation Amount by Month")
 amount_chart = alt.Chart(monthly_participation).mark_bar(
     size=60, 
     color=PRIMARY_COLOR,
@@ -363,7 +388,10 @@ amount_chart = alt.Chart(monthly_participation).mark_bar(
     y=alt.Y("total_amount:Q", 
             title="Participation Amount ($)", 
             axis=alt.Axis(format="$.1s", titlePadding=15)),
-    tooltip=[alt.Tooltip("total_amount", title="Amount", format="$,.0f")]
+    tooltip=[
+        alt.Tooltip("month", title="Month"),
+        alt.Tooltip("total_amount", title="Participation Amount", format="$,.0f")
+    ]
 )
 
 amount_avg = alt.Chart(monthly_participation).mark_rule(
@@ -375,21 +403,23 @@ amount_avg = alt.Chart(monthly_participation).mark_rule(
     y=alt.Y("mean(total_amount):Q")
 )
 
-amount_trend = alt.Chart(monthly_participation).mark_line(
+# Add regression line
+amount_regression = alt.Chart(monthly_participation).mark_line(
     color="#17a2b8", 
-    strokeWidth=3,
-    point=alt.OverlayMarkDef(color="#17a2b8", size=50)
+    strokeWidth=3
+).transform_regression(
+    'month', 'total_amount'
 ).encode(
-    x="month:T",
-    y="total_amount:Q"
+    x='month:T',
+    y='total_amount:Q'
 )
 
 st.altair_chart(
-    (amount_chart + amount_avg + amount_trend).properties(height=400), 
+    (amount_chart + amount_avg + amount_regression).properties(height=400), 
     use_container_width=True
 )
 
-st.subheader("📉 Monthly Participation Rate")
+st.subheader("Monthly Participation Rate")
 rate_line = alt.Chart(monthly_participation_ratio).mark_line(
     color="#e45756", 
     strokeWidth=4,
@@ -399,7 +429,10 @@ rate_line = alt.Chart(monthly_participation_ratio).mark_line(
     y=alt.Y("participation_pct:Q", 
             title="Participation Rate", 
             axis=alt.Axis(format=".0%", titlePadding=15)),
-    tooltip=[alt.Tooltip("participation_pct", title="Participation Rate", format=".1%")]
+    tooltip=[
+        alt.Tooltip("month", title="Month"),
+        alt.Tooltip("participation_pct", title="Participation Rate", format=".1%")
+    ]
 ).properties(
     height=350
 )
@@ -409,7 +442,7 @@ st.altair_chart(rate_line, use_container_width=True)
 # ----------------------------
 # Partner Summary Table
 # ----------------------------
-st.subheader("🤝 Partner Summary Table")
+st.subheader("Partner Summary Table")
 
 # Format summary for display
 partner_summary["$ Opportunities"] = partner_summary["total_amount"].apply(lambda x: f"${x:,.0f}")
@@ -437,7 +470,7 @@ def create_pdf_from_html(html: str):
 # ----------------------------
 csv = summary_display.to_csv(index=False).encode("utf-8")
 st.download_button(
-    label="📥 Download Partner Summary as CSV",
+    label="Download Partner Summary as CSV",
     data=csv,
     file_name="partner_summary.csv",
     mime="text/csv"
@@ -446,7 +479,7 @@ st.download_button(
 html = summary_display.to_html(index=False)
 pdf = create_pdf_from_html(html)
 st.download_button(
-    label="📄 Download Partner Summary as PDF",
+    label="Download Partner Summary as PDF",
     data=pdf,
     file_name="partner_summary.pdf",
     mime="application/pdf"
