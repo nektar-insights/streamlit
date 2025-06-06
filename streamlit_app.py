@@ -263,6 +263,109 @@ st.altair_chart(count_chart, use_container_width=True)
 st.altair_chart(amount_chart, use_container_width=True)
 
 # ----------------------------
+# 📈 Total Funded Amount by Month
+# ----------------------------
+monthly_funded = df.groupby("month")["total_funded_amount"].sum().reset_index()
+funded_chart = alt.Chart(monthly_funded).mark_bar(size=50, color=PRIMARY_COLOR).encode(
+    x=alt.X("month:T", axis=alt.Axis(labelAngle=0, title="Month")),
+    y=alt.Y("total_funded_amount:Q", title="Total Funded ($)", axis=alt.Axis(format="$,.0f")),
+    tooltip=[alt.Tooltip("total_funded_amount", title="Total Funded", format="$,.0f")]
+)
+funded_avg = alt.Chart(monthly_funded).mark_rule(color="gray", strokeDash=[4, 2]).encode(
+    y=alt.Y("mean(total_funded_amount):Q")
+)
+funded_trend = alt.Chart(monthly_funded).mark_line(color="#1f77b4", strokeWidth=2).encode(
+    x="month:T",
+    y="total_funded_amount:Q"
+)
+st.subheader("Total Funded Amount by Month")
+st.altair_chart((funded_chart + funded_avg + funded_trend).properties(height=320), use_container_width=True)
+
+# ----------------------------
+# 📊 Total Deal Count by Month
+# ----------------------------
+monthly_deals = df.groupby("month").size().reset_index(name="deal_count")
+deal_chart = alt.Chart(monthly_deals).mark_bar(size=50, color=COLOR_PALETTE[2]).encode(
+    x=alt.X("month:T", title="Month"),
+    y=alt.Y("deal_count:Q", title="Deal Count"),
+    tooltip=[alt.Tooltip("deal_count", title="Deal Count")]
+)
+deal_avg = alt.Chart(monthly_deals).mark_rule(color="gray", strokeDash=[4, 2]).encode(
+    y=alt.Y("mean(deal_count):Q")
+)
+deal_trend = alt.Chart(monthly_deals).mark_line(color="#e45756", strokeWidth=2).encode(
+    x="month:T",
+    y="deal_count:Q"
+)
+st.subheader("Total Deal Count by Month")
+st.altair_chart((deal_chart + deal_avg + deal_trend).properties(height=320), use_container_width=True)
+
+# ----------------------------
+# 📊 Participation Trends by Month (Count) – Only Participated = True
+# ----------------------------
+df["is_participated"] = df["is_closed_won"] == True
+participated_only = df[df["is_participated"] == True]
+monthly_participation = participated_only.groupby("month").agg(
+    deal_count=("id", "count")
+).reset_index()
+
+participation_chart = alt.Chart(monthly_participation).mark_bar(size=60, color=PRIMARY_COLOR).encode(
+    x=alt.X("month:T", title="Month"),
+    y=alt.Y("deal_count:Q", title="Participated Deals"),
+    tooltip=[alt.Tooltip("deal_count", title="Participated Count")]
+)
+participation_avg = alt.Chart(monthly_participation).mark_rule(color="gray", strokeDash=[4, 2]).encode(
+    y=alt.Y("mean(deal_count):Q")
+)
+participation_trend = alt.Chart(monthly_participation).mark_line(color="#FF9900", strokeWidth=2).encode(
+    x="month:T",
+    y="deal_count:Q"
+)
+st.subheader("Participation Trends by Month")
+st.altair_chart((participation_chart + participation_avg + participation_trend).properties(height=320), use_container_width=True)
+
+# ----------------------------
+# 💵 Participation Amount by Month (Unstacked)
+# ----------------------------
+participation_amount = participated_only.groupby("month").agg(
+    total_amount=("amount", "sum")
+).reset_index()
+
+amount_chart = alt.Chart(participation_amount).mark_bar(size=60, color=PRIMARY_COLOR).encode(
+    x=alt.X("month:T", title="Month"),
+    y=alt.Y("total_amount:Q", title="Participation Amount ($)", axis=alt.Axis(format="$,.0f")),
+    tooltip=[alt.Tooltip("total_amount", title="Amount", format="$,.0f")]
+)
+amount_avg = alt.Chart(participation_amount).mark_rule(color="gray", strokeDash=[4, 2]).encode(
+    y=alt.Y("mean(total_amount):Q")
+)
+amount_trend = alt.Chart(participation_amount).mark_line(color="#17a2b8", strokeWidth=2).encode(
+    x="month:T",
+    y="total_amount:Q"
+)
+st.subheader("Participation Amount by Month")
+st.altair_chart((amount_chart + amount_avg + amount_trend).properties(height=320), use_container_width=True)
+
+# ----------------------------
+# 📉 Participation Rate (% of Deals)
+# ----------------------------
+monthly_participation_ratio = df.groupby("month").agg(
+    total_deals=("id", "count"),
+    participated_deals=("is_participated", "sum")
+).reset_index()
+monthly_participation_ratio["participation_pct"] = monthly_participation_ratio["participated_deals"] / monthly_participation_ratio["total_deals"]
+
+rate_line = alt.Chart(monthly_participation_ratio).mark_line(color="#e45756", strokeWidth=3).encode(
+    x=alt.X("month:T", title="Month"),
+    y=alt.Y("participation_pct:Q", title="Participation Rate", axis=alt.Axis(format=".0%")),
+    tooltip=[alt.Tooltip("participation_pct", format=".1%")]
+).properties(height=300)
+
+st.subheader("Monthly Participation Rate (% of Deals)")
+st.altair_chart(rate_line, use_container_width=True)
+
+
+# ----------------------------
 # Downloads
 # ----------------------------
 def create_pdf_from_html(html: str):
