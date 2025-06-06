@@ -105,10 +105,10 @@ projected_irr = (moic ** (12 / avg_term) - 1) if avg_term > 0 else 0
 
 # Rolling deal flow calculations - Fixed to look back from today
 periods = [
-    ("0-30 Days", 0, 30), 
-    ("31-60 Days", 31, 60), 
+    ("91-120 Days", 91, 120),
     ("61-90 Days", 61, 90), 
-    ("91-120 Days", 91, 120)
+    ("31-60 Days", 31, 60), 
+    ("0-30 Days", 0, 30)
 ]
 flow_data = []
 for label, start, end in periods:
