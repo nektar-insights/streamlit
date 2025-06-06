@@ -1,5 +1,3 @@
-# pages/pipeline_dashboard.py
-
 import streamlit as st
 import pandas as pd
 import altair as alt
@@ -9,10 +7,8 @@ import io
 from xhtml2pdf import pisa
 
 # ----------------------------
-# Color Palette (matching MCA dashboard)
+# Color Palette
 # ----------------------------
-PERFORMANCE_GRADIENT = ["#e8f5e8", "#34a853", "#1e7e34"]
-RISK_GRADIENT = ["#fef9e7", "#f39c12", "#dc3545"]
 PRIMARY_COLOR = "#34a853"
 COLOR_PALETTE = [
     "#34a853", "#2d5a3d", "#4a90e2", "#6c757d",
@@ -35,65 +31,30 @@ def load_deals():
     return pd.DataFrame(res.data)
 
 df = load_deals()
-df["date_created"] = pd.to_datetime(df["date_created"], errors="coerce")
 today = pd.to_datetime("today").normalize()
-df["month"] = df["date_created"].dt.to_period("M").astype(str)
-df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
-df["total_funded_amount"] = pd.to_numeric(df["total_funded_amount"], errors="coerce")
-df["factor_rate"] = pd.to_numeric(df["factor_rate"], errors="coerce")
-df["loan_term"] = pd.to_numeric(df["loan_term"], errors="coerce")
-df["commission"] = pd.to_numeric(df["commission"], errors="coerce")
-df["loan_id"] = df["loan_id"].astype("string")
 
-# ----------------------------
-# Rolling Window Deal Flow Calculations
-# ----------------------------
-periods = [
-    ("0–30 Days", 0, 30),
-    ("30–60 Days", 30, 60),
-    ("60–90 Days", 60, 90),
-    ("90–120 Days", 90, 120),
-]
-flow_data = []
-for label, start, end in periods:
-    window_start = today - pd.Timedelta(days=end)
-    window_end = today - pd.Timedelta(days=start)
-    window_df = df[(df["date_created"] >= window_start) & (df["date_created"] < window_end)]
-    flow_data.append({
-        "Period": label,
-        "Deals": len(window_df),
-        "Total Funded": window_df["total_funded_amount"].sum()
-    })
-flow_df = pd.DataFrame(flow_data)
+# Preprocessing
+cols_to_convert = ["amount", "total_funded_amount", "factor_rate", "loan_term", "commission"]
+df["date_created"] = pd.to_datetime(df["date_created"], errors="coerce")
+df["month"] = df["date_created"].dt.to_period("M").astype(str)
+df[cols_to_convert] = df[cols_to_convert].apply(pd.to_numeric, errors="coerce")
+df["loan_id"] = df["loan_id"].astype("string")
 
 # ----------------------------
 # Filters
 # ----------------------------
 st.title("Pipeline Dashboard")
 
-min_date = df["date_created"].min()
-max_date = df["date_created"].max()
-
-start_date, end_date = st.date_input(
-    "Filter by Date Range", 
-    [min_date, max_date], 
-    min_value=min_date, 
-    max_value=max_date
-)
-
-df = df[(df["date_created"] >= pd.to_datetime(start_date)) &
-        (df["date_created"] <= pd.to_datetime(end_date))]
+min_date, max_date = df["date_created"].min(), df["date_created"].max()
+start_date, end_date = st.date_input("Filter by Date Range", [min_date, max_date], min_value=min_date, max_value=max_date)
+df = df[(df["date_created"] >= pd.to_datetime(start_date)) & (df["date_created"] <= pd.to_datetime(end_date))]
 
 partner_options = sorted(df["partner_source"].dropna().unique())
-all_label = "All Partners"
-partner_options_with_all = [all_label] + partner_options
-
-selected_partner = st.selectbox("Filter by Partner Source", options=partner_options_with_all)
-if selected_partner != all_label:
+selected_partner = st.selectbox("Filter by Partner Source", options=["All Partners"] + partner_options)
+if selected_partner != "All Partners":
     df = df[df["partner_source"] == selected_partner]
 
-participation_options = ["All Deals", "Participated Only", "Not Participated"]
-participation_filter = st.radio("Show Deals", participation_options)
+participation_filter = st.radio("Show Deals", ["All Deals", "Participated Only", "Not Participated"])
 if participation_filter == "Participated Only":
     df = df[df["is_closed_won"] == True]
 elif participation_filter == "Not Participated":
@@ -124,6 +85,16 @@ moic = total_expected_return_sum / total_capital_deployed if total_capital_deplo
 projected_irr = (moic ** (12 / avg_term) - 1) if avg_term > 0 else 0
 
 # ----------------------------
+# Rolling Deal Flow
+# ----------------------------
+periods = [("0–30 Days", 0, 30), ("30–60 Days", 30, 60), ("60–90 Days", 60, 90), ("90–120 Days", 90, 120)]
+flow_data = []
+for label, start, end in periods:
+    window = df[(df["date_created"] >= today - pd.Timedelta(days=end)) & (df["date_created"] < today - pd.Timedelta(days=start))]
+    flow_data.append({"Period": label, "Deals": len(window), "Total Funded": window["total_funded_amount"].sum()})
+flow_df = pd.DataFrame(flow_data)
+
+# ----------------------------
 # Display Summary Metrics
 # ----------------------------
 st.subheader("📊 Deal Overview")
@@ -150,7 +121,7 @@ col11.metric("Avg Factor", f"{avg_factor:.2f}")
 col12.metric("Avg Term (mo)", f"{avg_term:.1f}")
 
 # ----------------------------
-# Insert Rolling Flow Table and Charts
+# Rolling Flow Visuals
 # ----------------------------
 st.subheader("📈 Rolling Deal Flow Trends")
 flow_df_display = flow_df.copy()
@@ -158,13 +129,13 @@ flow_df_display["Total Funded"] = flow_df_display["Total Funded"].apply(lambda x
 st.dataframe(flow_df_display, use_container_width=True)
 
 flow_chart = alt.Chart(flow_df).mark_bar(size=40).encode(
-    x=alt.X("Period:N", sort=["90–120 Days", "60–90 Days", "30–60 Days", "0–30 Days"]),
+    x=alt.X("Period:N", sort=[p[0] for p in reversed(periods)]),
     y=alt.Y("Deals:Q", title="Deal Count"),
     tooltip=["Period", "Deals"]
 ).properties(height=300)
 
 funded_chart = alt.Chart(flow_df).mark_bar(size=40, color="#4a90e2").encode(
-    x=alt.X("Period:N", sort=["90–120 Days", "60–90 Days", "30–60 Days", "0–30 Days"]),
+    x=alt.X("Period:N", sort=[p[0] for p in reversed(periods)]),
     y=alt.Y("Total Funded:Q", title="Total Funded ($)", axis=alt.Axis(format="$,.0f")),
     tooltip=["Period", alt.Tooltip("Total Funded", format="$,.0f")]
 ).properties(height=300)
@@ -172,4 +143,45 @@ funded_chart = alt.Chart(flow_df).mark_bar(size=40, color="#4a90e2").encode(
 st.altair_chart(flow_chart, use_container_width=True)
 st.altair_chart(funded_chart, use_container_width=True)
 
-# (continued with partner summary and exports...)
+# ----------------------------
+# Partner Summary Table
+# ----------------------------
+all_deals = df.groupby("partner_source").agg(
+    total_deals=("id", "count"),
+    total_amount=("total_funded_amount", "sum")
+)
+won_deals = closed_won.groupby("partner_source").agg(
+    participated_deals=("id", "count"),
+    participated_amount=("amount", "sum"),
+    total_won_amount=("total_funded_amount", "sum")
+)
+partner_summary = all_deals.join(won_deals, how="left").fillna(0)
+partner_summary["closed_won_pct"] = partner_summary["participated_deals"] / partner_summary["total_deals"]
+partner_summary["avg_participation_pct"] = partner_summary["participated_amount"] / partner_summary["total_won_amount"]
+partner_summary["$ Opportunities"] = partner_summary["total_amount"].apply(lambda x: f"${x:,.0f}")
+partner_summary["Participated $"] = partner_summary["participated_amount"].apply(lambda x: f"${x:,.0f}")
+partner_summary["% Closed Won"] = partner_summary["closed_won_pct"].apply(lambda x: f"{x:.2%}")
+partner_summary["Avg % of Deal"] = partner_summary["avg_participation_pct"].apply(lambda x: f"{x:.2%}")
+
+summary_display = partner_summary.reset_index()[[
+    "partner_source", "total_deals", "$ Opportunities",
+    "Participated $", "% Closed Won", "Avg % of Deal"
+]].rename(columns={"partner_source": "Partner", "total_deals": "Total Deals"})
+
+st.subheader("📊 Partner Summary Table")
+st.dataframe(summary_display, use_container_width=True)
+
+# ----------------------------
+# Downloads
+# ----------------------------
+def create_pdf_from_html(html: str):
+    result = io.BytesIO()
+    pisa.CreatePDF(io.StringIO(html), dest=result)
+    return result.getvalue()
+
+csv = summary_display.to_csv(index=False).encode("utf-8")
+st.download_button("\ud83d\udcc5 Download Partner Summary as CSV", data=csv, file_name="partner_summary.csv", mime="text/csv")
+
+html = summary_display.to_html(index=False)
+pdf = create_pdf_from_html(html)
+st.download_button("\ud83d\udcc4 Download Partner Summary as PDF", data=pdf, file_name="partner_summary.pdf", mime="application/pdf")
