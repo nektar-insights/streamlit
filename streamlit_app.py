@@ -42,6 +42,32 @@ def load_deals():
 
 df = load_deals()
 
+today = pd.to_datetime("today").normalize()
+
+def get_stats_by_window(days):
+    recent = df[df["date_created"] >= today - pd.Timedelta(days=days)]
+    return {
+        "count": len(recent),
+        "funded": recent["total_funded_amount"].sum()
+    }
+
+# Get stats
+stats_30 = get_stats_by_window(30)
+stats_60 = get_stats_by_window(60)
+stats_90 = get_stats_by_window(90)
+
+# Compute changes (30 vs 60) and (30 vs 90)
+def compute_change(current, previous):
+    delta = current - previous
+    pct = (delta / previous * 100) if previous != 0 else 0
+    return f"{delta:+,.0f} ({pct:+.1f}%)"
+
+count_change_60 = compute_change(stats_30["count"], stats_60["count"])
+count_change_90 = compute_change(stats_30["count"], stats_90["count"])
+
+funded_change_60 = compute_change(stats_30["funded"], stats_60["funded"])
+funded_change_90 = compute_change(stats_30["funded"], stats_90["funded"])
+
 # ----------------------------
 # Data type conversions and basic calculations
 # ----------------------------
@@ -166,6 +192,16 @@ col10, col11, col12 = st.columns(3)
 col10.metric("Avg Participation ($)", f"${avg_amount:,.0f}")
 col11.metric("Avg Factor", f"{avg_factor:.2f}")
 col12.metric("Avg Term (mo)", f"{avg_term:.1f}")
+
+st.subheader("📈 Deal Flow Trends")
+st.markdown(f"**Last 30 days**: {stats_30['count']} deals, ${stats_30['funded']:,.0f} funded")
+
+col1, col2 = st.columns(2)
+col1.metric("vs. Last 60 Days (Count)", count_change_60)
+col1.metric("vs. Last 90 Days (Count)", count_change_90)
+
+col2.metric("vs. Last 60 Days (Funded)", funded_change_60)
+col2.metric("vs. Last 90 Days (Funded)", funded_change_90)
 
 # ----------------------------
 # Charts and visualizations
