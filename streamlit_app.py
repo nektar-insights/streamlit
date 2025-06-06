@@ -121,23 +121,37 @@ col11.metric("Avg Factor", f"{avg_factor:.2f}")
 col12.metric("Avg Term (mo)", f"{avg_term:.1f}")
 
 # ----------------------------
-# Rolling Flow Visuals
+# Insert Rolling Flow Table and Charts
 # ----------------------------
 st.subheader("Rolling Deal Flow Trends")
+
+# Add % change columns
+flow_df["Deals Δ"] = flow_df["Deals"].diff().fillna(0).astype(int)
+flow_df["Deals %"] = flow_df["Deals"].pct_change().fillna(0).apply(lambda x: f"{x:.1%}")
+
+flow_df["Total Funded Δ"] = flow_df["Total Funded"].diff().fillna(0).astype(int)
+flow_df["Funded %"] = flow_df["Total Funded"].pct_change().fillna(0).apply(lambda x: f"{x:.1%}")
+
+# Display formatted table
 flow_df_display = flow_df.copy()
 flow_df_display["Total Funded"] = flow_df_display["Total Funded"].apply(lambda x: f"${x:,.0f}")
-st.dataframe(flow_df_display, use_container_width=True)
+flow_df_display["Total Funded Δ"] = flow_df_display["Total Funded Δ"].apply(lambda x: f"${x:,.0f}")
+st.dataframe(flow_df_display[[
+    "Period", "Deals", "Deals Δ", "Deals %", 
+    "Total Funded", "Total Funded Δ", "Funded %"
+]], use_container_width=True)
 
+# Bar charts
 flow_chart = alt.Chart(flow_df).mark_bar(size=40).encode(
-    x=alt.X("Period:N", sort=[p[0] for p in reversed(periods)]),
+    x=alt.X("Period:N", sort=["90–120 Days", "60–90 Days", "30–60 Days", "0–30 Days"]),
     y=alt.Y("Deals:Q", title="Deal Count"),
-    tooltip=["Period", "Deals"]
+    tooltip=["Period", "Deals", "Deals Δ", "Deals %"]
 ).properties(height=300)
 
 funded_chart = alt.Chart(flow_df).mark_bar(size=40, color="#4a90e2").encode(
-    x=alt.X("Period:N", sort=[p[0] for p in reversed(periods)]),
+    x=alt.X("Period:N", sort=["90–120 Days", "60–90 Days", "30–60 Days", "0–30 Days"]),
     y=alt.Y("Total Funded:Q", title="Total Funded ($)", axis=alt.Axis(format="$,.0f")),
-    tooltip=["Period", alt.Tooltip("Total Funded", format="$,.0f")]
+    tooltip=["Period", "Total Funded", "Total Funded Δ", "Funded %"]
 ).properties(height=300)
 
 st.altair_chart(flow_chart, use_container_width=True)
@@ -170,6 +184,69 @@ summary_display = partner_summary.reset_index()[[
 
 st.subheader("Partner Summary Table")
 st.dataframe(summary_display, use_container_width=True)
+
+# Volume 
+st.subheader("Total Funded Amount by Month")
+
+funded_chart = alt.Chart(monthly_funded).mark_bar(size=45, color=PRIMARY_COLOR).encode(
+    x=alt.X("month:T", axis=alt.Axis(labelAngle=0, title="Month")),
+    y=alt.Y("total_funded_amount:Q", title="Total Funded ($)", axis=alt.Axis(format="$,.0f")),
+    tooltip=[alt.Tooltip("total_funded_amount", title="Total Funded", format="$,.0f")]
+)
+
+funded_avg_line = alt.Chart(monthly_funded).mark_rule(
+    color="gray", strokeWidth=2, strokeDash=[4, 2], opacity=0.6
+).encode(
+    y=alt.Y("mean(total_funded_amount):Q")
+)
+
+st.altair_chart((funded_chart + funded_avg_line).properties(height=300), use_container_width=True)
+
+st.subheader("Total Deal Count by Month")
+
+monthly_deals = df.groupby("month").size().reset_index(name="deal_count")
+
+deal_count_chart = alt.Chart(monthly_deals).mark_bar(size=45, color=COLOR_PALETTE[2]).encode(
+    x=alt.X("month:T", axis=alt.Axis(labelAngle=0, title="Month")),
+    y=alt.Y("deal_count:Q", title="Deal Count"),
+    tooltip=["month", "deal_count"]
+)
+
+st.altair_chart(deal_count_chart.properties(height=300), use_container_width=True)
+
+st.subheader("Participation Trends by Month")
+
+# Group by month and participation
+df["is_participated"] = df["is_closed_won"] == True
+participation_trend = df.groupby(["month", "is_participated"]).agg(
+    deal_count=("id", "count"),
+    total_amount=("amount", "sum")
+).reset_index()
+
+# Deal count chart
+count_chart = alt.Chart(participation_trend).mark_bar().encode(
+    x=alt.X("month:T", title="Month"),
+    y=alt.Y("deal_count:Q", title="Deal Count"),
+    color=alt.Color("is_participated:N", title="Participated", scale=alt.Scale(
+        domain=[True, False],
+        range=[PRIMARY_COLOR, COLOR_PALETTE[3]]
+    )),
+    tooltip=["month", "deal_count", "is_participated"]
+).properties(title="Deal Count by Participation", height=300)
+
+# Amount chart
+amount_chart = alt.Chart(participation_trend).mark_bar().encode(
+    x=alt.X("month:T", title="Month"),
+    y=alt.Y("total_amount:Q", title="Amount ($)", axis=alt.Axis(format="$,.0f")),
+    color=alt.Color("is_participated:N", title="Participated", scale=alt.Scale(
+        domain=[True, False],
+        range=[PRIMARY_COLOR, COLOR_PALETTE[3]]
+    )),
+    tooltip=["month", "total_amount", "is_participated"]
+).properties(title="Participation Amount by Month", height=300)
+
+st.altair_chart(count_chart, use_container_width=True)
+st.altair_chart(amount_chart, use_container_width=True)
 
 # ----------------------------
 # Downloads
