@@ -123,12 +123,18 @@ flow_df = pd.DataFrame(flow_data)
 
 # Monthly aggregations
 monthly_funded = df.groupby("month")["total_funded_amount"].sum().reset_index()
+monthly_funded["month_date"] = pd.to_datetime(monthly_funded["month"])
+
 monthly_deals = df.groupby("month").size().reset_index(name="deal_count")
+monthly_deals["month_date"] = pd.to_datetime(monthly_deals["month"])
+
 participated_only = df[df["is_participated"] == True]
 monthly_participation = participated_only.groupby("month").agg(
     deal_count=("id", "count"),
     total_amount=("amount", "sum")
 ).reset_index()
+monthly_participation["month_date"] = pd.to_datetime(monthly_participation["month"])
+
 monthly_participation_ratio = df.groupby("month").agg(
     total_deals=("id", "count"),
     participated_deals=("is_participated", "sum")
@@ -137,6 +143,7 @@ monthly_participation_ratio["participation_pct"] = (
     monthly_participation_ratio["participated_deals"] / 
     monthly_participation_ratio["total_deals"]
 )
+monthly_participation_ratio["month_date"] = pd.to_datetime(monthly_participation_ratio["month"])
 
 # Partner summary calculations
 all_deals = df.groupby("partner_source").agg(
@@ -304,11 +311,11 @@ deal_chart = alt.Chart(monthly_deals).mark_bar(
     cornerRadiusTopLeft=3,
     cornerRadiusTopRight=3
 ).encode(
-    x=alt.X("month:T", title="Month", axis=alt.Axis(labelAngle=0)),
+    x=alt.X("month_date:T", title="Month", axis=alt.Axis(labelAngle=0, format="%b %Y")),
     y=alt.Y("deal_count:Q", title="Deal Count"),
     tooltip=[
-        alt.Tooltip("month", title="Month"),
-        alt.Tooltip("deal_count", title="Deal Count")
+        alt.Tooltip("month_date:T", title="Month", format="%B %Y"),
+        alt.Tooltip("deal_count:Q", title="Deal Count")
     ]
 )
 
@@ -326,9 +333,9 @@ deal_regression = alt.Chart(monthly_deals).mark_line(
     color="#e45756", 
     strokeWidth=3
 ).transform_regression(
-    'month', 'deal_count'
+    'month_date', 'deal_count'
 ).encode(
-    x='month:T',
+    x='month_date:T',
     y='deal_count:Q'
 )
 
@@ -344,11 +351,11 @@ participation_chart = alt.Chart(monthly_participation).mark_bar(
     cornerRadiusTopLeft=3,
     cornerRadiusTopRight=3
 ).encode(
-    x=alt.X("month:T", title="Month", axis=alt.Axis(labelAngle=0)),
+    x=alt.X("month_date:T", title="Month", axis=alt.Axis(labelAngle=0, format="%b %Y")),
     y=alt.Y("deal_count:Q", title="Participated Deals"),
     tooltip=[
-        alt.Tooltip("month", title="Month"),
-        alt.Tooltip("deal_count", title="Participated Count")
+        alt.Tooltip("month_date:T", title="Month", format="%B %Y"),
+        alt.Tooltip("deal_count:Q", title="Participated Count")
     ]
 )
 
@@ -366,9 +373,9 @@ participation_regression = alt.Chart(monthly_participation).mark_line(
     color="#FF9900", 
     strokeWidth=3
 ).transform_regression(
-    'month', 'deal_count'
+    'month_date', 'deal_count'
 ).encode(
-    x='month:T',
+    x='month_date:T',
     y='deal_count:Q'
 )
 
@@ -384,13 +391,13 @@ amount_chart = alt.Chart(monthly_participation).mark_bar(
     cornerRadiusTopLeft=3,
     cornerRadiusTopRight=3
 ).encode(
-    x=alt.X("month:T", title="Month", axis=alt.Axis(labelAngle=0)),
+    x=alt.X("month_date:T", title="Month", axis=alt.Axis(labelAngle=0, format="%b %Y")),
     y=alt.Y("total_amount:Q", 
             title="Participation Amount ($)", 
             axis=alt.Axis(format="$.1s", titlePadding=15)),
     tooltip=[
-        alt.Tooltip("month", title="Month"),
-        alt.Tooltip("total_amount", title="Participation Amount", format="$,.0f")
+        alt.Tooltip("month_date:T", title="Month", format="%B %Y"),
+        alt.Tooltip("total_amount:Q", title="Participation Amount", format="$,.0f")
     ]
 )
 
@@ -408,9 +415,9 @@ amount_regression = alt.Chart(monthly_participation).mark_line(
     color="#17a2b8", 
     strokeWidth=3
 ).transform_regression(
-    'month', 'total_amount'
+    'month_date', 'total_amount'
 ).encode(
-    x='month:T',
+    x='month_date:T',
     y='total_amount:Q'
 )
 
@@ -425,13 +432,13 @@ rate_line = alt.Chart(monthly_participation_ratio).mark_line(
     strokeWidth=4,
     point=alt.OverlayMarkDef(color="#e45756", size=80, filled=True)
 ).encode(
-    x=alt.X("month:T", title="Month", axis=alt.Axis(labelAngle=0)),
+    x=alt.X("month_date:T", title="Month", axis=alt.Axis(labelAngle=0, format="%b %Y")),
     y=alt.Y("participation_pct:Q", 
             title="Participation Rate", 
             axis=alt.Axis(format=".0%", titlePadding=15)),
     tooltip=[
-        alt.Tooltip("month", title="Month"),
-        alt.Tooltip("participation_pct", title="Participation Rate", format=".1%")
+        alt.Tooltip("month_date:T", title="Month", format="%B %Y"),
+        alt.Tooltip("participation_pct:Q", title="Participation Rate", format=".1%")
     ]
 ).properties(
     height=350
