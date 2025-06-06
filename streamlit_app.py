@@ -97,13 +97,13 @@ flow_df = pd.DataFrame(flow_data)
 # ----------------------------
 # Display Summary Metrics
 # ----------------------------
-st.subheader("📊 Deal Overview")
+st.subheader("Deal Overview")
 col1, col2, col3 = st.columns(3)
 col1.metric("Total Deals", total_deals)
 col2.metric("Closed Won", len(closed_won))
 col3.metric("Close Ratio", f"{participation_ratio:.2%}")
 
-st.subheader("💰 Financial Performance")
+st.subheader("Financial Performance")
 col4, col5, col6 = st.columns(3)
 col4.metric("Total Capital Deployed", f"${total_capital_deployed:,.0f}")
 col5.metric("Total Expected Return", f"${total_expected_return_sum:,.0f}")
@@ -114,7 +114,7 @@ col7.metric("Projected IRR", f"{projected_irr:.2%}")
 col8.metric("Avg % of Deal", f"{avg_participation_pct:.2%}")
 col9.metric("Commission Paid", f"${total_commissions_paid:,.0f}")
 
-st.subheader("📋 Deal Characteristics")
+st.subheader("Deal Characteristics")
 col10, col11, col12 = st.columns(3)
 col10.metric("Avg Participation ($)", f"${avg_amount:,.0f}")
 col11.metric("Avg Factor", f"{avg_factor:.2f}")
@@ -123,7 +123,7 @@ col12.metric("Avg Term (mo)", f"{avg_term:.1f}")
 # ----------------------------
 # Rolling Flow Visuals
 # ----------------------------
-st.subheader("📈 Rolling Deal Flow Trends")
+st.subheader("Rolling Deal Flow Trends")
 flow_df_display = flow_df.copy()
 flow_df_display["Total Funded"] = flow_df_display["Total Funded"].apply(lambda x: f"${x:,.0f}")
 st.dataframe(flow_df_display, use_container_width=True)
@@ -168,7 +168,7 @@ summary_display = partner_summary.reset_index()[[
     "Participated $", "% Closed Won", "Avg % of Deal"
 ]].rename(columns={"partner_source": "Partner", "total_deals": "Total Deals"})
 
-st.subheader("📊 Partner Summary Table")
+st.subheader("Partner Summary Table")
 st.dataframe(summary_display, use_container_width=True)
 
 # ----------------------------
