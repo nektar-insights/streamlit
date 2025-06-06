@@ -44,6 +44,9 @@ df = load_deals()
 
 today = pd.to_datetime("today").normalize()
 
+df["date_created"] = pd.to_datetime(df["date_created"], errors="coerce")
+today = pd.to_datetime("today").normalize()
+
 def get_stats_by_window(days):
     recent = df[df["date_created"] >= today - pd.Timedelta(days=days)]
     return {
