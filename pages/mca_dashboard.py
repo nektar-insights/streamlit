@@ -1,20 +1,11 @@
 # pages/mca_dashboard.py
-
-import streamlit as st
-import pandas as pd
-import altair as alt
-from supabase import create_client
+from utils.imports import *
 from scripts.combine_hubspot_mca import combine_deals
-
-PERFORMANCE_GRADIENT = ["#e8f5e8", "#34a853", "#1e7e34"]  # Light green → Mid → Dark green
-RISK_GRADIENT = ["#fef9e7", "#f39c12", "#dc3545"]  # Light yellow → Orange → Red
 
 # ----------------------------
 # Supabase connection
 # ----------------------------
-url = st.secrets["supabase"]["url"]
-key = st.secrets["supabase"]["service_role"]
-supabase = create_client(url, key)
+supabase = get_supabase_client()
 
 # ----------------------------
 # Load and prepare single dataframe
