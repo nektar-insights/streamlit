@@ -6,6 +6,7 @@ import altair as alt
 from datetime import datetime
 import io
 import hashlib
+import plotly
 import plotly.express as px
 import plotly.express as px
 import plotly.graph_objects as go
