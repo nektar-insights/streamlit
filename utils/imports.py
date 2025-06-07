@@ -7,6 +7,9 @@ from datetime import datetime
 import io
 import hashlib
 import plotly.express as px
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # Third-party libraries
 from numpy import busday_count
