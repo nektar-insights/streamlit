@@ -6,6 +6,7 @@ import altair as alt
 from datetime import datetime
 import io
 import hashlib
+import plotly.express as px
 
 # Third-party libraries
 from numpy import busday_count
