@@ -1,12 +1,5 @@
 # pages/qbo_dashboard.py
-import streamlit as st
-import pandas as pd
-import altair as alt
-from numpy import busday_count
-from supabase import create_client
-import io
-from xhtml2pdf import pisa
-import hashlib
+from utils.imports import *
 
 # -------------------------
 # Setup: Supabase Connection
