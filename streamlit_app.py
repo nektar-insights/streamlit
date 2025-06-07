@@ -1,27 +1,9 @@
-import streamlit as st
-import pandas as pd
-import altair as alt
-from supabase import create_client
-from datetime import datetime
-import io
-from xhtml2pdf import pisa
-
-# ----------------------------
-# Color Palette
-# ----------------------------
-PRIMARY_COLOR = "#34a853"
-PERFORMANCE_GRADIENT = ["#e8f5e8", "#34a853", "#1e7e34"]
-COLOR_PALETTE = [
-    "#34a853", "#2d5a3d", "#4a90e2", "#6c757d",
-    "#495057", "#28a745", "#17a2b8", "#6f42c1"
-]
-
+# streamlit_app.py
+from utils.imports import *
 # ----------------------------
 # Supabase connection
 # ----------------------------
-url = st.secrets["supabase"]["url"]
-key = st.secrets["supabase"]["service_role"]
-supabase = create_client(url, key)
+supabase = get_supabase_client()
 
 # ----------------------------
 # Load and prepare data
@@ -92,7 +74,6 @@ avg_participation_pct = (closed_won["amount"] / closed_won["total_funded_amount"
 avg_commission = closed_won["commission"].mean()
 
 # Financial calculations
-PLATFORM_FEE_RATE = 0.04
 total_capital_deployed = closed_won["amount"].sum()
 total_commissions_paid = (closed_won["amount"] * closed_won["commission"]).sum()
 total_platform_fee = total_capital_deployed * PLATFORM_FEE_RATE
