@@ -1,8 +1,6 @@
 # pages/qbo_dashboard.py
 from utils.imports import *
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+import numpy as np
 
 # -------------------------
 # Setup: Supabase Connection
@@ -87,15 +85,17 @@ with tab1:
         }), use_container_width=True)
         
         # Visualization
-        fig_type = px.bar(
-            gl_by_type.reset_index(), 
-            x='txn_type', 
-            y='Total Amount',
-            title='General Ledger: Total Amount by Transaction Type',
-            labels={'Total Amount': 'Total Amount ($)'}
+        chart_data = gl_by_type.reset_index()
+        fig_type = alt.Chart(chart_data).mark_bar().encode(
+            x=alt.X('txn_type:N', title='Transaction Type', axis=alt.Axis(labelAngle=-45)),
+            y=alt.Y('Total Amount:Q', title='Total Amount ($)', axis=alt.Axis(format='$,.0f')),
+            tooltip=['txn_type:N', alt.Tooltip('Total Amount:Q', format='$,.2f')]
+        ).properties(
+            width=600,
+            height=400,
+            title='General Ledger: Total Amount by Transaction Type'
         )
-        fig_type.update_layout(xaxis_tickangle=-45)
-        st.plotly_chart(fig_type, use_container_width=True)
+        st.altair_chart(fig_type, use_container_width=True)
     
     # Group by name
     if not gl_df.empty and 'name' in gl_df.columns:
@@ -110,15 +110,17 @@ with tab1:
         }), use_container_width=True)
         
         # Visualization
-        fig_name = px.bar(
-            gl_by_name.reset_index().head(10), 
-            x='name', 
-            y='Total Amount',
-            title='General Ledger: Top 10 Names by Total Amount',
-            labels={'Total Amount': 'Total Amount ($)'}
+        chart_data = gl_by_name.reset_index().head(10)
+        fig_name = alt.Chart(chart_data).mark_bar().encode(
+            x=alt.X('name:N', title='Name', axis=alt.Axis(labelAngle=-45)),
+            y=alt.Y('Total Amount:Q', title='Total Amount ($)', axis=alt.Axis(format='$,.0f')),
+            tooltip=['name:N', alt.Tooltip('Total Amount:Q', format='$,.2f')]
+        ).properties(
+            width=600,
+            height=400,
+            title='General Ledger: Top 10 Names by Total Amount'
         )
-        fig_name.update_layout(xaxis_tickangle=-45)
-        st.plotly_chart(fig_name, use_container_width=True)
+        st.altair_chart(fig_name, use_container_width=True)
 
 with tab2:
     st.subheader("Transaction Report Analysis")
@@ -368,3 +370,6 @@ if not filtered_df.empty:
         .sort_values("Balance (with Risk)", ascending=False),
         use_container_width=True
     )
+
+# Rest of original analysis continues...
+# [Previous charts and analysis sections remain the same]
