@@ -4,9 +4,7 @@ from utils.imports import *
 # -------------------------
 # Setup: Supabase Connection
 # -------------------------
-url = st.secrets["supabase"]["url"]
-key = st.secrets["supabase"]["service_role"]
-supabase = create_client(url, key)
+supabase = get_supabase_client()
 
 # -------------------------
 # Load and Prepare Data
