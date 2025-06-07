@@ -216,7 +216,98 @@ with tab3:
 with tab4:
     st.subheader("Data Quality Issues")
     
-    # Check for data issues
+    # 1) NA Count Analysis for each column
+    st.write("### 📊 NULL/NA Count by Column")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.write("**Transaction Report - NA Counts:**")
+        if not df.empty:
+            txn_na_counts = df.isnull().sum().reset_index()
+            txn_na_counts.columns = ['Column', 'NA Count']
+            txn_na_counts['Total Records'] = len(df)
+            txn_na_counts['NA Percentage'] = (txn_na_counts['NA Count'] / len(df) * 100).round(2)
+            txn_na_counts = txn_na_counts.sort_values('NA Count', ascending=False)
+            
+            st.dataframe(txn_na_counts.style.format({
+                'NA Percentage': '{:.2f}%'
+            }), use_container_width=True)
+        else:
+            st.write("No transaction data available")
+    
+    with col2:
+        st.write("**General Ledger - NA Counts:**")
+        if not gl_df.empty:
+            gl_na_counts = gl_df.isnull().sum().reset_index()
+            gl_na_counts.columns = ['Column', 'NA Count']
+            gl_na_counts['Total Records'] = len(gl_df)
+            gl_na_counts['NA Percentage'] = (gl_na_counts['NA Count'] / len(gl_df) * 100).round(2)
+            gl_na_counts = gl_na_counts.sort_values('NA Count', ascending=False)
+            
+            st.dataframe(gl_na_counts.style.format({
+                'NA Percentage': '{:.2f}%'
+            }), use_container_width=True)
+        else:
+            st.write("No general ledger data available")
+    
+    # 2) Description Field Analysis
+    st.write("### 📝 Description Field Analysis")
+    
+    col3, col4 = st.columns(2)
+    
+    with col3:
+        st.write("**Transaction Report - Description Grouping:**")
+        if not df.empty and 'description' in df.columns:
+            txn_desc_counts = df['description'].value_counts().reset_index()
+            txn_desc_counts.columns = ['Description', 'Count']
+            txn_desc_counts['Percentage'] = (txn_desc_counts['Count'] / len(df) * 100).round(2)
+            
+            # Show top 20 descriptions
+            txn_desc_display = txn_desc_counts.head(20)
+            st.dataframe(txn_desc_display.style.format({
+                'Percentage': '{:.2f}%'
+            }), use_container_width=True)
+            
+            # Show summary stats
+            st.write(f"**Summary:**")
+            st.write(f"- Total unique descriptions: {len(txn_desc_counts)}")
+            st.write(f"- Records with descriptions: {df['description'].notna().sum()}")
+            st.write(f"- Records with null descriptions: {df['description'].isnull().sum()}")
+            
+        else:
+            st.write("No description field available in transaction data")
+    
+    with col4:
+        st.write("**General Ledger - Description Grouping:**")
+        if not gl_df.empty and 'description' in gl_df.columns:
+            gl_desc_counts = gl_df['description'].value_counts().reset_index()
+            gl_desc_counts.columns = ['Description', 'Count']
+            gl_desc_counts['Percentage'] = (gl_desc_counts['Count'] / len(gl_df) * 100).round(2)
+            
+            # Show top 20 descriptions
+            gl_desc_display = gl_desc_counts.head(20)
+            st.dataframe(gl_desc_display.style.format({
+                'Percentage': '{:.2f}%'
+            }), use_container_width=True)
+            
+            # Show summary stats
+            st.write(f"**Summary:**")
+            st.write(f"- Total unique descriptions: {len(gl_desc_counts)}")
+            st.write(f"- Records with descriptions: {gl_df['description'].notna().sum()}")
+            st.write(f"- Records with null descriptions: {gl_df['description'].isnull().sum()}")
+            
+            # Highlight voided transactions
+            voided_count = gl_df['description'].str.contains('Voided', case=False, na=False).sum()
+            if voided_count > 0:
+                st.warning(f"⚠️ Found {voided_count} voided transactions")
+                
+        else:
+            st.write("No description field available in general ledger data")
+    
+    # Additional Quality Checks
+    st.write("### ⚠️ Additional Data Quality Issues")
+    
     issues = []
     
     # Date issues
@@ -248,24 +339,23 @@ with tab4:
             issues.append(f"General Ledger: {zero_amounts_gl} records with zero amounts")
     
     if issues:
-        st.warning("⚠️ Data Quality Issues Found:")
         for issue in issues:
             st.write(f"• {issue}")
     else:
         st.success("✅ No major data quality issues detected")
     
     # Show sample records with issues
-    st.write("**Sample Records with Missing Data:**")
+    st.write("### 🔍 Sample Records with Missing Data")
     if not df.empty:
         missing_data_txn = df[df.isnull().any(axis=1)].head(5)
         if not missing_data_txn.empty:
-            st.write("Transaction Report:")
+            st.write("**Transaction Report:**")
             st.dataframe(missing_data_txn, use_container_width=True)
     
     if not gl_df.empty:
         missing_data_gl = gl_df[gl_df.isnull().any(axis=1)].head(5)
         if not missing_data_gl.empty:
-            st.write("General Ledger:")
+            st.write("**General Ledger:**")
             st.dataframe(missing_data_gl, use_container_width=True)
 
 # -------------------------
