@@ -65,7 +65,7 @@ if len(missing_loan_ids) > 0:
     
     # Select relevant columns for display
     display_columns = [
-        "id", "date_created", "partner_source", "amount", 
+        "id", "deal_name", "date_created", "partner_source", "amount", 
         "total_funded_amount", "factor_rate", "loan_term", "loan_id"
     ]
     
@@ -87,6 +87,7 @@ if len(missing_loan_ids) > 0:
     # Rename columns for better display
     column_rename = {
         "id": "Deal ID",
+        "deal_name": "Deal Name",
         "date_created": "Date Created", 
         "partner_source": "Partner Source",
         "amount": "Participation Amount",
@@ -194,10 +195,87 @@ if len(df) > 0:
         st.success("✅ Data appears current")
 
 # ----------------------------
-# Refresh Data Button
+# Cache clearing functions for specific dashboards
+# ----------------------------
+def clear_pipeline_cache():
+    """Clear cache for pipeline dashboard"""
+    # Target the specific cache function from streamlit_app.py
+    if hasattr(st.session_state, '_cache'):
+        for key in list(st.session_state._cache.keys()):
+            if 'load_deals' in key:
+                del st.session_state._cache[key]
+    st.cache_data.clear()
+
+def clear_mca_cache():
+    """Clear cache for MCA dashboard"""
+    # Target the specific cache function from mca_dashboard.py
+    if hasattr(st.session_state, '_cache'):
+        for key in list(st.session_state._cache.keys()):
+            if 'load_mca_deals' in key or 'combine_deals' in key:
+                del st.session_state._cache[key]
+    st.cache_data.clear()
+
+def clear_qbo_cache():
+    """Clear cache for QBO dashboard"""
+    # Target the specific cache function from qbo_dashboard.py
+    if hasattr(st.session_state, '_cache'):
+        for key in list(st.session_state._cache.keys()):
+            if 'load_qbo_data' in key:
+                del st.session_state._cache[key]
+    st.cache_data.clear()
+
+# ----------------------------
+# Data Management & Cache Refresh
 # ----------------------------
 st.header("5. Data Management")
-if st.button("🔄 Refresh Data Cache"):
+
+st.subheader("Cache Management")
+st.info("💡 Use these buttons to refresh cached data across different dashboards. After clicking, navigate to the respective dashboard to see updated data.")
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    if st.button("🔄 Refresh Pipeline Data", help="Clears cache for main pipeline dashboard (load_deals function)"):
+        clear_pipeline_cache()
+        st.success("✅ Pipeline dashboard cache cleared!")
+        
+with col2:
+    if st.button("🔄 Refresh MCA Data", help="Clears cache for MCA dashboard (load_mca_deals & combine_deals functions)"):
+        clear_mca_cache()
+        st.success("✅ MCA dashboard cache cleared!")
+        
+with col3:
+    if st.button("🔄 Refresh QBO Data", help="Clears cache for QBO dashboard (load_qbo_data function)"):
+        clear_qbo_cache()
+        st.success("✅ QBO dashboard cache cleared!")
+
+if st.button("🔄 Refresh All Data Caches", type="primary", help="Clears all cached data across the entire application"):
     st.cache_data.clear()
-    st.success("Data cache cleared! Page will reload with fresh data.")
-    st.rerun()
+    st.success("✅ All data caches cleared! Navigate to other pages to see fresh data.")
+
+# Show cache status
+st.subheader("Cache Status")
+cache_info = []
+
+# Check if we have any cached functions
+if hasattr(st.session_state, '_cache'):
+    cache_count = len(st.session_state._cache)
+    cache_info.append(f"📊 Session cache entries: {cache_count}")
+else:
+    cache_info.append("📊 No session cache detected")
+
+# Display cache info
+for info in cache_info:
+    st.text(info)
+
+# Add timestamp of last refresh
+if "last_cache_clear" not in st.session_state:
+    st.session_state.last_cache_clear = "Never"
+
+if st.session_state.get("last_cache_clear") != "Never":
+    st.text(f"🕒 Last cache clear: {st.session_state.last_cache_clear}")
+
+# Update timestamp when any cache is cleared
+if st.button("📝 Mark Cache Clear Time"):
+    st.session_state.last_cache_clear = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
+    st.success(f"✅ Cache clear time marked: {st.session_state.last_cache_clear}")
