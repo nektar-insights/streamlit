@@ -135,7 +135,7 @@ if len(risk_df) > 0:
 # ----------------------------
 
 # Portfolio Summary
-st.subheader("📊 CSL Portfolio Summary")
+st.subheader("CSL Portfolio Summary")
 col1, col2, col3 = st.columns(3)
 col1.metric("Total Deals", total_deals)
 col2.metric("Matured Deals", total_matured)
@@ -147,14 +147,14 @@ col5.metric("Pct. Outstanding Deals Current", f"{pct_current:.1%}")
 col6.metric("Pct. Outstanding Deals Not Current", f"{pct_non_current:.1%}")
 
 # CSL Investment Overview
-st.subheader("💰 CSL Investment Overview")
+st.subheader("CSL Investment Overview")
 col7, col8, col9 = st.columns(3)
 col7.metric("Capital Deployed", f"${csl_capital_deployed:,.0f}")
 col8.metric("Past Due Exposure", f"${total_csl_past_due:,.0f}")
 col9.metric("Outstanding CSL Principal", f"${total_csl_at_risk:,.0f}")
 
 # CSL Commission Summary
-st.subheader("💼 CSL Commission Summary")
+st.subheader("CSL Commission Summary")
 col10, col11, col12 = st.columns(3)
 col10.metric("Avg. Commission Rate", f"{average_commission_pct:.2%}")
 col11.metric("Avg. Applied to Participation", f"{average_commission_on_loan:.2%}")
@@ -165,7 +165,7 @@ col12.metric("Total Commission Paid", f"${total_commission_paid:,.0f}")
 # ----------------------------
 
 # Loan Tape Display
-st.subheader("📋 Loan Tape")
+st.subheader("Loan Tape")
 
 loan_tape = df[[
     "deal_number", "dba", "funding_date", "status_category",
@@ -234,7 +234,7 @@ bar = alt.Chart(status_category_chart).mark_bar().encode(
 ).properties(
     width=700,
     height=350,
-    title="📊 Distribution of Deal Status"
+    title="Distribution of Deal Status"
 )
 
 st.altair_chart(bar, use_container_width=True)
@@ -264,7 +264,7 @@ if len(not_current_df) > 0:
     ).properties(
         width=850,
         height=400,
-        title="🚨 Percentage of Balance at Risk (Non-Current, Non-Matured Deals)"
+        title="Percentage of Balance at Risk (Non-Current, Non-Matured Deals)"
     )
 
     st.altair_chart(risk_chart, use_container_width=True)
@@ -272,7 +272,7 @@ else:
     st.info("No non-current, non-matured deals with past due amounts to display.")
 
 # Top 10 Highest Risk Deals
-st.subheader("🔥 Top 10 Highest Risk Deals")
+st.subheader("Top 10 Highest Risk Deals")
 
 if len(risk_df) > 0:
     # Risk score bar chart with Loan ID on x-axis
@@ -371,7 +371,7 @@ if len(risk_df) > 0:
     ).properties(
         width=700,
         height=400,
-        title="📉 Risk Score by Past Due % and Deal Age"
+        title="Risk Score by Past Due % and Deal Age"
     )
 
     threshold_x = alt.Chart(pd.DataFrame({"x": [0.10]})).mark_rule(
@@ -390,7 +390,7 @@ else:
     st.info("No deals meet the risk criteria for analysis.")
 
 st.markdown("""
-#### 🧠 Understanding the Risk Score
+#### Understanding the Risk Score
 
 The **Risk Score** ranges between **0.00 and 1.00** and blends two key factors:
 - **70% weight**: The **percentage of the balance that is past due**
@@ -403,14 +403,14 @@ The **Risk Score** ranges between **0.00 and 1.00** and blends two key factors:
 | 0.50–0.74  | Elevated Risk             |
 | 0.75–1.00  | High Risk of Loss         |
 
-🔎 *Example*: A score of **0.80** implies the deal is either **very delinquent**, **very old**, or both.
+*Example*: A score of **0.80** implies the deal is either **very delinquent**, **very old**, or both.
 New deals (< 30 days old), those with low delinquency (<1%), or with status 'Current' are excluded.
 """)
 
 # Download buttons
 csv = loan_tape.to_csv(index=False).encode("utf-8")
 st.download_button(
-    label="📄 Download Loan Tape as CSV",
+    label="Download Loan Tape as CSV",
     data=csv,
     file_name="loan_tape.csv",
     mime="text/csv"
@@ -419,7 +419,7 @@ st.download_button(
 if len(risk_df) > 0:
     csv_risk = top_risk_display.to_csv(index=False).encode("utf-8")
     st.download_button(
-        label="📄 Download Top 10 Risk Deals as CSV",
+        label="Download Top 10 Risk Deals as CSV",
         data=csv_risk,
         file_name="top_risk_deals.csv",
         mime="text/csv"
