@@ -286,7 +286,7 @@ with col1:
     if len(qbo_txn_df) > 0:
         st.metric("Total Records", len(qbo_txn_df))
         if 'date' in qbo_txn_df.columns:
-            date_range = f"{qbo_txn_df['date'].min().strftime('%Y-%m-%d') if qbo_txn_df['date'].min() else 'N/A'} to {qbo_txn_df['date'].max().strftime('%Y-%m-%d') if qbo_txn_df['date'].max() else 'N/A'}"
+            date_range = f"{qbo_txn_df['date'].min().strftime('%m/%d/%y') if qbo_txn_df['date'].min() else 'N/A'} to {qbo_txn_df['date'].max().strftime('%m/%d/%y') if qbo_txn_df['date'].max() else 'N/A'}"
             st.metric("Date Range", date_range)
         st.metric("Null Values", qbo_txn_df.isnull().sum().sum())
     else:
@@ -297,7 +297,7 @@ with col2:
     if len(qbo_gl_df) > 0:
         st.metric("Total Records", len(qbo_gl_df))
         if 'txn_date' in qbo_gl_df.columns:
-            date_range = f"{qbo_gl_df['txn_date'].min().strftime('%Y-%m-%d') if qbo_gl_df['txn_date'].min() else 'N/A'} to {qbo_gl_df['txn_date'].max().strftime('%Y-%m-%d') if qbo_gl_df['txn_date'].max() else 'N/A'}"
+            date_range = f"{qbo_gl_df['txn_date'].min().strftime('%m/%d/%y') if qbo_gl_df['txn_date'].min() else 'N/A'} to {qbo_gl_df['txn_date'].max().strftime('%m/%d/%y') if qbo_gl_df['txn_date'].max() else 'N/A'}"
             st.metric("Date Range", date_range)
         st.metric("Null Values", qbo_gl_df.isnull().sum().sum())
     else:
@@ -841,7 +841,7 @@ with col2:
                     "Dataset": "QBO Transactions",
                     "Total Records": len(qbo_txn_df),
                     "Null Values": qbo_txn_df.isnull().sum().sum(),
-                    "Date Range": f"{qbo_txn_df['date'].min() if 'date' in qbo_txn_df.columns else 'N/A'} to {qbo_txn_df['date'].max() if 'date' in qbo_txn_df.columns else 'N/A'}"
+                    "Date Range": f"{qbo_txn_df['date'].min().strftime('%m/%d/%y') if 'date' in qbo_txn_df.columns and qbo_txn_df['date'].notna().any() else 'N/A'} to {qbo_txn_df['date'].max().strftime('%m/%d/%y') if 'date' in qbo_txn_df.columns and qbo_txn_df['date'].notna().any() else 'N/A'}"
                 })
             
             # Add GL data quality info
@@ -850,7 +850,7 @@ with col2:
                     "Dataset": "QBO General Ledger",
                     "Total Records": len(qbo_gl_df),
                     "Null Values": qbo_gl_df.isnull().sum().sum(),
-                    "Date Range": f"{qbo_gl_df['txn_date'].min() if 'txn_date' in qbo_gl_df.columns else 'N/A'} to {qbo_gl_df['txn_date'].max() if 'txn_date' in qbo_gl_df.columns else 'N/A'}"
+                    "Date Range": f"{qbo_gl_df['txn_date'].min().strftime('%m/%d/%y') if 'txn_date' in qbo_gl_df.columns and qbo_gl_df['txn_date'].notna().any() else 'N/A'} to {qbo_gl_df['txn_date'].max().strftime('%m/%d/%y') if 'txn_date' in qbo_gl_df.columns and qbo_gl_df['txn_date'].notna().any() else 'N/A'}"
                 })
             
             quality_df = pd.DataFrame(quality_data)
