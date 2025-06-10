@@ -23,6 +23,17 @@ st.markdown("Quality assurance checks for deal data integrity")
 # Load data
 df = load_deals()
 
+# Debug: Check what columns are available
+st.subheader("🔍 Debug Info")
+with st.expander("Available Columns in Dataset", expanded=False):
+    st.write("**Available columns:**")
+    st.write(list(df.columns))
+    st.write("**Sample data (first row):**")
+    if len(df) > 0:
+        st.write(df.iloc[0].to_dict())
+    else:
+        st.write("No data available")
+
 # Convert date column
 df["date_created"] = pd.to_datetime(df["date_created"], errors="coerce")
 
@@ -63,11 +74,25 @@ else:
 if len(missing_loan_ids) > 0:
     st.subheader("Deals Missing Loan IDs")
     
-    # Select relevant columns for display
-    display_columns = [
-        "id", "deal_name", "date_created", "partner_source", "amount", 
-        "total_funded_amount", "factor_rate", "loan_term", "loan_id"
-    ]
+    # Select relevant columns for display - try different possible deal name fields
+    possible_deal_name_fields = ["deal_name", "name", "company_name", "business_name", "dba", "client_name"]
+    deal_name_field = None
+    
+    for field in possible_deal_name_fields:
+        if field in missing_loan_ids.columns:
+            deal_name_field = field
+            break
+    
+    # Base columns always included
+    display_columns = ["id", "date_created", "partner_source", "amount", 
+                      "total_funded_amount", "factor_rate", "loan_term", "loan_id"]
+    
+    # Add deal name field if found
+    if deal_name_field:
+        display_columns.insert(1, deal_name_field)  # Insert after id
+        st.info(f"✅ Using '{deal_name_field}' for deal names")
+    else:
+        st.warning(f"⚠️ No deal name field found. Available fields: {list(missing_loan_ids.columns)}")
     
     # Filter to only include existing columns
     available_columns = [col for col in display_columns if col in missing_loan_ids.columns]
@@ -84,10 +109,9 @@ if len(missing_loan_ids) > 0:
     if "date_created" in display_df.columns:
         display_df["date_created"] = display_df["date_created"].dt.strftime("%Y-%m-%d")
     
-    # Rename columns for better display
+    # Rename columns for better display - handle dynamic deal name field
     column_rename = {
         "id": "Deal ID",
-        "deal_name": "Deal Name",
         "date_created": "Date Created", 
         "partner_source": "Partner Source",
         "amount": "Participation Amount",
@@ -96,6 +120,10 @@ if len(missing_loan_ids) > 0:
         "loan_term": "Term (months)",
         "loan_id": "Loan ID"
     }
+    
+    # Add the deal name field to rename mapping if it exists
+    if deal_name_field:
+        column_rename[deal_name_field] = "Deal Name"
     
     display_df = display_df.rename(columns=column_rename)
     
