@@ -25,14 +25,29 @@ df = load_deals()
 
 # Debug: Check what columns are available
 st.subheader("🔍 Debug Info")
-with st.expander("Available Columns in Dataset", expanded=False):
+with st.expander("Available Columns in Dataset", expanded=True):
+    st.write("**Data source:** `deals` table from Supabase")
+    st.write(f"**Total rows:** {len(df)}")
     st.write("**Available columns:**")
-    st.write(list(df.columns))
-    st.write("**Sample data (first row):**")
+    st.dataframe(pd.DataFrame({"Column Name": df.columns, "Data Type": df.dtypes.astype(str)}), use_container_width=True)
+    
+    st.write("**Sample data (first 3 rows):**")
     if len(df) > 0:
-        st.write(df.iloc[0].to_dict())
+        st.dataframe(df.head(3), use_container_width=True)
     else:
-        st.write("No data available")
+        st.error("⚠️ No data available in deals table!")
+    
+    # Check for deals with is_closed_won = True
+    won_deals_count = len(df[df["is_closed_won"] == True]) if "is_closed_won" in df.columns else 0
+    st.write(f"**Won deals count:** {won_deals_count}")
+    
+    # Check for loan_id field specifically
+    if "loan_id" in df.columns:
+        null_loan_ids = df["loan_id"].isna().sum()
+        empty_loan_ids = (df["loan_id"] == "").sum() if df["loan_id"].dtype == 'object' else 0
+        st.write(f"**Loan ID field status:** Found! Null values: {null_loan_ids}, Empty values: {empty_loan_ids}")
+    else:
+        st.error("⚠️ No 'loan_id' column found!")
 
 # Convert date column
 df["date_created"] = pd.to_datetime(df["date_created"], errors="coerce")
@@ -42,8 +57,19 @@ df["date_created"] = pd.to_datetime(df["date_created"], errors="coerce")
 # ----------------------------
 st.header("1. Missing Loan IDs in Won Deals")
 
+# Check if required columns exist
+if "is_closed_won" not in df.columns:
+    st.error("⚠️ Column 'is_closed_won' not found in deals table!")
+    st.stop()
+
+if "loan_id" not in df.columns:
+    st.error("⚠️ Column 'loan_id' not found in deals table!")
+    st.stop()
+
 # Filter for won deals
 won_deals = df[df["is_closed_won"] == True].copy()
+
+st.write(f"**Debug:** Found {len(won_deals)} won deals out of {len(df)} total deals")
 
 # Check for missing loan IDs (null, empty, or NaN)
 missing_loan_ids = won_deals[
@@ -51,6 +77,8 @@ missing_loan_ids = won_deals[
     (won_deals["loan_id"] == "") |
     (won_deals["loan_id"].astype(str).str.strip() == "")
 ].copy()
+
+st.write(f"**Debug:** Found {len(missing_loan_ids)} deals missing loan IDs")
 
 # Display summary metrics
 col1, col2, col3 = st.columns(3)
