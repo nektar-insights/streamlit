@@ -232,12 +232,84 @@ with col1:
     # Duplicate check
     st.write("**Duplicate Check**")
     if "loan_id" in deals_df.columns:
-        duplicate_loan_ids = deals_df[deals_df["loan_id"].notna() & (deals_df["loan_id"] != "")]["loan_id"].duplicated().sum()
+        # Get deals with non-null, non-empty loan IDs
+        valid_loan_ids = deals_df[deals_df["loan_id"].notna() & (deals_df["loan_id"] != "")].copy()
+        duplicate_loan_ids = valid_loan_ids["loan_id"].duplicated().sum()
+        
         st.metric("Duplicate Loan IDs", duplicate_loan_ids)
         if duplicate_loan_ids == 0:
             st.success("✅ No duplicate loan IDs found")
         else:
             st.error(f"❌ Found {duplicate_loan_ids} duplicate loan IDs")
+            
+            # Show the duplicate loan IDs with deal names
+            duplicated_loans = valid_loan_ids[valid_loan_ids["loan_id"].duplicated(keep=False)].copy()
+            if len(duplicated_loans) > 0:
+                st.subheader("Duplicate Loan ID Details")
+                
+                # Find the best name field to display
+                possible_name_fields = ["deal_name", "name", "company_name", "business_name", "dba", "client_name"]
+                name_field = None
+                
+                for field in possible_name_fields:
+                    if field in duplicated_loans.columns:
+                        name_field = field
+                        break
+                
+                # Select columns to display
+                display_cols = ["loan_id", "id"]
+                if name_field:
+                    display_cols.insert(1, name_field)
+                
+                # Add other relevant columns if they exist
+                additional_cols = ["date_created", "amount", "is_closed_won"]
+                for col in additional_cols:
+                    if col in duplicated_loans.columns:
+                        display_cols.append(col)
+                
+                # Filter to only existing columns
+                available_cols = [col for col in display_cols if col in duplicated_loans.columns]
+                duplicate_display = duplicated_loans[available_cols].copy()
+                
+                # Format the data
+                if "amount" in duplicate_display.columns:
+                    duplicate_display["amount"] = duplicate_display["amount"].apply(lambda x: f"${x:,.0f}" if pd.notna(x) else "N/A")
+                if "date_created" in duplicate_display.columns:
+                    duplicate_display["date_created"] = duplicate_display["date_created"].dt.strftime("%Y-%m-%d")
+                
+                # Rename columns for display
+                column_rename = {
+                    "id": "Deal ID",
+                    "loan_id": "Loan ID",
+                    "date_created": "Date Created",
+                    "amount": "Amount",
+                    "is_closed_won": "Won?"
+                }
+                
+                if name_field:
+                    column_rename[name_field] = "Deal Name"
+                
+                duplicate_display = duplicate_display.rename(columns=column_rename)
+                duplicate_display = duplicate_display.sort_values("Loan ID")
+                
+                st.dataframe(duplicate_display, use_container_width=True, hide_index=True)
+                
+                # Show summary by loan ID
+                duplicate_summary = duplicated_loans.groupby("loan_id").size().reset_index(name="Count")
+                duplicate_summary = duplicate_summary.sort_values("Count", ascending=False)
+                
+                st.write("**Duplicate Summary:**")
+                for _, row in duplicate_summary.iterrows():
+                    st.write(f"• Loan ID `{row['loan_id']}`: {row['Count']} deals")
+                
+                # Download option for duplicates
+                csv_data = duplicated_loans[available_cols].to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    label="📥 Download Duplicate Loan IDs",
+                    data=csv_data,
+                    file_name=f"duplicate_loan_ids_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv"
+                )
 
 with col2:
     # Recent activity
@@ -738,25 +810,32 @@ else:
     health_status.append("🔴 QBO Data: Multiple datasets missing or empty")
 
 # Data freshness health
-freshness_issues = 0
+freshness_issues = []
 if len(deals_df) > 0 and 'date_created' in deals_df.columns:
     latest_deal = deals_df["date_created"].max()
     days_since_last = (pd.Timestamp.now() - latest_deal).days
     if days_since_last > 7:
-        freshness_issues += 1
+        freshness_issues.append(f"Deal Data ({days_since_last} days old)")
+
+if len(qbo_txn_df) > 0 and 'date' in qbo_txn_df.columns:
+    qbo_txn_latest = qbo_txn_df["date"].max()
+    qbo_txn_days_since = (pd.Timestamp.now() - qbo_txn_latest).days
+    if qbo_txn_days_since > 7:
+        freshness_issues.append(f"QBO Transactions ({qbo_txn_days_since} days old)")
 
 if len(qbo_gl_df) > 0 and 'txn_date' in qbo_gl_df.columns:
-    qbo_latest = qbo_gl_df["txn_date"].max()
-    qbo_days_since = (pd.Timestamp.now() - qbo_latest).days
-    if qbo_days_since > 7:
-        freshness_issues += 1
+    qbo_gl_latest = qbo_gl_df["txn_date"].max()
+    qbo_gl_days_since = (pd.Timestamp.now() - qbo_gl_latest).days
+    if qbo_gl_days_since > 7:
+        freshness_issues.append(f"QBO General Ledger ({qbo_gl_days_since} days old)")
 
-if freshness_issues == 0:
+if len(freshness_issues) == 0:
     health_status.append("✅ Data Freshness: All data appears current")
-elif freshness_issues == 1:
-    health_status.append("🟡 Data Freshness: One dataset may be stale")
+elif len(freshness_issues) == 1:
+    health_status.append(f"🟡 Data Freshness: {freshness_issues[0]} may be stale")
 else:
-    health_status.append("🔴 Data Freshness: Multiple datasets appear stale")
+    stale_datasets = ", ".join(freshness_issues)
+    health_status.append(f"🔴 Data Freshness: Multiple datasets stale - {stale_datasets}")
 
 # Display health status
 st.subheader("Overall System Health")
