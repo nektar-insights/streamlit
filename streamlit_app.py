@@ -243,23 +243,20 @@ st.altair_chart(funded_flow_chart, use_container_width=True)
 # ----------------------------
 # Monthly trend charts
 # ----------------------------
-
 st.subheader("Total Funded Amount by Month")
 funded_chart = alt.Chart(monthly_funded).mark_bar(
-    size=40,  # Reduced bar size to prevent overlap
+    size=50, 
     color=PRIMARY_COLOR,
     cornerRadiusTopLeft=3,
     cornerRadiusTopRight=3
 ).encode(
-    x=alt.X("month_date:T", 
-            axis=alt.Axis(labelAngle=-45, title="Month", format="%b %Y"),  # Angled labels to prevent overlap
-            scale=alt.Scale(padding=0.1)),  # Add padding between bars
+    x=alt.X("month:T", axis=alt.Axis(labelAngle=0, title="Month")),
     y=alt.Y("total_funded_amount:Q", 
             title="Total Funded ($)", 
-            axis=alt.Axis(format="$.1s", titlePadding=20, labelPadding=10)),  # Increased padding
+            axis=alt.Axis(format="$.1s", titlePadding=15)),
     tooltip=[
-        alt.Tooltip("month_date:T", title="Month", format="%B %Y"),  # Fixed tooltip format
-        alt.Tooltip("total_funded_amount:Q", title="Total Funded Amount", format="$,.0f")
+        alt.Tooltip("month", title="Month"),
+        alt.Tooltip("total_funded_amount", title="Total Funded Amount", format="$,.0f")
     ]
 )
 
@@ -277,38 +274,28 @@ funded_regression = alt.Chart(monthly_funded).mark_line(
     color="#1f77b4", 
     strokeWidth=3
 ).transform_regression(
-    'month_date', 'total_funded_amount'
+    'month', 'total_funded_amount'
 ).encode(
-    x='month_date:T',
+    x='month:T',
     y='total_funded_amount:Q'
 )
 
 st.altair_chart(
-    (funded_chart + funded_avg + funded_regression).properties(
-        height=400,
-        width=800  # Set explicit width
-    ).resolve_scale(
-        y='independent'  # Ensure Y-axis doesn't overlap
-    ), 
+    (funded_chart + funded_avg + funded_regression).properties(height=400), 
     use_container_width=True
 )
 
 st.subheader("Total Deal Count by Month")
 deal_chart = alt.Chart(monthly_deals).mark_bar(
-    size=40,  # Reduced bar size
+    size=50, 
     color=COLOR_PALETTE[2],
     cornerRadiusTopLeft=3,
     cornerRadiusTopRight=3
 ).encode(
-    x=alt.X("month_date:T", 
-            title="Month", 
-            axis=alt.Axis(labelAngle=-45, format="%b %Y"),  # Angled labels
-            scale=alt.Scale(padding=0.1)),
-    y=alt.Y("deal_count:Q", 
-            title="Deal Count",
-            axis=alt.Axis(titlePadding=20, labelPadding=10)),  # Increased padding
+    x=alt.X("month_date:T", title="Month", axis=alt.Axis(labelAngle=0, format="%b %Y")),
+    y=alt.Y("deal_count:Q", title="Deal Count"),
     tooltip=[
-        alt.Tooltip("month_date:T", title="Month", format="%B %Y"),  # Fixed tooltip
+        alt.Tooltip("month_date:T", title="Month", format="%B %Y"),
         alt.Tooltip("deal_count:Q", title="Deal Count")
     ]
 )
@@ -334,31 +321,21 @@ deal_regression = alt.Chart(monthly_deals).mark_line(
 )
 
 st.altair_chart(
-    (deal_chart + deal_avg + deal_regression).properties(
-        height=400,
-        width=800
-    ).resolve_scale(
-        y='independent'
-    ), 
+    (deal_chart + deal_avg + deal_regression).properties(height=400), 
     use_container_width=True
 )
 
 st.subheader("Participation Trends by Month")
 participation_chart = alt.Chart(monthly_participation).mark_bar(
-    size=40,  # Reduced bar size
+    size=60, 
     color=PRIMARY_COLOR,
     cornerRadiusTopLeft=3,
     cornerRadiusTopRight=3
 ).encode(
-    x=alt.X("month_date:T", 
-            title="Month", 
-            axis=alt.Axis(labelAngle=-45, format="%b %Y"),  # Angled labels
-            scale=alt.Scale(padding=0.1)),
-    y=alt.Y("deal_count:Q", 
-            title="Participated Deals",
-            axis=alt.Axis(titlePadding=20, labelPadding=10)),
+    x=alt.X("month_date:T", title="Month", axis=alt.Axis(labelAngle=0, format="%b %Y")),
+    y=alt.Y("deal_count:Q", title="Participated Deals"),
     tooltip=[
-        alt.Tooltip("month_date:T", title="Month", format="%B %Y"),  # Fixed tooltip
+        alt.Tooltip("month_date:T", title="Month", format="%B %Y"),
         alt.Tooltip("deal_count:Q", title="Participated Count")
     ]
 )
@@ -384,31 +361,23 @@ participation_regression = alt.Chart(monthly_participation).mark_line(
 )
 
 st.altair_chart(
-    (participation_chart + participation_avg + participation_regression).properties(
-        height=400,
-        width=800
-    ).resolve_scale(
-        y='independent'
-    ), 
+    (participation_chart + participation_avg + participation_regression).properties(height=400), 
     use_container_width=True
 )
 
 st.subheader("Participation Amount by Month")
 amount_chart = alt.Chart(monthly_participation).mark_bar(
-    size=40,  # Reduced bar size
+    size=60, 
     color=PRIMARY_COLOR,
     cornerRadiusTopLeft=3,
     cornerRadiusTopRight=3
 ).encode(
-    x=alt.X("month_date:T", 
-            title="Month", 
-            axis=alt.Axis(labelAngle=-45, format="%b %Y"),  # Angled labels
-            scale=alt.Scale(padding=0.1)),
+    x=alt.X("month_date:T", title="Month", axis=alt.Axis(labelAngle=0, format="%b %Y")),
     y=alt.Y("total_amount:Q", 
             title="Participation Amount ($)", 
-            axis=alt.Axis(format="$.1s", titlePadding=20, labelPadding=10)),  # Increased padding
+            axis=alt.Axis(format="$.1s", titlePadding=15)),
     tooltip=[
-        alt.Tooltip("month_date:T", title="Month", format="%B %Y"),  # Fixed tooltip
+        alt.Tooltip("month_date:T", title="Month", format="%B %Y"),
         alt.Tooltip("total_amount:Q", title="Participation Amount", format="$,.0f")
     ]
 )
@@ -434,12 +403,7 @@ amount_regression = alt.Chart(monthly_participation).mark_line(
 )
 
 st.altair_chart(
-    (amount_chart + amount_avg + amount_regression).properties(
-        height=400,
-        width=800
-    ).resolve_scale(
-        y='independent'
-    ), 
+    (amount_chart + amount_avg + amount_regression).properties(height=400), 
     use_container_width=True
 )
 
@@ -449,22 +413,20 @@ rate_line = alt.Chart(monthly_participation_ratio).mark_line(
     strokeWidth=4,
     point=alt.OverlayMarkDef(color="#e45756", size=80, filled=True)
 ).encode(
-    x=alt.X("month_date:T", 
-            title="Month", 
-            axis=alt.Axis(labelAngle=-45, format="%b %Y")),  # Angled labels and fixed format
+    x=alt.X("month_date:T", title="Month", axis=alt.Axis(labelAngle=0, format="%b %Y")),
     y=alt.Y("participation_pct:Q", 
             title="Participation Rate", 
-            axis=alt.Axis(format=".0%", titlePadding=20, labelPadding=10)),  # Increased padding
+            axis=alt.Axis(format=".0%", titlePadding=15)),
     tooltip=[
-        alt.Tooltip("month_date:T", title="Month", format="%B %Y"),  # Fixed tooltip
+        alt.Tooltip("month_date:T", title="Month", format="%B %Y"),
         alt.Tooltip("participation_pct:Q", title="Participation Rate", format=".1%")
     ]
 ).properties(
-    height=400,  # Increased height for consistency
-    width=800
+    height=350
 )
 
 st.altair_chart(rate_line, use_container_width=True)
+
 # ----------------------------
 # Partner Summary Table
 # ----------------------------
