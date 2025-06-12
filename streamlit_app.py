@@ -345,7 +345,11 @@ st.altair_chart(rate_line_dollar, use_container_width=True)
 # Monthly trend charts 
 # ----------------------------
 st.subheader("Total Funded Amount by Month")
-funded_chart = alt.Chart(monthly_funded).mark_bar(
+
+# Define base chart with consistent axis settings
+base = alt.Chart(monthly_funded)
+
+funded_chart = base.mark_bar(
     size=50,
     color=PRIMARY_COLOR,
     cornerRadiusTopLeft=3,
@@ -356,14 +360,14 @@ funded_chart = alt.Chart(monthly_funded).mark_bar(
                 labelAngle=-45, 
                 title="", 
                 format="%b %Y", 
-                labelPadding=10  # X-axis label padding (space between labels and axis)
+                labelPadding=10
             )),
     y=alt.Y("total_funded_amount:Q", 
             title="Total Funded ($)", 
             axis=alt.Axis(
                 format="$.2s", 
-                titlePadding=25,    # Y-axis TITLE padding (space between title and labels)
-                labelPadding=8      # Y-axis LABEL padding (space between labels and axis)
+                titlePadding=25,
+                labelPadding=8
             )),
     tooltip=[
         alt.Tooltip("month_date:T", title="Month", format="%B %Y"),
@@ -371,30 +375,33 @@ funded_chart = alt.Chart(monthly_funded).mark_bar(
     ]
 )
 
-funded_avg = alt.Chart(monthly_funded).mark_rule(
+funded_avg = base.mark_rule(
     color="gray", 
     strokeWidth=2, 
     strokeDash=[4, 2],
     opacity=0.7
 ).encode(
-    y=alt.Y("mean(total_funded_amount):Q")
+    x=alt.X("month_date:T", axis=alt.Axis(title="", labels=False)),  # Hide labels for this layer
+    y=alt.Y("mean(total_funded_amount):Q", axis=alt.Axis(title="", labels=False))  # Hide labels for this layer
 )
 
-funded_regression = alt.Chart(monthly_funded).mark_line(
+funded_regression = base.mark_line(
     color="#1f77b4", 
     strokeWidth=3
 ).transform_regression(
     'month_date', 'total_funded_amount'
 ).encode(
-    x='month_date:T',
-    y='total_funded_amount:Q'
+    x=alt.X('month_date:T', axis=alt.Axis(title="", labels=False)),  # Hide labels for this layer
+    y=alt.Y('total_funded_amount:Q', axis=alt.Axis(title="", labels=False))  # Hide labels for this layer
 )
 
 # Combine charts
-funded_combined = alt.layer(funded_chart, funded_avg, funded_regression).properties(
+funded_combined = alt.layer(funded_chart, funded_avg, funded_regression).resolve_scale(
+    x='shared', y='shared'  # Ensure shared scales
+).properties(
     height=400,
     width=800,
-    padding={"left": 20, "top": 20, "right": 20, "bottom": 60}  # Reduced left padding
+    padding={"left": 20, "top": 20, "right": 20, "bottom": 60}
 )
 
 st.altair_chart(funded_combined, use_container_width=True)
