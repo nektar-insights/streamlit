@@ -344,116 +344,6 @@ rate_line_dollar = alt.Chart(monthly_participation_ratio_dollar).mark_line(
 st.altair_chart(rate_line_dollar, use_container_width=True)
 
 # ----------------------------
-# IMPROVED PARTNER SUMMARY TABLES
-# ----------------------------
-st.subheader("Partner Performance Summary")
-
-# Calculate additional metrics for partner summary
-partner_summary_enhanced = partner_summary.copy()
-
-# Deal-based metrics
-partner_summary_enhanced["participated_deal_count"] = partner_summary_enhanced["participated_deals"].astype(int)
-partner_summary_enhanced["deal_participation_rate"] = (
-    partner_summary_enhanced["participated_deals"] / partner_summary_enhanced["total_deals"]
-).fillna(0)
-
-# Dollar-based metrics  
-partner_summary_enhanced["dollar_participation_rate"] = (
-    partner_summary_enhanced["participated_amount"] / partner_summary_enhanced["total_amount"]
-).fillna(0)
-
-# ----------------------------
-# DEAL COUNT SUMMARY TABLE
-# ----------------------------
-st.write("**Deal Count Performance**")
-
-deal_summary = partner_summary_enhanced.reset_index()[[
-    "partner_source", "total_deals", "participated_deal_count", "deal_participation_rate"
-]].copy()
-
-# Format the deal summary
-deal_summary["Deal Participation Rate"] = deal_summary["deal_participation_rate"].apply(lambda x: f"{x:.2%}")
-deal_summary = deal_summary.rename(columns={
-    "partner_source": "Partner", 
-    "total_deals": "Total Deals",
-    "participated_deal_count": "CSL Deals"
-})[["Partner", "Total Deals", "CSL Deals", "Deal Participation Rate"]]
-
-st.dataframe(deal_summary, use_container_width=True)
-
-# ----------------------------
-# DOLLAR AMOUNT SUMMARY TABLE
-# ----------------------------
-st.write("**Dollar Amount Performance**")
-
-dollar_summary = partner_summary_enhanced.reset_index()[[
-    "partner_source", "total_amount", "participated_amount", "dollar_participation_rate"
-]].copy()
-
-# Format the dollar summary
-dollar_summary["$ Opportunities"] = dollar_summary["total_amount"].apply(lambda x: f"${x:,.0f}")
-dollar_summary["$ Participated"] = dollar_summary["participated_amount"].apply(lambda x: f"${x:,.0f}")
-dollar_summary["$ Participation Rate"] = dollar_summary["dollar_participation_rate"].apply(lambda x: f"{x:.2%}")
-
-dollar_summary = dollar_summary.rename(columns={
-    "partner_source": "Partner"
-})[["Partner", "$ Opportunities", "$ Participated", "$ Participation Rate"]]
-
-st.dataframe(dollar_summary, use_container_width=True)
-
-# ----------------------------
-# DOWNLOAD FUNCTIONS FOR BOTH TABLES
-# ----------------------------
-def create_pdf_from_html(html: str):
-    result = io.BytesIO()
-    pisa.CreatePDF(io.StringIO(html), dest=result)
-    return result.getvalue()
-
-# ----------------------------
-# DOWNLOAD BUTTONS FOR BOTH TABLES
-# ----------------------------
-col_download1, col_download2 = st.columns(2)
-
-with col_download1:
-    # Deal Count Summary Downloads
-    deal_csv = deal_summary.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        label="Download Deal Count Summary (CSV)",
-        data=deal_csv,
-        file_name="partner_deal_count_summary.csv",
-        mime="text/csv"
-    )
-    
-    deal_html = deal_summary.to_html(index=False)
-    deal_pdf = create_pdf_from_html(deal_html)
-    st.download_button(
-        label="Download Deal Count Summary (PDF)",
-        data=deal_pdf,
-        file_name="partner_deal_count_summary.pdf",
-        mime="application/pdf"
-    )
-
-with col_download2:
-    # Dollar Summary Downloads
-    dollar_csv = dollar_summary.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        label="Download Dollar Summary (CSV)",
-        data=dollar_csv,
-        file_name="partner_dollar_summary.csv",
-        mime="text/csv"
-    )
-    
-    dollar_html = dollar_summary.to_html(index=False)
-    dollar_pdf = create_pdf_from_html(dollar_html)
-    st.download_button(
-        label="Download Dollar Summary (PDF)",
-        data=dollar_pdf,
-        file_name="partner_dollar_summary.pdf",
-        mime="application/pdf"
-    )
-
-##### DELETE? #####
-# ----------------------------
 # Monthly trend charts 
 # ----------------------------
 st.subheader("Total Funded Amount by Month")
@@ -603,97 +493,66 @@ participation_combined = alt.layer(participation_chart, participation_avg, parti
 
 st.altair_chart(participation_combined, use_container_width=True)
 
-st.subheader("Participation Amount by Month")
-amount_chart = alt.Chart(monthly_participation).mark_bar(
-    size=40,  # Reduced bar size
-    color=PRIMARY_COLOR,
-    cornerRadiusTopLeft=3,
-    cornerRadiusTopRight=3
-).encode(
-    x=alt.X("month_date:T", 
-            title="Month", 
-            axis=alt.Axis(labelAngle=-45, format="%b %Y", labelPadding=10)),
-    y=alt.Y("total_amount:Q", 
-            title="Participation Amount ($)", 
-            axis=alt.Axis(format="$.2s", titlePadding=20, labelPadding=5)),
-    tooltip=[
-        alt.Tooltip("month_date:T", title="Month", format="%B %Y"),
-        alt.Tooltip("total_amount:Q", title="Participation Amount", format="$,.0f")
-    ]
-)
-
-amount_avg = alt.Chart(monthly_participation).mark_rule(
-    color="gray", 
-    strokeWidth=2, 
-    strokeDash=[4, 2],
-    opacity=0.7
-).encode(
-    y=alt.Y("mean(total_amount):Q")
-)
-
-# Add regression line
-amount_regression = alt.Chart(monthly_participation).mark_line(
-    color="#17a2b8", 
-    strokeWidth=3
-).transform_regression(
-    'month_date', 'total_amount'
-).encode(
-    x='month_date:T',
-    y='total_amount:Q'
-)
-
-# Combine charts and set properties
-amount_combined = alt.layer(amount_chart, amount_avg, amount_regression).properties(
-    height=400,
-    width=800,
-    padding={"left": 80, "top": 20, "right": 20, "bottom": 60}
-)
-
-st.altair_chart(amount_combined, use_container_width=True)
-
-st.subheader("Monthly Participation Rate")
-rate_line = alt.Chart(monthly_participation_ratio).mark_line(
-    color="#e45756", 
-    strokeWidth=4,
-    point=alt.OverlayMarkDef(color="#e45756", size=80, filled=True)
-).encode(
-    x=alt.X("month_date:T", 
-            title="Month", 
-            axis=alt.Axis(labelAngle=-45, format="%b %Y", labelPadding=10)),
-    y=alt.Y("participation_pct:Q", 
-            title="Participation Rate", 
-            axis=alt.Axis(format=".0%", titlePadding=20, labelPadding=5)),
-    tooltip=[
-        alt.Tooltip("month_date:T", title="Month", format="%B %Y"),
-        alt.Tooltip("participation_pct:Q", title="Participation Rate", format=".1%")
-    ]
-).properties(
-    height=350,
-    width=800,
-    padding={"left": 80, "top": 20, "right": 20, "bottom": 60}
-)
-
-st.altair_chart(rate_line, use_container_width=True)
 # ----------------------------
-# Partner Summary Table
+# PARTNER SUMMARY TABLES
 # ----------------------------
-st.subheader("Partner Summary Table")
+st.subheader("Partner Performance Summary")
 
-# Format summary for display
-partner_summary["$ Opportunities"] = partner_summary["total_amount"].apply(lambda x: f"${x:,.0f}")
-partner_summary["Participated $"] = partner_summary["participated_amount"].apply(lambda x: f"${x:,.0f}")
-partner_summary["% Closed Won"] = partner_summary["closed_won_pct"].apply(lambda x: f"{x:.2%}")
-partner_summary["Avg % of Deal"] = partner_summary["avg_participation_pct"].apply(lambda x: f"{x:.2%}")
+# Calculate additional metrics for partner summary
+partner_summary_enhanced = partner_summary.copy()
 
-summary_display = partner_summary.reset_index()[[
-    "partner_source", "total_deals", "$ Opportunities",
-    "Participated $", "% Closed Won", "Avg % of Deal"
-]].rename(columns={"partner_source": "Partner", "total_deals": "Total Deals"})
+# Deal-based metrics
+partner_summary_enhanced["participated_deal_count"] = partner_summary_enhanced["participated_deals"].astype(int)
+partner_summary_enhanced["deal_participation_rate"] = (
+    partner_summary_enhanced["participated_deals"] / partner_summary_enhanced["total_deals"]
+).fillna(0)
 
-st.dataframe(summary_display, use_container_width=True)
+# Dollar-based metrics  
+partner_summary_enhanced["dollar_participation_rate"] = (
+    partner_summary_enhanced["participated_amount"] / partner_summary_enhanced["total_amount"]
+).fillna(0)
 
 # ----------------------------
-# Download functions
+# DEAL COUNT SUMMARY TABLE
+# ----------------------------
+st.write("**Deal Count Performance**")
+
+deal_summary = partner_summary_enhanced.reset_index()[[
+    "partner_source", "total_deals", "participated_deal_count", "deal_participation_rate"
+]].copy()
+
+# Format the deal summary
+deal_summary["Deal Participation Rate"] = deal_summary["deal_participation_rate"].apply(lambda x: f"{x:.2%}")
+deal_summary = deal_summary.rename(columns={
+    "partner_source": "Partner", 
+    "total_deals": "Total Deals",
+    "participated_deal_count": "CSL Deals"
+})[["Partner", "Total Deals", "CSL Deals", "Deal Participation Rate"]]
+
+st.dataframe(deal_summary, use_container_width=True)
+
+# ----------------------------
+# DOLLAR AMOUNT SUMMARY TABLE
+# ----------------------------
+st.write("**Dollar Amount Performance**")
+
+dollar_summary = partner_summary_enhanced.reset_index()[[
+    "partner_source", "total_amount", "participated_amount", "dollar_participation_rate"
+]].copy()
+
+# Format the dollar summary
+dollar_summary["$ Opportunities"] = dollar_summary["total_amount"].apply(lambda x: f"${x:,.0f}")
+dollar_summary["$ Participated"] = dollar_summary["participated_amount"].apply(lambda x: f"${x:,.0f}")
+dollar_summary["$ Participation Rate"] = dollar_summary["dollar_participation_rate"].apply(lambda x: f"{x:.2%}")
+
+dollar_summary = dollar_summary.rename(columns={
+    "partner_source": "Partner"
+})[["Partner", "$ Opportunities", "$ Participated", "$ Participation Rate"]]
+
+st.dataframe(dollar_summary, use_container_width=True)
+
+# ----------------------------
+# DOWNLOAD FUNCTIONS FOR BOTH TABLES
 # ----------------------------
 def create_pdf_from_html(html: str):
     result = io.BytesIO()
@@ -701,21 +560,44 @@ def create_pdf_from_html(html: str):
     return result.getvalue()
 
 # ----------------------------
-# Download buttons
+# DOWNLOAD BUTTONS FOR BOTH TABLES
 # ----------------------------
-csv = summary_display.to_csv(index=False).encode("utf-8")
-st.download_button(
-    label="Download Partner Summary as CSV",
-    data=csv,
-    file_name="partner_summary.csv",
-    mime="text/csv"
-)
+col_download1, col_download2 = st.columns(2)
 
-html = summary_display.to_html(index=False)
-pdf = create_pdf_from_html(html)
-st.download_button(
-    label="Download Partner Summary as PDF",
-    data=pdf,
-    file_name="partner_summary.pdf",
-    mime="application/pdf"
-)
+with col_download1:
+    # Deal Count Summary Downloads
+    deal_csv = deal_summary.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="Download Deal Count Summary (CSV)",
+        data=deal_csv,
+        file_name="partner_deal_count_summary.csv",
+        mime="text/csv"
+    )
+    
+    deal_html = deal_summary.to_html(index=False)
+    deal_pdf = create_pdf_from_html(deal_html)
+    st.download_button(
+        label="Download Deal Count Summary (PDF)",
+        data=deal_pdf,
+        file_name="partner_deal_count_summary.pdf",
+        mime="application/pdf"
+    )
+
+with col_download2:
+    # Dollar Summary Downloads
+    dollar_csv = dollar_summary.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="Download Dollar Summary (CSV)",
+        data=dollar_csv,
+        file_name="partner_dollar_summary.csv",
+        mime="text/csv"
+    )
+    
+    dollar_html = dollar_summary.to_html(index=False)
+    dollar_pdf = create_pdf_from_html(dollar_html)
+    st.download_button(
+        label="Download Dollar Summary (PDF)",
+        data=dollar_pdf,
+        file_name="partner_dollar_summary.pdf",
+        mime="application/pdf"
+    )
