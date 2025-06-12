@@ -274,8 +274,6 @@ st.altair_chart(funded_flow_chart, use_container_width=True)
 # ----------------------------
 # ADDITIONAL DATA PREPARATION FOR DOLLAR-BASED PARTICIPATION RATE
 # ----------------------------
-# Add this after your existing monthly aggregations section
-
 # Monthly participation rate by DOLLAR amount
 monthly_participation_ratio_dollar = df.groupby("month").agg(
     total_funded_amount=("total_funded_amount", "sum"),
@@ -288,7 +286,7 @@ monthly_participation_ratio_dollar["participation_pct_dollar"] = (
 monthly_participation_ratio_dollar["month_date"] = pd.to_datetime(monthly_participation_ratio_dollar["month"])
 
 # ----------------------------
-# EXISTING MONTHLY PARTICIPATION RATE CHART (COUNT-BASED) - UPDATED TITLE
+# MONTHLY PARTICIPATION RATE CHART (COUNT-BASED)
 # ----------------------------
 st.subheader("Monthly Participation Rate by Deal Count")
 rate_line = alt.Chart(monthly_participation_ratio).mark_line(
@@ -315,7 +313,7 @@ rate_line = alt.Chart(monthly_participation_ratio).mark_line(
 st.altair_chart(rate_line, use_container_width=True)
 
 # ----------------------------
-# NEW MONTHLY PARTICIPATION RATE CHART (DOLLAR-BASED)
+# MONTHLY PARTICIPATION RATE CHART (DOLLAR-BASED)
 # ----------------------------
 st.subheader("Monthly Participation Rate by Dollar Amount")
 rate_line_dollar = alt.Chart(monthly_participation_ratio_dollar).mark_line(
@@ -346,9 +344,12 @@ st.altair_chart(rate_line_dollar, use_container_width=True)
 # ----------------------------
 # Monthly trend charts 
 # ----------------------------
-st.subheader("Total Funded Amount by Month")
-funded_chart = alt.Chart(monthly_funded).mark_bar(
-    size=35,
+# Filter monthly_funded to last 7 months
+monthly_funded_recent = monthly_funded.sort_values('month_date').tail(7)
+
+st.subheader("Total Funded Amount by Month (Last 7 Months)")
+funded_chart = alt.Chart(monthly_funded_recent).mark_bar(
+    size=50,  # Can make bars bigger now with fewer months
     color=PRIMARY_COLOR,
     cornerRadiusTopLeft=3,
     cornerRadiusTopRight=3
@@ -358,9 +359,7 @@ funded_chart = alt.Chart(monthly_funded).mark_bar(
                 labelAngle=-45, 
                 title="", 
                 format="%b %Y", 
-                labelPadding=15,
-                tickCount=6,  # Limit to ~6 labels max
-                labelOverlap=True  # Allow overlap removal
+                labelPadding=10
             )),
     y=alt.Y("total_funded_amount:Q", 
             title="Total Funded ($)", 
@@ -371,7 +370,7 @@ funded_chart = alt.Chart(monthly_funded).mark_bar(
     ]
 )
 
-funded_avg = alt.Chart(monthly_funded).mark_rule(
+funded_avg = alt.Chart(monthly_funded_recent).mark_rule(
     color="gray", 
     strokeWidth=2, 
     strokeDash=[4, 2],
@@ -380,7 +379,7 @@ funded_avg = alt.Chart(monthly_funded).mark_rule(
     y=alt.Y("mean(total_funded_amount):Q")
 )
 
-funded_regression = alt.Chart(monthly_funded).mark_line(
+funded_regression = alt.Chart(monthly_funded_recent).mark_line(
     color="#1f77b4", 
     strokeWidth=3
 ).transform_regression(
@@ -393,12 +392,14 @@ funded_regression = alt.Chart(monthly_funded).mark_line(
 # Combine charts
 funded_combined = alt.layer(funded_chart, funded_avg, funded_regression).properties(
     height=400,
-    width=900,
-    padding={"left": 80, "top": 20, "right": 20, "bottom": 80}
+    width=800,
+    padding={"left": 80, "top": 20, "right": 20, "bottom": 60}
 )
 
 st.altair_chart(funded_combined, use_container_width=True)
 
+
+# Total Deal Count by Month
 st.subheader("Total Deal Count by Month")
 deal_chart = alt.Chart(monthly_deals).mark_bar(
     size=40,  # Reduced bar size
