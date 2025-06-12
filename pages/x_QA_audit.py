@@ -51,13 +51,13 @@ qbo_gl_df = preprocess_data(qbo_gl_df)
 # ----------------------------
 # Page setup
 # ----------------------------
-st.title("🔍 Comprehensive Data Audit Dashboard")
+st.title("Comprehensive Data Audit Dashboard")
 st.markdown("Complete quality assurance checks for deal data integrity and QBO financial analysis")
 
 # ----------------------------
 # Executive Summary
 # ----------------------------
-st.header("📊 Executive Summary")
+st.header("Executive Summary")
 
 col1, col2, col3, col4 = st.columns(4)
 
@@ -111,10 +111,10 @@ with col4:
 # ----------------------------
 # DEAL DATA AUDIT SECTION
 # ----------------------------
-st.header("💼 Deal Data Audit")
+st.header("Deal Data Audit")
 
 # Debug Info Expander
-with st.expander("🔍 Deal Data Debug Info", expanded=False):
+with st.expander("Deal Data Debug Info", expanded=False):
     st.write("**Data source:** `deals` table from Supabase")
     st.write(f"**Total rows:** {len(deals_df)}")
     st.write("**Available columns:**")
@@ -155,7 +155,7 @@ else:
     
     # Display status
     if len(missing_loan_ids) == 0:
-        st.success("✅ All won deals have loan IDs assigned!")
+        st.success("All won deals have loan IDs assigned!")
     else:
         st.warning(f"⚠️ Found {len(missing_loan_ids)} won deals missing loan IDs")
         
@@ -178,7 +178,7 @@ else:
         # Add deal name field if found
         if deal_name_field:
             display_columns.insert(1, deal_name_field)
-            st.info(f"✅ Using '{deal_name_field}' for deal names")
+            st.info(f"Using '{deal_name_field}' for deal names")
         else:
             st.warning(f"⚠️ No deal name field found. Available fields: {list(missing_loan_ids.columns)}")
         
@@ -217,7 +217,7 @@ else:
         # Download option
         csv_data = missing_loan_ids[available_columns].to_csv(index=False).encode("utf-8")
         st.download_button(
-            label="📥 Download Missing Loan IDs as CSV",
+            label="Download Missing Loan IDs as CSV",
             data=csv_data,
             file_name=f"missing_loan_ids_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
             mime="text/csv"
@@ -238,7 +238,7 @@ with col1:
         
         st.metric("Duplicate Loan IDs", duplicate_loan_ids)
         if duplicate_loan_ids == 0:
-            st.success("✅ No duplicate loan IDs found")
+            st.success("No duplicate loan IDs found")
         else:
             st.error(f"❌ Found {duplicate_loan_ids} duplicate loan IDs")
             
@@ -348,7 +348,7 @@ if "is_closed_won" in deals_df.columns:
 # ----------------------------
 # QBO DATA ANALYSIS SECTION
 # ----------------------------
-st.header("💰 QBO Financial Data Analysis")
+st.header("QBO Financial Data Analysis")
 
 # QBO Data Quality Overview
 col1, col2 = st.columns(2)
@@ -632,7 +632,7 @@ with tab4:
         for issue in issues:
             st.write(f"• {issue}")
     else:
-        st.success("✅ No major data quality issues detected")
+        st.success("No major data quality issues detected")
 
 # ----------------------------
 # Cache clearing functions
@@ -674,21 +674,21 @@ col1, col2, col3 = st.columns(3)
 with col1:
     if st.button("🔄 Refresh Pipeline Data", help="Clears cache for main pipeline dashboard (load_deals function)"):
         clear_pipeline_cache()
-        st.success("✅ Pipeline dashboard cache cleared!")
+        st.success("Pipeline dashboard cache cleared!")
         
 with col2:
     if st.button("🔄 Refresh MCA Data", help="Clears cache for MCA dashboard (load_mca_deals & combine_deals functions)"):
         clear_mca_cache()
-        st.success("✅ MCA dashboard cache cleared!")
+        st.success("MCA dashboard cache cleared!")
         
 with col3:
     if st.button("🔄 Refresh QBO Data", help="Clears cache for QBO dashboard (load_qbo_data function)"):
         clear_qbo_cache()
-        st.success("✅ QBO dashboard cache cleared!")
+        st.success("QBO dashboard cache cleared!")
 
 if st.button("🔄 Refresh All Data Caches", type="primary", help="Clears all cached data across the entire application"):
     st.cache_data.clear()
-    st.success("✅ All data caches cleared! Navigate to other pages to see fresh data.")
+    st.success("All data caches cleared! Navigate to other pages to see fresh data.")
 
 # Show cache status
 st.subheader("Cache Status")
@@ -697,9 +697,9 @@ cache_info = []
 # Check if we have any cached functions
 if hasattr(st.session_state, '_cache'):
     cache_count = len(st.session_state._cache)
-    cache_info.append(f"📊 Session cache entries: {cache_count}")
+    cache_info.append(f"Session cache entries: {cache_count}")
 else:
-    cache_info.append("📊 No session cache detected")
+    cache_info.append("No session cache detected")
 
 # Display cache info
 for info in cache_info:
@@ -710,17 +710,17 @@ if "last_cache_clear" not in st.session_state:
     st.session_state.last_cache_clear = "Never"
 
 if st.session_state.get("last_cache_clear") != "Never":
-    st.text(f"🕒 Last cache clear: {st.session_state.last_cache_clear}")
+    st.text(f"Last cache clear: {st.session_state.last_cache_clear}")
 
 # Update timestamp when any cache is cleared
-if st.button("📝 Mark Cache Clear Time"):
+if st.button("Mark Cache Clear Time"):
     st.session_state.last_cache_clear = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
-    st.success(f"✅ Cache clear time marked: {st.session_state.last_cache_clear}")
+    st.success(f"Cache clear time marked: {st.session_state.last_cache_clear}")
 
 # ----------------------------
 # Cross-Dataset Analysis
 # ----------------------------
-st.header("🔗 Cross-Dataset Analysis")
+st.header("Cross-Dataset Analysis")
 
 st.subheader("Data Comparison Overview")
 col1, col2 = st.columns(2)
@@ -769,7 +769,7 @@ with col2:
 # ----------------------------
 # System Health Summary
 # ----------------------------
-st.header("🏥 System Health Summary")
+st.header("System Health Summary")
 
 health_status = []
 
@@ -851,7 +851,7 @@ total_checks = len(health_status)
 health_score = (green_count * 100 + yellow_count * 50) / total_checks if total_checks > 0 else 0
 
 if health_score >= 90:
-    st.success(f"🎉 System Health Score: {health_score:.0f}% - Excellent!")
+    st.success(f"System Health Score: {health_score:.0f}% - Excellent!")
 elif health_score >= 70:
     st.warning(f"⚠️ System Health Score: {health_score:.0f}% - Good, minor issues detected")
 else:
@@ -866,7 +866,7 @@ col1, col2 = st.columns(2)
 
 with col1:
     st.subheader("Generate Summary Report")
-    if st.button("📄 Generate Health Report", type="primary"):
+    if st.button("Generate Health Report", type="primary"):
         # Create summary report
         report_data = {
             "Report Generated": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -882,7 +882,7 @@ with col1:
         csv_data = report_df.to_csv(index=False).encode("utf-8")
         
         st.download_button(
-            label="📥 Download Health Report CSV",
+            label="Download Health Report CSV",
             data=csv_data,
             file_name=f"system_health_report_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
             mime="text/csv"
@@ -903,7 +903,7 @@ with col2:
         if len(missing_loan_ids) > 0:
             csv_data = missing_loan_ids.to_csv(index=False).encode("utf-8")
             st.download_button(
-                label="📥 Export Missing Loan IDs",
+                label="Export Missing Loan IDs",
                 data=csv_data,
                 file_name=f"missing_loan_ids_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv"
@@ -911,7 +911,7 @@ with col2:
     
     # Export QBO data quality issues
     if not qbo_txn_df.empty or not qbo_gl_df.empty:
-        if st.button("📊 Export QBO Quality Report"):
+        if st.button("Export QBO Quality Report"):
             quality_data = []
             
             # Add transaction data quality info
@@ -936,7 +936,7 @@ with col2:
             csv_data = quality_df.to_csv(index=False).encode("utf-8")
             
             st.download_button(
-                label="📥 Download QBO Quality Report",
+                label="Download QBO Quality Report",
                 data=csv_data,
                 file_name=f"qbo_quality_report_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv"
