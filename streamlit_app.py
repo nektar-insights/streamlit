@@ -344,12 +344,9 @@ st.altair_chart(rate_line_dollar, use_container_width=True)
 # ----------------------------
 # Monthly trend charts 
 # ----------------------------
-# Filter monthly_funded to last 7 months
-monthly_funded_recent = monthly_funded.sort_values('month_date').tail(7)
-
-st.subheader("Total Funded Amount by Month (Last 7 Months)")
-funded_chart = alt.Chart(monthly_funded_recent).mark_bar(
-    size=50,  # Can make bars bigger now with fewer months
+st.subheader("Total Funded Amount by Month")
+funded_chart = alt.Chart(monthly_funded).mark_bar(
+    size=50,
     color=PRIMARY_COLOR,
     cornerRadiusTopLeft=3,
     cornerRadiusTopRight=3
@@ -359,18 +356,22 @@ funded_chart = alt.Chart(monthly_funded_recent).mark_bar(
                 labelAngle=-45, 
                 title="", 
                 format="%b %Y", 
-                labelPadding=10
+                labelPadding=10  # X-axis label padding (space between labels and axis)
             )),
     y=alt.Y("total_funded_amount:Q", 
             title="Total Funded ($)", 
-            axis=alt.Axis(format="$.2s", titlePadding=20, labelPadding=5)),
+            axis=alt.Axis(
+                format="$.2s", 
+                titlePadding=25,    # Y-axis TITLE padding (space between title and labels)
+                labelPadding=8      # Y-axis LABEL padding (space between labels and axis)
+            )),
     tooltip=[
         alt.Tooltip("month_date:T", title="Month", format="%B %Y"),
         alt.Tooltip("total_funded_amount:Q", title="Total Funded Amount", format="$,.0f")
     ]
 )
 
-funded_avg = alt.Chart(monthly_funded_recent).mark_rule(
+funded_avg = alt.Chart(monthly_funded).mark_rule(
     color="gray", 
     strokeWidth=2, 
     strokeDash=[4, 2],
@@ -379,7 +380,7 @@ funded_avg = alt.Chart(monthly_funded_recent).mark_rule(
     y=alt.Y("mean(total_funded_amount):Q")
 )
 
-funded_regression = alt.Chart(monthly_funded_recent).mark_line(
+funded_regression = alt.Chart(monthly_funded).mark_line(
     color="#1f77b4", 
     strokeWidth=3
 ).transform_regression(
@@ -393,11 +394,10 @@ funded_regression = alt.Chart(monthly_funded_recent).mark_line(
 funded_combined = alt.layer(funded_chart, funded_avg, funded_regression).properties(
     height=400,
     width=800,
-    padding={"left": 80, "top": 20, "right": 20, "bottom": 60}
+    padding={"left": 20, "top": 20, "right": 20, "bottom": 60}  # Reduced left padding
 )
 
 st.altair_chart(funded_combined, use_container_width=True)
-
 
 # Total Deal Count by Month
 st.subheader("Total Deal Count by Month")
