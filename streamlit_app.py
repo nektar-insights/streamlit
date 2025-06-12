@@ -346,25 +346,31 @@ st.altair_chart(rate_line_dollar, use_container_width=True)
 # ----------------------------
 st.subheader("Total Funded Amount by Month")
 
-# Just the bar chart first - let's get this working
 funded_chart = alt.Chart(monthly_funded).mark_bar(
-    size=50,
+    size=40,  # Slightly smaller bars for better spacing
     color=PRIMARY_COLOR,
     cornerRadiusTopLeft=3,
     cornerRadiusTopRight=3
 ).encode(
     x=alt.X("month_date:T", 
             title="",
-            axis=alt.Axis(labelAngle=-45, format="%b %Y")),
+            axis=alt.Axis(labelAngle=-45, format="%b %Y"),
+            scale=alt.Scale(padding=0.1)),  # Add padding for even spacing
     y=alt.Y("total_funded_amount:Q", 
             title="Total Funded ($)",
-            axis=alt.Axis(format="$.2s")),
+            axis=alt.Axis(
+                format="$.1s",  # Changed from $.2s to $.1s for cleaner labels
+                tickCount=6,    # Limit number of Y-axis labels to prevent overlap
+                labelPadding=5,
+                titlePadding=15
+            )),
     tooltip=[
         alt.Tooltip("month_date:T", title="Month", format="%B %Y"),
         alt.Tooltip("total_funded_amount:Q", title="Total Funded Amount", format="$,.0f")
     ]
 ).properties(
-    height=400
+    height=400,
+    width=800
 )
 
 st.altair_chart(funded_chart, use_container_width=True)
