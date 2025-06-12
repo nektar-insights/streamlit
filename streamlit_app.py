@@ -348,7 +348,7 @@ st.altair_chart(rate_line_dollar, use_container_width=True)
 # ----------------------------
 st.subheader("Total Funded Amount by Month")
 funded_chart = alt.Chart(monthly_funded).mark_bar(
-    size=35,  # Slightly smaller bars
+    size=35,
     color=PRIMARY_COLOR,
     cornerRadiusTopLeft=3,
     cornerRadiusTopRight=3
@@ -358,9 +358,9 @@ funded_chart = alt.Chart(monthly_funded).mark_bar(
                 labelAngle=-45, 
                 title="", 
                 format="%b %Y", 
-                labelPadding=15,  # Increased padding
-                labelLimit=80,    # Limit label width
-                labelOverlap="greedy"  # Smart label overlap handling
+                labelPadding=15,
+                tickCount=6,  # Limit to ~6 labels max
+                labelOverlap=True  # Allow overlap removal
             )),
     y=alt.Y("total_funded_amount:Q", 
             title="Total Funded ($)", 
@@ -386,18 +386,19 @@ funded_regression = alt.Chart(monthly_funded).mark_line(
 ).transform_regression(
     'month_date', 'total_funded_amount'
 ).encode(
-    x=alt.X('month_date:T', axis=alt.Axis(title="")),
+    x='month_date:T',
     y='total_funded_amount:Q'
 )
 
-# Combine charts and set properties
+# Combine charts
 funded_combined = alt.layer(funded_chart, funded_avg, funded_regression).properties(
     height=400,
-    width=900,  # Wider chart for more space
-    padding={"left": 80, "top": 20, "right": 20, "bottom": 80}  # More bottom padding
+    width=900,
+    padding={"left": 80, "top": 20, "right": 20, "bottom": 80}
 )
 
 st.altair_chart(funded_combined, use_container_width=True)
+
 st.subheader("Total Deal Count by Month")
 deal_chart = alt.Chart(monthly_deals).mark_bar(
     size=40,  # Reduced bar size
