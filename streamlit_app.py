@@ -354,8 +354,7 @@ funded_chart = alt.Chart(monthly_funded).mark_bar(
     cornerRadiusTopRight=3
 ).encode(
     x=alt.X("month_date:T", 
-            axis=alt.Axis(labelAngle=-45, title="Month", format="%b %Y", labelPadding=10),
-            title=None),  # Remove the title to eliminate duplication
+            axis=alt.Axis(labelAngle=-45, title="", format="%b %Y", labelPadding=10)),  # Empty title instead of None
     y=alt.Y("total_funded_amount:Q", 
             title="Total Funded ($)", 
             axis=alt.Axis(format="$.2s", titlePadding=20, labelPadding=5)),
@@ -380,20 +379,16 @@ funded_regression = alt.Chart(monthly_funded).mark_line(
 ).transform_regression(
     'month_date', 'total_funded_amount'
 ).encode(
-    x='month_date:T',
+    x=alt.X('month_date:T', axis=alt.Axis(title="")),  # Consistent empty title
     y='total_funded_amount:Q'
 )
 
 # Combine charts and set properties
-funded_combined = alt.layer(funded_chart, funded_avg, funded_regression).resolve_scale(
-    x='independent'
-).properties(
+funded_combined = alt.layer(funded_chart, funded_avg, funded_regression).properties(
     height=400,
     width=800,
     padding={"left": 80, "top": 20, "right": 20, "bottom": 60}
 )
-
-st.altair_chart(funded_combined, use_container_width=True)
 
 st.altair_chart(funded_combined, use_container_width=True)
 
