@@ -346,65 +346,28 @@ st.altair_chart(rate_line_dollar, use_container_width=True)
 # ----------------------------
 st.subheader("Total Funded Amount by Month")
 
-# Define base chart with consistent axis settings
-base = alt.Chart(monthly_funded)
-
-funded_chart = base.mark_bar(
+# Just the bar chart first - let's get this working
+funded_chart = alt.Chart(monthly_funded).mark_bar(
     size=50,
     color=PRIMARY_COLOR,
     cornerRadiusTopLeft=3,
     cornerRadiusTopRight=3
 ).encode(
     x=alt.X("month_date:T", 
-            axis=alt.Axis(
-                labelAngle=-45, 
-                title="", 
-                format="%b %Y", 
-                labelPadding=10
-            )),
+            title="",
+            axis=alt.Axis(labelAngle=-45, format="%b %Y")),
     y=alt.Y("total_funded_amount:Q", 
-            title="Total Funded ($)", 
-            axis=alt.Axis(
-                format="$.2s", 
-                titlePadding=25,
-                labelPadding=8
-            )),
+            title="Total Funded ($)",
+            axis=alt.Axis(format="$.2s")),
     tooltip=[
         alt.Tooltip("month_date:T", title="Month", format="%B %Y"),
         alt.Tooltip("total_funded_amount:Q", title="Total Funded Amount", format="$,.0f")
     ]
-)
-
-funded_avg = base.mark_rule(
-    color="gray", 
-    strokeWidth=2, 
-    strokeDash=[4, 2],
-    opacity=0.7
-).encode(
-    x=alt.X("month_date:T", axis=alt.Axis(title="", labels=False)),  # Hide labels for this layer
-    y=alt.Y("mean(total_funded_amount):Q", axis=alt.Axis(title="", labels=False))  # Hide labels for this layer
-)
-
-funded_regression = base.mark_line(
-    color="#1f77b4", 
-    strokeWidth=3
-).transform_regression(
-    'month_date', 'total_funded_amount'
-).encode(
-    x=alt.X('month_date:T', axis=alt.Axis(title="", labels=False)),  # Hide labels for this layer
-    y=alt.Y('total_funded_amount:Q', axis=alt.Axis(title="", labels=False))  # Hide labels for this layer
-)
-
-# Combine charts
-funded_combined = alt.layer(funded_chart, funded_avg, funded_regression).resolve_scale(
-    x='shared', y='shared'  # Ensure shared scales
 ).properties(
-    height=400,
-    width=800,
-    padding={"left": 20, "top": 20, "right": 20, "bottom": 60}
+    height=400
 )
 
-st.altair_chart(funded_combined, use_container_width=True)
+st.altair_chart(funded_chart, use_container_width=True)
 
 # Total Deal Count by Month
 st.subheader("Total Deal Count by Month")
