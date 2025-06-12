@@ -346,15 +346,19 @@ st.altair_chart(rate_line_dollar, use_container_width=True)
 # ----------------------------
 # Monthly trend charts 
 # ----------------------------
+# Alternative approach - if the first solution doesn't work, try this:
+
 st.subheader("Total Funded Amount by Month")
-funded_chart = alt.Chart(monthly_funded).mark_bar(
+base_chart = alt.Chart(monthly_funded)
+
+funded_chart = base_chart.mark_bar(
     size=40,
     color=PRIMARY_COLOR,
     cornerRadiusTopLeft=3,
     cornerRadiusTopRight=3
 ).encode(
     x=alt.X("month_date:T", 
-            axis=alt.Axis(labelAngle=-45, title="", format="%b %Y", labelPadding=10)),  # Empty title instead of None
+            axis=alt.Axis(labelAngle=-45, title=None, format="%b %Y", labelPadding=10)),
     y=alt.Y("total_funded_amount:Q", 
             title="Total Funded ($)", 
             axis=alt.Axis(format="$.2s", titlePadding=20, labelPadding=5)),
@@ -364,7 +368,7 @@ funded_chart = alt.Chart(monthly_funded).mark_bar(
     ]
 )
 
-funded_avg = alt.Chart(monthly_funded).mark_rule(
+funded_avg = base_chart.mark_rule(
     color="gray", 
     strokeWidth=2, 
     strokeDash=[4, 2],
@@ -373,20 +377,19 @@ funded_avg = alt.Chart(monthly_funded).mark_rule(
     y=alt.Y("mean(total_funded_amount):Q")
 )
 
-funded_regression = alt.Chart(monthly_funded).mark_line(
+funded_regression = base_chart.mark_line(
     color="#1f77b4", 
     strokeWidth=3
 ).transform_regression(
     'month_date', 'total_funded_amount'
 ).encode(
-    x=alt.X('month_date:T', axis=alt.Axis(title="")),  # Consistent empty title
+    x='month_date:T',
     y='total_funded_amount:Q'
 )
 
-# Combine charts and set properties
-funded_combined = alt.layer(funded_chart, funded_avg, funded_regression).properties(
+# Combine charts
+funded_combined = (funded_chart + funded_avg + funded_regression).properties(
     height=400,
-    width=800,
     padding={"left": 80, "top": 20, "right": 20, "bottom": 60}
 )
 
