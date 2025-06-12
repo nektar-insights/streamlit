@@ -367,7 +367,7 @@ funded_chart = alt.Chart(monthly_funded).mark_bar(
             ),
             scale=alt.Scale(
                 nice=True,          # Round to nice numbers
-                paddingTop=0.1      # Add padding at top so bars don't touch labels
+                padding=0.1         # Add padding so bars don't touch labels
             )),
     tooltip=[
         alt.Tooltip("month_date:T", title="Month", format="%B %Y"),
