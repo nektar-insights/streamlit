@@ -347,7 +347,7 @@ st.altair_chart(rate_line_dollar, use_container_width=True)
 st.subheader("Total Funded Amount by Month")
 
 funded_chart = alt.Chart(monthly_funded).mark_bar(
-    size=40,  # Slightly smaller bars for better spacing
+    size=40,
     color=PRIMARY_COLOR,
     cornerRadiusTopLeft=3,
     cornerRadiusTopRight=3
@@ -355,14 +355,19 @@ funded_chart = alt.Chart(monthly_funded).mark_bar(
     x=alt.X("month_date:T", 
             title="",
             axis=alt.Axis(labelAngle=-45, format="%b %Y"),
-            scale=alt.Scale(padding=0.1)),  # Add padding for even spacing
+            scale=alt.Scale(padding=0.2)),  # More padding to prevent bar overlap
     y=alt.Y("total_funded_amount:Q", 
             title="Total Funded ($)",
             axis=alt.Axis(
-                format="$.1s",  # Changed from $.2s to $.1s for cleaner labels
-                tickCount=6,    # Limit number of Y-axis labels to prevent overlap
-                labelPadding=5,
-                titlePadding=15
+                format="$.1s",
+                tickCount=5,        # Even fewer ticks (5 instead of 6)
+                labelPadding=8,     # More space between labels and axis
+                titlePadding=20,    # More space between title and labels
+                grid=True           # Add grid lines for easier reading
+            ),
+            scale=alt.Scale(
+                nice=True,          # Round to nice numbers
+                paddingTop=0.1      # Add padding at top so bars don't touch labels
             )),
     tooltip=[
         alt.Tooltip("month_date:T", title="Month", format="%B %Y"),
@@ -370,7 +375,8 @@ funded_chart = alt.Chart(monthly_funded).mark_bar(
     ]
 ).properties(
     height=400,
-    width=800
+    width=800,
+    padding={"left": 70, "top": 30, "right": 20, "bottom": 60}  # More left padding for Y-axis
 )
 
 st.altair_chart(funded_chart, use_container_width=True)
