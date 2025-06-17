@@ -105,42 +105,7 @@ total_expected_return_sum = total_expected_return.sum()
 moic = total_expected_return_sum / total_capital_deployed if total_capital_deployed > 0 else 0
 projected_irr = (moic ** (12 / avg_term) - 1) if avg_term > 0 else 0
 
-# Temporary investigation for closed won deals specifically
-st.write("### TIB/FICO Investigation for Closed Won Deals")
 
-st.write(f"**Total closed won deals:** {len(closed_won)}")
-
-# Check TIB for closed won deals
-if len(closed_won) > 0:
-    tib_non_null_count = closed_won["tib"].count()
-    tib_null_count = closed_won["tib"].isnull().sum()
-    
-    st.write(f"**TIB for closed won deals:**")
-    st.write(f"- Non-null TIB values: {tib_non_null_count}")
-    st.write(f"- Null TIB values: {tib_null_count}")
-    
-    if tib_non_null_count > 0:
-        st.write(f"- Min TIB: ${closed_won['tib'].min():,.0f}")
-        st.write(f"- Max TIB: ${closed_won['tib'].max():,.0f}")
-        st.write(f"- Average TIB: ${closed_won['tib'].mean():,.0f}")
-        st.write(f"- Sample TIB values: {closed_won['tib'].dropna().head().tolist()}")
-    
-    # Check FICO for closed won deals  
-    fico_non_null_count = closed_won["fico"].count()
-    fico_null_count = closed_won["fico"].isnull().sum()
-    
-    st.write(f"**FICO for closed won deals:**")
-    st.write(f"- Non-null FICO values: {fico_non_null_count}")
-    st.write(f"- Null FICO values: {fico_null_count}")
-    
-    if fico_non_null_count > 0:
-        st.write(f"- Min FICO: {closed_won['fico'].min():.0f}")
-        st.write(f"- Max FICO: {closed_won['fico'].max():.0f}")
-        st.write(f"- Average FICO: {closed_won['fico'].mean():.0f}")
-        st.write(f"- Median FICO: {closed_won['fico'].median():.0f}")
-        st.write(f"- Sample FICO values: {closed_won['fico'].dropna().head().tolist()}")
-
-st.write("---")
 
 # Rolling deal flow calculations - Fixed to look back from today
 periods = [
@@ -247,12 +212,12 @@ if has_tib_data or has_fico_data:
     if has_tib_data and has_fico_data:
         # Both available - show in 2 columns
         col20, col21 = st.columns(2)
-        col20.metric("Avg TIB", f"${avg_tib:,.0f}")
+        col20.metric("Avg TIB", f"{avg_tib:,.0f}")
         col21.metric("Avg FICO", f"{avg_fico:.0f}")
     elif has_tib_data:
         # Only TIB available
         col20, _ = st.columns(2)
-        col20.metric("Avg TIB", f"${avg_tib:,.0f}")
+        col20.metric("Avg TIB", f"$avg_tib:,.0f}")
     elif has_fico_data:
         # Only FICO available
         col21, _ = st.columns(2)
@@ -260,6 +225,124 @@ if has_tib_data or has_fico_data:
 else:
     # No data available - show a note
     st.write("*TIB and FICO data not yet available*")
+
+st.subheader("Deal Distribution Analysis")
+
+# Prepare data for box plots - filter out null values
+box_plot_data = closed_won[["amount", "factor_rate", "loan_term", "tib", "fico"]].copy()
+
+# a) Participation Amount Box Plot
+st.write("**Participation Amount Distribution**")
+participation_box = alt.Chart(closed_won).mark_boxplot(
+    size=60,
+    color=PRIMARY_COLOR,
+    outliers={"color": COLOR_PALETTE[1], "size": 40}
+).encode(
+    y=alt.Y("amount:Q", 
+            title="Participation Amount ($)",
+            axis=alt.Axis(format="$.2s")),
+    tooltip=[
+        alt.Tooltip("amount:Q", title="Amount", format="$,.0f")
+    ]
+).properties(
+    height=300,
+    width=200,
+    title="CSL Participation Amount"
+)
+
+st.altair_chart(participation_box, use_container_width=True)
+
+# b) Factor Rate Box Plot
+st.write("**Factor Rate Distribution**")
+factor_box = alt.Chart(closed_won).mark_boxplot(
+    size=60,
+    color=COLOR_PALETTE[2],
+    outliers={"color": COLOR_PALETTE[3], "size": 40}
+).encode(
+    y=alt.Y("factor_rate:Q", 
+            title="Factor Rate",
+            axis=alt.Axis(format=".2f")),
+    tooltip=[
+        alt.Tooltip("factor_rate:Q", title="Factor Rate", format=".3f")
+    ]
+).properties(
+    height=300,
+    width=200,
+    title="Factor Rate Distribution"
+)
+
+st.altair_chart(factor_box, use_container_width=True)
+
+# c) Loan Term Box Plot
+st.write("**Loan Term Distribution**")
+term_box = alt.Chart(closed_won).mark_boxplot(
+    size=60,
+    color=COLOR_PALETTE[4],
+    outliers={"color": COLOR_PALETTE[0], "size": 40}
+).encode(
+    y=alt.Y("loan_term:Q", 
+            title="Loan Term (months)",
+            axis=alt.Axis(format=".0f")),
+    tooltip=[
+        alt.Tooltip("loan_term:Q", title="Term (months)", format=".1f")
+    ]
+).properties(
+    height=300,
+    width=200,
+    title="Loan Term Distribution"
+)
+
+st.altair_chart(term_box, use_container_width=True)
+
+# d) TIB Box Plot (only if data available)
+if has_tib_data:
+    st.write("**TIB Distribution**")
+    tib_box = alt.Chart(closed_won.dropna(subset=['tib'])).mark_boxplot(
+        size=60,
+        color=COLOR_PALETTE[1],
+        outliers={"color": COLOR_PALETTE[2], "size": 40}
+    ).encode(
+        y=alt.Y("tib:Q", 
+                title="TIB",
+                axis=alt.Axis(format=",.0f")),
+        tooltip=[
+            alt.Tooltip("tib:Q", title="TIB", format=",.0f")
+        ]
+    ).properties(
+        height=300,
+        width=200,
+        title="TIB Distribution"
+    )
+    
+    st.altair_chart(tib_box, use_container_width=True)
+else:
+    st.write("**TIB Distribution**")
+    st.info("TIB data not yet available for visualization")
+
+# e) FICO Box Plot (only if data available)
+if has_fico_data:
+    st.write("**FICO Score Distribution**")
+    fico_box = alt.Chart(closed_won.dropna(subset=['fico'])).mark_boxplot(
+        size=60,
+        color=COLOR_PALETTE[3],
+        outliers={"color": COLOR_PALETTE[4], "size": 40}
+    ).encode(
+        y=alt.Y("fico:Q", 
+                title="FICO Score",
+                axis=alt.Axis(format=".0f")),
+        tooltip=[
+            alt.Tooltip("fico:Q", title="FICO Score", format=".0f")
+        ]
+    ).properties(
+        height=300,
+        width=200,
+        title="FICO Score Distribution"
+    )
+    
+    st.altair_chart(fico_box, use_container_width=True)
+else:
+    st.write("**FICO Score Distribution**")
+    st.info("FICO data not yet available for visualization")
     
 # ----------------------------
 # Rolling Deal Flow
