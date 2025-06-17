@@ -29,7 +29,7 @@ df["is_participated"] = df["is_closed_won"] == True
 # ----------------------------
 # Filters
 # ----------------------------
-st.title("Pipeline Dashboard")
+st.title("HubSpot Pipeline Dashboard")
 
 min_date, max_date = df["date_created"].min(), df["date_created"].max()
 start_date, end_date = st.date_input(
@@ -88,6 +88,8 @@ avg_factor = closed_won["factor_rate"].mean()
 avg_term = closed_won["loan_term"].mean()
 avg_participation_pct = (closed_won["amount"] / closed_won["total_funded_amount"]).mean()
 avg_commission = closed_won["commission"].mean()
+avg_tib = closed_won["tib"].mean() if "tib" in closed_won.columns else 0
+avg_fico = closed_won["fico"].mean() if "fico" in closed_won.columns else 0
 
 # Financial calculations
 total_capital_deployed = closed_won["amount"].sum()
@@ -174,9 +176,11 @@ col6.metric("Avg Deals/Month", f"{avg_deals_per_month:.1f}")
 
 # New Average Deal Characteristics 
 st.write("**Average Deal Characteristics (All Deals)**")
-col7, col8, col9, col10 = st.columns(4)
+col7, col8 = st.columns(2)
 col7.metric("Avg Total Funded", f"${avg_total_funded:,.0f}")
 col8.metric("Avg Factor", f"{avg_factor_all:.2f}")
+
+col9, col10 = st.columns(2)
 col9.metric("Avg Commission", f"{avg_commission_all:.2%}")
 col10.metric("Avg Term (mo)", f"{avg_term_all:.1f}")
 
@@ -196,6 +200,11 @@ col17, col18, col19 = st.columns(3)
 col17.metric("Avg Participation ($)", f"${avg_amount:,.0f}")
 col18.metric("Avg Factor", f"{avg_factor:.2f}")
 col19.metric("Avg Term (mo)", f"{avg_term:.1f}")
+
+# Second row with TIB and FICO
+col20, col21 = st.columns(2)
+col20.metric("Avg TIB", f"${avg_tib:,.0f}" if avg_tib > 0 else "N/A")
+col21.metric("Avg FICO", f"{avg_fico:.0f}" if avg_fico > 0 else "N/A")
 
 # ----------------------------
 # Rolling Deal Flow
@@ -355,19 +364,20 @@ funded_chart = alt.Chart(monthly_funded).mark_bar(
     x=alt.X("month_date:T", 
             title="",
             axis=alt.Axis(labelAngle=-45, format="%b %Y"),
-            scale=alt.Scale(padding=0.2)),  # More padding to prevent bar overlap
+            scale=alt.Scale(padding=0.2)),
     y=alt.Y("total_funded_amount:Q", 
             title="Total Funded ($)",
             axis=alt.Axis(
                 format="$.1s",
-                tickCount=5,        # Even fewer ticks (5 instead of 6)
-                labelPadding=8,     # More space between labels and axis
-                titlePadding=20,    # More space between title and labels
-                grid=True           # Add grid lines for easier reading
+                tickCount=4,        # Reduced to just 4 ticks
+                labelPadding=12,    # More space between labels and axis
+                titlePadding=25,    # More space between title and labels
+                grid=True,
+                labelFontSize=11    # Smaller font size for labels
             ),
             scale=alt.Scale(
-                nice=True,          # Round to nice numbers
-                padding=0.1         # Add padding so bars don't touch labels
+                nice=True,
+                padding=0.15        # More padding at top/bottom
             )),
     tooltip=[
         alt.Tooltip("month_date:T", title="Month", format="%B %Y"),
@@ -376,7 +386,7 @@ funded_chart = alt.Chart(monthly_funded).mark_bar(
 ).properties(
     height=400,
     width=800,
-    padding={"left": 70, "top": 30, "right": 20, "bottom": 60}  # More left padding for Y-axis
+    padding={"left": 85, "top": 30, "right": 20, "bottom": 60}  # Even more left padding
 )
 
 st.altair_chart(funded_chart, use_container_width=True)
