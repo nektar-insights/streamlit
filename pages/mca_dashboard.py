@@ -6,7 +6,7 @@ from scripts.get_naics_sector_risk import get_naics_sector_risk
 # ----------------------------
 # Define risk gradient color scheme (dark red to light red with 5 shades)
 # ----------------------------
-RISK_GRADIENT = ["#fff600", "#ffc302", "#ff8f00", "#ff5b00", "#ff0505"]
+RISK_GRADIENT = ["#8B0000", "#B22222", "#DC143C", "#F08080", "#FFB6C1"]
 
 # ----------------------------
 # Supabase connection
@@ -532,6 +532,53 @@ if 'sector_name' in df.columns and not df['sector_name'].isna().all():
         }
     )
 
+    # Additional Industry Visualization - Pie Charts for Capital Deployment and Risk
+    st.subheader("Capital Distribution by Industry Risk Score")
+    
+    col1, col2 = st.columns(2)
+    
+    # Pie chart for Capital Deployed
+    with col1:
+        pie_deployed = alt.Chart(industry_summary).mark_arc(innerRadius=50).encode(
+            theta=alt.Theta('CSL Capital Deployed:Q', title='Capital Deployed'),
+            color=alt.Color('Risk Score:O',
+                           scale=alt.Scale(range=RISK_GRADIENT),
+                           title='Industry Risk Score'),
+            tooltip=[
+                alt.Tooltip('Risk Score:O', title='Risk Score'),
+                alt.Tooltip('CSL Capital Deployed:Q', title='Capital Deployed', format='$,.0f'),
+                alt.Tooltip('Deal Count:Q', title='Number of Deals'),
+                alt.Tooltip('Sectors:N', title='Primary Sectors')
+            ]
+        ).properties(
+            width=300,
+            height=300,
+            title='CSL Capital Deployed by Risk Score'
+        )
+        
+        st.altair_chart(pie_deployed, use_container_width=True)
+    
+    # Pie chart for Capital at Risk
+    with col2:
+        pie_risk = alt.Chart(industry_summary).mark_arc(innerRadius=50).encode(
+            theta=alt.Theta('CSL Capital at Risk:Q', title='Capital at Risk'),
+            color=alt.Color('Risk Score:O',
+                           scale=alt.Scale(range=RISK_GRADIENT),
+                           title='Industry Risk Score'),
+            tooltip=[
+                alt.Tooltip('Risk Score:O', title='Risk Score'),
+                alt.Tooltip('CSL Capital at Risk:Q', title='Capital at Risk', format='$,.0f'),
+                alt.Tooltip('Deal Count:Q', title='Number of Deals'),
+                alt.Tooltip('Sectors:N', title='Primary Sectors')
+            ]
+        ).properties(
+            width=300,
+            height=300,
+            title='CSL Capital at Risk by Risk Score'
+        )
+        
+        st.altair_chart(pie_risk, use_container_width=True)
+
 # FICO Score Analysis
 if 'fico' in df.columns:
     st.subheader("Portfolio Distribution by FICO Score")
@@ -616,7 +663,7 @@ if 'tib' in df.columns:
     st.subheader("Capital Exposure by Time in Business")
     
     # Create TIB bands using years (5, 10, 15, 25, 35, 45)
-    df['tib_years'] = df['tib'] 
+    df['tib_years'] = df['tib'] / 12  # Convert months to years
     df['tib_band'] = pd.cut(df['tib_years'], 
                            bins=[0, 5, 10, 15, 25, 35, 45, 1000], 
                            labels=['≤5 years', '5-10 years', '10-15 years', '15-25 years', '25-35 years', '35-45 years', '>45 years'],
@@ -631,9 +678,11 @@ if 'tib' in df.columns:
     
     tib_summary.columns = ['TIB Band', 'Deal Count', 'CSL Capital Deployed', 'CSL Capital at Risk']
     
-    # TIB capital exposure chart
+    # TIB capital exposure chart with forced x-axis order
     tib_chart = alt.Chart(tib_summary).mark_bar().encode(
-        x=alt.X('TIB Band:N', title='Time in Business'),
+        x=alt.X('TIB Band:N', 
+                title='Time in Business',
+                sort=['≤5 years', '5-10 years', '10-15 years', '15-25 years', '25-35 years', '35-45 years', '>45 years']),
         y=alt.Y('CSL Capital at Risk:Q', title='CSL Capital at Risk ($)', axis=alt.Axis(format='$,.0f')),
         color=alt.Color('TIB Band:N',
                        scale=alt.Scale(range=RISK_GRADIENT),
