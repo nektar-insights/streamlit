@@ -6,7 +6,7 @@ from scripts.get_naics_sector_risk import get_naics_sector_risk
 # ----------------------------
 # Define risk gradient color scheme (dark red to light red with 5 shades)
 # ----------------------------
-RISK_GRADIENT = ["#FFB6C1", "#F08080", "#DC143C", "#8B0000", "#B22222"]
+RISK_GRADIENT = ["#ff0505", "#ff5b00", "#ff8f00", "#ffc302", "#fff600"]
 
 # ----------------------------
 # Supabase connection
