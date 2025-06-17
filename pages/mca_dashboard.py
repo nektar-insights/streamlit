@@ -6,7 +6,7 @@ from scripts.get_naics_sector_risk import get_naics_sector_risk
 # ----------------------------
 # Define risk gradient color scheme (updated colors)
 # ----------------------------
-RISK_GRADIENT = ["#fff600","#ff0505", "#ff8f00", "#ff5b00", "#ffc302"]
+RISK_GRADIENT = ["#ff0505", "#ff8f00", "#ff5b00", "#ffc302","#fff600"]
 
 # ----------------------------
 # Supabase connection
@@ -31,15 +31,22 @@ df = df[df["status_category"] != "Canceled"]
 # Data type conversions and basic calculations
 # ----------------------------
 df["funding_date"] = pd.to_datetime(df["funding_date"], errors="coerce").dt.date
+
+# Convert all financial columns to numeric, handling any non-numeric values
 for col in ["purchase_price", "receivables_amount", "current_balance", "past_due_amount", 
             "principal_amount", "rtr_balance", "amount_hubspot", "total_funded_amount"]:
     df[col] = pd.to_numeric(df[col], errors="coerce")
 
-# Set past_due_amount to 0 for Matured deals
+# CALCULATION 1: Set past_due_amount to 0 for Matured deals
+# Logic: Matured deals have been closed out, so no amount should be past due
 df.loc[df["status_category"] == "Matured", "past_due_amount"] = 0
 
-# Calculate derived fields
+# CALCULATION 2: Rename CSL participation column for clarity
 df.rename(columns={"amount_hubspot": "csl_participation"}, inplace=True)
+
+# CALCULATION 3: Calculate past due percentage
+# Formula: past_due_amount / current_balance
+# Logic: Shows what percentage of the current outstanding balance is past due
 df["past_due_pct"] = df.apply(
     lambda row: row["past_due_amount"] / row["current_balance"]
     if pd.notna(row["past_due_amount"]) and pd.notna(row["current_balance"]) and row["current_balance"] > 0
@@ -47,26 +54,45 @@ df["past_due_pct"] = df.apply(
     axis=1
 )
 
-# CSL-specific calculations
+# CALCULATION 4: Calculate CSL participation ratio
+# Formula: csl_participation / total_funded_amount
+# Logic: CSL's percentage ownership/participation in each deal
 df["participation_ratio"] = df["csl_participation"] / df["total_funded_amount"].replace(0, pd.NA)
+
+# CALCULATION 5: Calculate CSL's portion of past due amount
+# Formula: participation_ratio * past_due_amount
+# Logic: CSL's proportional share of any past due amounts based on participation percentage
 df["csl_past_due"] = df["participation_ratio"] * df["past_due_amount"]
+
+# CALCULATION 6: Estimate remaining principal balance
+# Formula: If payments_made is available, subtract from principal_amount; otherwise use full principal_amount
+# Logic: Estimates how much principal is still outstanding on each deal
 df["principal_remaining_est"] = df.apply(
     lambda row: row["principal_amount"] if pd.isna(row["payments_made"])
     else max(row["principal_amount"] - row["payments_made"], 0),
     axis=1
 )
+
+# CALCULATION 7: Calculate CSL's principal at risk
+# Formula: participation_ratio * principal_remaining_est
+# Logic: CSL's proportional share of the estimated remaining principal balance
+# This represents CSL's capital that could be at risk if the deal defaults
 df["csl_principal_at_risk"] = df["participation_ratio"] * df["principal_remaining_est"]
 
-# Set CSL principal at risk to 0 for Matured deals (they're closed, no remaining principal)
+# CALCULATION 8: Set CSL principal at risk to 0 for Matured deals
+# Logic: Matured deals are closed, so there's no remaining principal at risk
 df.loc[df["status_category"] == "Matured", "csl_principal_at_risk"] = 0
 
-# Set CSL past due to 0 for Current deals
+# CALCULATION 9: Set CSL past due to 0 for Current deals
+# Logic: Current deals by definition have no past due amounts
 df.loc[df["status_category"] == "Current", "csl_past_due"] = 0
 
-# Commission calculations
+# CALCULATION 10: Commission rate conversion
+# Convert commission field to numeric percentage
 df["commission_rate"] = pd.to_numeric(df["commission"], errors="coerce")
 
-# Risk scoring calculations
+# CALCULATION 11: Calculate days since funding
+# Used for risk scoring - older deals may have higher risk
 df["days_since_funding"] = (pd.Timestamp.today() - pd.to_datetime(df["funding_date"])).dt.days
 
 # ----------------------------
@@ -126,35 +152,75 @@ if status_category_filter != "All":
     df = df[df["status_category"] == status_category_filter]
 
 # ----------------------------
-# Calculate all metrics
+# Calculate all metrics with detailed comments
 # ----------------------------
 
-# Portfolio metrics
+# PORTFOLIO METRICS
+# Count total deals (excluding canceled)
 total_deals = len(df)
+
+# Count deals by status category
 total_matured = (df["status_category"] == "Matured").sum()
 total_current = (df["status_category"] == "Current").sum()
 total_non_current = (df["status_category"] == "Not Current").sum()
+
+# Calculate outstanding deals (Current + Not Current, excludes Matured)
 outstanding_total = total_current + total_non_current
+
+# Calculate percentages of outstanding deals
 pct_current = total_current / outstanding_total if outstanding_total > 0 else 0
 pct_non_current = total_non_current / outstanding_total if outstanding_total > 0 else 0
 
-# CSL investment metrics
+# CSL INVESTMENT METRICS
+# CALCULATION 12: Total CSL capital deployed across all deals
+# Sum of all CSL participation amounts
 csl_capital_deployed = df["csl_participation"].sum()
+
+# CALCULATION 13: Total CSL past due exposure
+# Sum of CSL's proportional share of all past due amounts
 total_csl_past_due = df["csl_past_due"].sum()
+
+# CALCULATION 14: Outstanding CSL Principal (Capital at Risk)
+# This represents CSL's share of remaining principal on deals that are "Not Current"
+# Formula: Sum of (participation_ratio * principal_remaining_est) for Not Current deals only
 at_risk = df[df["status_category"] == "Not Current"]
 total_csl_at_risk = (at_risk["participation_ratio"] * at_risk["principal_remaining_est"]).sum()
 
-# Commission metrics
+# ALTERNATIVE CALCULATION for Outstanding CSL Principal (commented out - choose one approach):
+# Option A: Include all non-matured deals (Current + Not Current)
+# total_csl_at_risk = df[df["status_category"] != "Matured"]["csl_principal_at_risk"].sum()
+# 
+# Option B: Only Not Current deals (current implementation)
+# total_csl_at_risk = df[df["status_category"] == "Not Current"]["csl_principal_at_risk"].sum()
+
+# COMMISSION METRICS
+# CALCULATION 15: Average commission rate across all deals
 average_commission_pct = df["commission_rate"].mean()
+
+# CALCULATION 16: Total commission paid by CSL
+# Formula: Sum of (csl_participation * commission_rate) for all deals
 total_commission_paid = (df["csl_participation"] * df["commission_rate"]).sum()
+
+# CALCULATION 17: Average commission rate weighted by CSL participation
+# Formula: total_commission_paid / total_csl_participation
 average_commission_on_loan = total_commission_paid / df["csl_participation"].sum() if df["csl_participation"].sum() > 0 else 0
 
-# Risk analysis dataframes
+# RISK ANALYSIS DATAFRAMES
+# CALCULATION 18: Create dataframe for non-current, non-matured deals with risk metrics
 not_current_df = df[(df["status_category"] != "Current") & (df["status_category"] != "Matured")].copy()
+
+# Calculate at-risk percentage for visualization
+# Formula: past_due_amount / current_balance
 not_current_df["at_risk_pct"] = not_current_df["past_due_amount"] / not_current_df["current_balance"]
+
+# Filter to only deals with actual risk (past due amount > 0)
 not_current_df = not_current_df[not_current_df["at_risk_pct"] > 0]
 
-# Risk scoring for top 10
+# CALCULATION 19: Risk scoring for top 10 highest risk deals
+# Create dataframe for deals meeting risk criteria:
+# - More than 30 days old (seasoned deals)
+# - Past due amount > 1% of current balance (meaningful delinquency)
+# - Not Current or Matured (active problematic deals)
 risk_df = df[
     (df["days_since_funding"] > 30) &
     (df["past_due_amount"] > df["current_balance"] * 0.01) &
@@ -163,13 +229,25 @@ risk_df = df[
 ].copy()
 
 if len(risk_df) > 0:
+    # CALCULATION 20: Calculate risk score components
+    # Component 1: Past due percentage (70% weight)
+    # Formula: past_due_amount / current_balance (minimum 1 to avoid division by zero)
     risk_df["past_due_pct_calc"] = risk_df["past_due_amount"] / risk_df["current_balance"].clip(lower=1)
+    
+    # Component 2: Age weight (30% weight)
+    # Formula: days_since_funding / max_days_since_funding (normalized 0-1)
     max_days = risk_df["days_since_funding"].max()
     if max_days > 0:
         risk_df["age_weight"] = risk_df["days_since_funding"] / max_days
     else:
         risk_df["age_weight"] = 0
+    
+    # CALCULATION 21: Final risk score
+    # Formula: (past_due_percentage * 0.7) + (age_weight * 0.3)
+    # Range: 0.0 to 1.0 (higher = more risk)
     risk_df["risk_score"] = risk_df["past_due_pct_calc"] * 0.7 + risk_df["age_weight"] * 0.3
+    
+    # Get top 10 highest risk deals
     top_risk = risk_df.sort_values("risk_score", ascending=False).head(10).copy()
 
 # ----------------------------
@@ -194,6 +272,22 @@ col7, col8, col9 = st.columns(3)
 col7.metric("Capital Deployed", f"${csl_capital_deployed:,.0f}")
 col8.metric("Past Due Exposure", f"${total_csl_past_due:,.0f}")
 col9.metric("Outstanding CSL Principal", f"${total_csl_at_risk:,.0f}")
+
+# NOTE: Outstanding CSL Principal Calculation Explanation:
+# This metric represents CSL's capital that is currently at risk in "Not Current" deals.
+# 
+# STEP-BY-STEP CALCULATION:
+# 1. Filter to only "Not Current" deals (excludes Current and Matured)
+# 2. For each Not Current deal:
+#    - Calculate participation_ratio = csl_participation / total_funded_amount
+#    - Calculate principal_remaining_est = principal_amount - payments_made (or full principal if no payments data)
+#    - Calculate csl_principal_at_risk = participation_ratio * principal_remaining_est
+# 3. Sum all csl_principal_at_risk amounts for Not Current deals
+#
+# RATIONALE:
+# - Current deals are performing, so principal is not considered "at risk"
+# - Matured deals are closed, so no principal remains outstanding
+# - Only Not Current deals have principal that CSL could potentially lose
 
 # CSL Commission Summary
 st.subheader("CSL Commission Summary")
@@ -532,66 +626,6 @@ if 'sector_name' in df.columns and not df['sector_name'].isna().all():
         }
     )
 
-    # Additional Industry Visualization - Pie Charts for Capital Deployment and Risk
-    st.subheader("Capital Distribution by Industry Risk Score")
-    
-    # Create summary by sector code (numeric value) instead of risk score
-    if 'sector_code' in df.columns and not df['sector_code'].isna().all():
-        sector_summary = df.groupby(['sector_code', 'sector_name']).agg({
-            'deal_number': 'count',
-            'csl_participation': 'sum',
-            'csl_principal_at_risk': 'sum',
-            'risk_score': 'first'
-        }).reset_index()
-        
-        sector_summary.columns = ['Sector Code', 'Sector Name', 'Deal Count', 'CSL Capital Deployed', 'CSL Capital at Risk', 'Risk Score']
-        
-        col1, col2 = st.columns(2)
-        
-        # Pie chart for Capital Deployed by sector
-        with col1:
-            pie_deployed = alt.Chart(sector_summary).mark_arc(innerRadius=50).encode(
-                theta=alt.Theta('CSL Capital Deployed:Q', title='Capital Deployed'),
-                color=alt.Color('Sector Code:N',
-                               scale=alt.Scale(range=RISK_GRADIENT),
-                               title='Sector Code'),
-                tooltip=[
-                    alt.Tooltip('Sector Code:N', title='Sector Code'),
-                    alt.Tooltip('Sector Name:N', title='Industry Name'),
-                    alt.Tooltip('CSL Capital Deployed:Q', title='Capital Deployed', format='$,.0f'),
-                    alt.Tooltip('Deal Count:Q', title='Number of Deals'),
-                    alt.Tooltip('Risk Score:O', title='Risk Score')
-                ]
-            ).properties(
-                width=300,
-                height=300,
-                title='CSL Capital Deployed by Sector'
-            )
-            
-            st.altair_chart(pie_deployed, use_container_width=True)
-        
-        # Pie chart for Capital at Risk by sector
-        with col2:
-            pie_risk = alt.Chart(sector_summary).mark_arc(innerRadius=50).encode(
-                theta=alt.Theta('CSL Capital at Risk:Q', title='Capital at Risk'),
-                color=alt.Color('Sector Code:N',
-                               scale=alt.Scale(range=RISK_GRADIENT),
-                               title='Sector Code'),
-                tooltip=[
-                    alt.Tooltip('Sector Code:N', title='Sector Code'),
-                    alt.Tooltip('Sector Name:N', title='Industry Name'),
-                    alt.Tooltip('CSL Capital at Risk:Q', title='Capital at Risk', format='$,.0f'),
-                    alt.Tooltip('Deal Count:Q', title='Number of Deals'),
-                    alt.Tooltip('Risk Score:O', title='Risk Score')
-                ]
-            ).properties(
-                width=300,
-                height=300,
-                title='CSL Capital at Risk by Sector'
-            )
-            
-            st.altair_chart(pie_risk, use_container_width=True)
-
     # Portfolio Summary Table by Sector
     st.subheader("Portfolio Summary by Industry Sector")
     
@@ -644,14 +678,16 @@ if 'fico' in df.columns:
                             labels=['<580', '580-619', '620-659', '660-699', '700-739', '740+'],
                             include_lowest=True)
     
-    # FICO analysis with percentage of total
+    # CALCULATION 22: FICO analysis with percentage of total deals
+    # NOTE: % of Total represents percentage of total DEALS, not capital amounts
     fico_summary = df.groupby('fico_band').agg({
         'deal_number': 'count',
         'csl_participation': 'sum',
         'csl_principal_at_risk': 'sum'
     }).reset_index()
     
-    # Calculate percentage of total deals
+    # Calculate percentage of total deals (not capital)
+    # Formula: (deal_count_in_band / total_deals) * 100
     fico_summary['pct_of_total'] = (fico_summary['deal_number'] / fico_summary['deal_number'].sum()) * 100
     
     fico_summary.columns = ['FICO Band', 'Deal Count', 'CSL Capital Deployed', 'CSL Capital at Risk', 'Pct of Total']
@@ -727,10 +763,10 @@ if 'fico' in df.columns:
 if 'tib' in df.columns:
     st.subheader("Capital Exposure by Time in Business")
     
-    # Create TIB bands using years (5, 10, 15, 25, 35, 45) - TIB is already in years
+    # Create TIB bands using years (≤5, 5-10, 10-15, 15-20, 20-25, 25+) - TIB is already in years
     df['tib_band'] = pd.cut(df['tib'], 
-                           bins=[0, 5, 10, 15, 25, 35, 45, 1000], 
-                           labels=['≤5 years', '5-10 years', '10-15 years', '15-25 years', '25-35 years', '35-45 years', '>45 years'],
+                           bins=[0, 5, 10, 15, 20, 25, 1000], 
+                           labels=['≤5', '5-10', '10-15', '15-20', '20-25', '25+'],
                            include_lowest=True)
     
     # TIB analysis
@@ -745,8 +781,8 @@ if 'tib' in df.columns:
     # TIB capital exposure chart with forced x-axis order
     tib_chart = alt.Chart(tib_summary).mark_bar().encode(
         x=alt.X('TIB Band:N', 
-                title='Time in Business',
-                sort=['≤5 years', '5-10 years', '10-15 years', '15-25 years', '25-35 years', '35-45 years', '>45 years']),
+                title='Time in Business (Years)',
+                sort=['≤5', '5-10', '10-15', '15-20', '20-25', '25+']),
         y=alt.Y('CSL Capital at Risk:Q', title='CSL Capital at Risk ($)', axis=alt.Axis(format='$,.0f')),
         color=alt.Color('TIB Band:N',
                        scale=alt.Scale(range=RISK_GRADIENT),
