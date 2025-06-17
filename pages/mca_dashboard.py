@@ -4,6 +4,11 @@ from scripts.combine_hubspot_mca import combine_deals
 from scripts.get_naics_sector_risk import get_naics_sector_risk
 
 # ----------------------------
+# Define risk gradient color scheme
+# ----------------------------
+RISK_GRADIENT = ["#2ca02c", "#ffff99", "#ff7f0e", "#d62728"]
+
+# ----------------------------
 # Supabase connection
 # ----------------------------
 supabase = get_supabase_client()
@@ -451,66 +456,66 @@ New deals (< 30 days old), those with low delinquency (<1%), or with status 'Cur
 st.markdown("---")
 st.header("Portfolio Composition & Risk Insights")
 
-# Industry Analysis
+# Industry Analysis - Modified to group by risk_score
 if 'sector_name' in df.columns and not df['sector_name'].isna().all():
     st.subheader("Deal Distribution by Industry Sector")
     
-    # Count deals by industry
-    industry_summary = df.groupby(['sector_code', 'sector_name']).agg({
+    # Group by risk_score from naics_sector_risk_profile table
+    industry_summary = df.groupby(['risk_score']).agg({
         'deal_number': 'count',
         'csl_participation': 'sum',
         'csl_principal_at_risk': 'sum',
         'risk_profile': 'first',
-        'risk_score': 'first'
+        'sector_name': lambda x: ', '.join(x.unique()[:3])  # Show up to 3 sector names per risk score
     }).reset_index()
     
-    industry_summary.columns = ['Sector Code', 'Sector Name', 'Deal Count', 'CSL Capital Deployed', 'CSL Capital at Risk', 'Risk Profile', 'Risk Score']
+    industry_summary.columns = ['Risk Score', 'Deal Count', 'CSL Capital Deployed', 'CSL Capital at Risk', 'Risk Profile', 'Sectors']
     industry_summary = industry_summary.sort_values('Deal Count', ascending=False)
     
-    # Industry deals chart
+    # Industry deals chart grouped by risk score
     industry_chart = alt.Chart(industry_summary).mark_bar().encode(
-        x=alt.X('Sector Name:N', title='Industry Sector', axis=alt.Axis(labelAngle=-45)),
+        x=alt.X('Risk Score:O', title='Risk Score', axis=alt.Axis(labelAngle=0)),
         y=alt.Y('Deal Count:Q', title='Number of Deals'),
-        color=alt.Color('Risk Profile:N', 
-                       scale=alt.Scale(range=['#2ca02c', '#ff7f0e', '#d62728']),
-                       title='Sector Risk Profile'),
+        color=alt.Color('Risk Score:O', 
+                       scale=alt.Scale(range=RISK_GRADIENT),
+                       title='Risk Score'),
         tooltip=[
-            alt.Tooltip('Sector Name:N', title='Industry'),
+            alt.Tooltip('Risk Score:O', title='Risk Score'),
             alt.Tooltip('Deal Count:Q', title='Number of Deals'),
             alt.Tooltip('CSL Capital Deployed:Q', title='Capital Deployed', format='$,.0f'),
             alt.Tooltip('CSL Capital at Risk:Q', title='Capital at Risk', format='$,.0f'),
             alt.Tooltip('Risk Profile:N', title='Risk Profile'),
-            alt.Tooltip('Risk Score:Q', title='Risk Score', format='.2f'),
-            alt.Tooltip('Risk Score:Q', title='Risk Score', format='.2f')
+            alt.Tooltip('Sectors:N', title='Primary Sectors')
         ]
     ).properties(
         width=800,
         height=400,
-        title='Number of Deals by Industry Sector'
+        title='Number of Deals by Risk Score'
     )
     
     st.altair_chart(industry_chart, use_container_width=True)
     
-    # Capital exposure by industry
+    # Capital exposure by risk score
     st.subheader("CSL Capital Exposure by Industry")
     
     capital_chart = alt.Chart(industry_summary).mark_bar().encode(
-        x=alt.X('Sector Name:N', title='Industry Sector', axis=alt.Axis(labelAngle=-45)),
+        x=alt.X('Risk Score:O', title='Risk Score', axis=alt.Axis(labelAngle=0)),
         y=alt.Y('CSL Capital at Risk:Q', title='CSL Capital at Risk ($)', axis=alt.Axis(format='$,.0f')),
-        color=alt.Color('Risk Profile:N',
-                       scale=alt.Scale(range=['#2ca02c', '#ff7f0e', '#d62728']),
-                       title='Sector Risk Profile'),
+        color=alt.Color('Risk Score:O',
+                       scale=alt.Scale(range=RISK_GRADIENT),
+                       title='Risk Score'),
         tooltip=[
-            alt.Tooltip('Sector Name:N', title='Industry'),
+            alt.Tooltip('Risk Score:O', title='Risk Score'),
             alt.Tooltip('CSL Capital Deployed:Q', title='Total Capital Deployed', format='$,.0f'),
             alt.Tooltip('CSL Capital at Risk:Q', title='Capital at Risk', format='$,.0f'),
             alt.Tooltip('Deal Count:Q', title='Number of Deals'),
-            alt.Tooltip('Risk Profile:N', title='Risk Profile')
+            alt.Tooltip('Risk Profile:N', title='Risk Profile'),
+            alt.Tooltip('Sectors:N', title='Primary Sectors')
         ]
     ).properties(
         width=800,
         height=400,
-        title='CSL Capital at Risk by Industry Sector'
+        title='CSL Capital at Risk by Risk Score'
     )
     
     st.altair_chart(capital_chart, use_container_width=True)
@@ -598,70 +603,12 @@ if 'fico' in df.columns:
         }
     )
 
-# Term Analysis
+# Term Analysis - Modified to use years as requested
 if 'tib' in df.columns:
     st.subheader("Capital Exposure by Time in Business")
     
-    # Create TIB bands (assuming TIB is in months)
-    df['tib_band'] = pd.cut(df['tib'], 
-                           bins=[0, 12, 24, 36, 60, 120, 1000], 
-                           labels=['≤1 year', '1-2 years', '2-3 years', '3-5 years', '5-10 years', '>10 years'],
-                           include_lowest=True)
-    
-    # TIB analysis
-    tib_summary = df.groupby('tib_band').agg({
-        'deal_number': 'count',
-        'csl_participation': 'sum',
-        'csl_principal_at_risk': 'sum'
-    }).reset_index()
-    
-    tib_summary.columns = ['TIB Band', 'Deal Count', 'CSL Capital Deployed', 'CSL Capital at Risk']
-    
-    # TIB capital exposure chart
-    tib_chart = alt.Chart(tib_summary).mark_bar().encode(
-        x=alt.X('TIB Band:N', title='Time in Business'),
-        y=alt.Y('CSL Capital at Risk:Q', title='CSL Capital at Risk ($)', axis=alt.Axis(format='$,.0f')),
-        color=alt.Color('TIB Band:N',
-                       scale=alt.Scale(range=['#d62728', '#ff7f0e', '#ffbb78', '#2ca02c', '#98df8a', '#1f77b4']),
-                       legend=None),
-        tooltip=[
-            alt.Tooltip('TIB Band:N', title='TIB Band'),
-            alt.Tooltip('Deal Count:Q', title='Number of Deals'),
-            alt.Tooltip('CSL Capital Deployed:Q', title='Total Capital Deployed', format='$,.0f'),
-            alt.Tooltip('CSL Capital at Risk:Q', title='Capital at Risk', format='$,.0f')
-        ]
-    ).properties(
-        width=700,
-        height=400,
-        title='CSL Capital at Risk by Time in Business'
-    )
-    
-    st.altair_chart(tib_chart, use_container_width=True)
-    
-    # TIB summary table
-    st.dataframe(
-        tib_summary,
-        use_container_width=True,
-        column_config={
-            "CSL Capital Deployed": st.column_config.NumberColumn("CSL Capital Deployed", format="$%.0f"),
-            "CSL Capital at Risk": st.column_config.NumberColumn("CSL Capital at Risk", format="$%.0f"),
-        }
-    )
-
-# Download buttons
-csv = loan_tape.to_csv(index=False).encode("utf-8")
-st.download_button(
-    label="Download Loan Tape as CSV",
-    data=csv,
-    file_name="loan_tape.csv",
-    mime="text/csv"
-)
-
-if len(risk_df) > 0:
-    csv_risk = top_risk_display.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        label="Download Top 10 Risk Deals as CSV",
-        data=csv_risk,
-        file_name="top_risk_deals.csv",
-        mime="text/csv"
-    )
+    # Create TIB bands using years (5, 10, 15, 25, 35, 45)
+    df['tib_years'] = df['tib'] / 12  # Convert months to years
+    df['tib_band'] = pd.cut(df['tib_years'], 
+                           bins=[0, 5, 10, 15, 25, 35, 45, 1000], 
+                           labels=['≤5 years', '5-10 years', '10-15 years', '15-25 years', '25-35
