@@ -66,8 +66,6 @@ total_deals = len(df)
 participation_ratio = len(closed_won) / total_deals if total_deals > 0 else 0
 months = df["month"].nunique()
 
-print(closed_won.head())
-
 # Calculate date range and deal flow metrics
 date_range_days = (df["date_created"].max() - df["date_created"].min()).days + 1
 date_range_weeks = date_range_days / 7
@@ -103,6 +101,56 @@ total_expected_return = ((closed_won["amount"] * closed_won["factor_rate"]) -
 total_expected_return_sum = total_expected_return.sum()
 moic = total_expected_return_sum / total_capital_deployed if total_capital_deployed > 0 else 0
 projected_irr = (moic ** (12 / avg_term) - 1) if avg_term > 0 else 0
+
+# Add this debugging section temporarily to check your data
+st.write("### Data Investigation (Remove this section after checking)")
+
+# Check what columns exist
+st.write("**Available columns in your dataset:**")
+st.write(list(df.columns))
+
+# Check if tib and fico columns exist
+has_tib = "tib" in df.columns
+has_fico = "fico" in df.columns
+
+st.write(f"**TIB column exists:** {has_tib}")
+st.write(f"**FICO column exists:** {has_fico}")
+
+if has_tib:
+    st.write("**TIB column info:**")
+    st.write(f"- Non-null count: {df['tib'].count()}")
+    st.write(f"- Total rows: {len(df)}")
+    st.write(f"- Null values: {df['tib'].isnull().sum()}")
+    st.write(f"- Sample values: {df['tib'].dropna().head().tolist()}")
+    
+    # Check participated deals specifically
+    st.write("**TIB for participated deals:**")
+    st.write(f"- Non-null count: {closed_won['tib'].count()}")
+    st.write(f"- Participated deals: {len(closed_won)}")
+    st.write(f"- Average TIB: {closed_won['tib'].mean()}")
+
+if has_fico:
+    st.write("**FICO column info:**")
+    st.write(f"- Non-null count: {df['fico'].count()}")
+    st.write(f"- Total rows: {len(df)}")
+    st.write(f"- Null values: {df['fico'].isnull().sum()}")
+    st.write(f"- Sample values: {df['fico'].dropna().head().tolist()}")
+    
+    # Check participated deals specifically
+    st.write("**FICO for participated deals:**")
+    st.write(f"- Non-null count: {closed_won['fico'].count()}")
+    st.write(f"- Participated deals: {len(closed_won)}")
+    st.write(f"- Average FICO: {closed_won['fico'].mean()}")
+
+# Check for alternative column names
+potential_tib_cols = [col for col in df.columns if 'tib' in col.lower()]
+potential_fico_cols = [col for col in df.columns if 'fico' in col.lower()]
+
+st.write(f"**Columns containing 'tib':** {potential_tib_cols}")
+st.write(f"**Columns containing 'fico':** {potential_fico_cols}")
+
+st.write("---")
+
 
 # Rolling deal flow calculations - Fixed to look back from today
 periods = [
