@@ -74,9 +74,29 @@ naics_risk_df = get_naics_sector_risk()
 if 'industry' in df.columns:
     df['sector_code'] = df['industry'].astype(str).str[:2].str.zfill(2)
     
+    # Consolidate manufacturing sectors (31, 32, 33 -> Manufacturing)
+    df['sector_code_consolidated'] = df['sector_code'].copy()
+    df.loc[df['sector_code'].isin(['31', '32', '33']), 'sector_code_consolidated'] = 'Manufacturing'
+    
     # Join with NAICS sector risk data
     if not naics_risk_df.empty:
-        df = df.merge(naics_risk_df, on='sector_code', how='left')
+        # Create consolidated risk data for manufacturing
+        manufacturing_risk = naics_risk_df[naics_risk_df['sector_code'].isin(['31', '32', '33'])].iloc[0:1].copy()
+        if not manufacturing_risk.empty:
+            manufacturing_risk['sector_code'] = 'Manufacturing'
+            manufacturing_risk['sector_name'] = 'Manufacturing (31-33)'
+            # Use average risk score for manufacturing
+            avg_risk_score = naics_risk_df[naics_risk_df['sector_code'].isin(['31', '32', '33'])]['risk_score'].mean()
+            manufacturing_risk['risk_score'] = avg_risk_score
+            manufacturing_risk['risk_profile'] = 'Medium'  # Default or calculate based on avg
+            
+            # Add manufacturing row to naics_risk_df
+            naics_risk_consolidated = pd.concat([naics_risk_df, manufacturing_risk], ignore_index=True)
+        else:
+            naics_risk_consolidated = naics_risk_df
+        
+        # Join on consolidated sector codes
+        df = df.merge(naics_risk_consolidated, left_on='sector_code_consolidated', right_on='sector_code', how='left', suffixes=('', '_risk'))
 else:
     st.warning("Industry column not found in data")
 
@@ -268,7 +288,7 @@ if len(not_current_df) > 0:
         y=alt.Y("at_risk_pct:Q", title="Pct. of Balance at Risk", axis=alt.Axis(format=".0%")),
         color=alt.Color(
             "at_risk_pct:Q",
-            scale=alt.Scale(range=["#d73027", "#fc8d59", "#fee08b", "#d9ef8b"]),
+            scale=alt.Scale(range=RISK_GRADIENT),
             legend=alt.Legend(title="Risk Level")
         ),
         tooltip=[
@@ -303,7 +323,7 @@ if len(risk_df) > 0:
         y=alt.Y("risk_score:Q", title="Risk Score"),
         color=alt.Color(
             "risk_score:Q",
-            scale=alt.Scale(range=["#d73027", "#fc8d59", "#fee08b", "#d9ef8b"]),
+            scale=alt.Scale(range=RISK_GRADIENT),
             legend=alt.Legend(title="Risk Score")
         ),
         tooltip=[
@@ -373,7 +393,7 @@ if len(risk_df) > 0:
         size=alt.Size("risk_score:Q", title="Risk Score", scale=alt.Scale(range=[50, 400])),
         color=alt.Color(
             "risk_score:Q",
-            scale=alt.Scale(range=["#d73027", "#fc8d59", "#fee08b", "#d9ef8b"]),
+            scale=alt.Scale(range=RISK_GRADIENT),
             title="Risk Score"
         ),
         tooltip=[
