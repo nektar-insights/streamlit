@@ -4,9 +4,9 @@ from scripts.combine_hubspot_mca import combine_deals
 from scripts.get_naics_sector_risk import get_naics_sector_risk
 
 # ----------------------------
-# Define risk gradient color scheme 
+# Define risk gradient color scheme (updated colors)
 # ----------------------------
-RISK_GRADIENT = ["#ff0505", "#ff8f00", "#ff5b00", "#ffc302", "#fff600"]
+RISK_GRADIENT = ["#fff600","#ff0505", "#ff8f00", "#ff5b00", "#ffc302"]
 
 # ----------------------------
 # Supabase connection
@@ -535,49 +535,104 @@ if 'sector_name' in df.columns and not df['sector_name'].isna().all():
     # Additional Industry Visualization - Pie Charts for Capital Deployment and Risk
     st.subheader("Capital Distribution by Industry Risk Score")
     
-    col1, col2 = st.columns(2)
-    
-    # Pie chart for Capital Deployed
-    with col1:
-        pie_deployed = alt.Chart(industry_summary).mark_arc(innerRadius=50).encode(
-            theta=alt.Theta('CSL Capital Deployed:Q', title='Capital Deployed'),
-            color=alt.Color('Risk Score:O',
-                           scale=alt.Scale(range=RISK_GRADIENT),
-                           title='Industry Risk Score'),
-            tooltip=[
-                alt.Tooltip('Risk Score:O', title='Risk Score'),
-                alt.Tooltip('CSL Capital Deployed:Q', title='Capital Deployed', format='$,.0f'),
-                alt.Tooltip('Deal Count:Q', title='Number of Deals'),
-                alt.Tooltip('Sectors:N', title='Primary Sectors')
-            ]
-        ).properties(
-            width=300,
-            height=300,
-            title='CSL Capital Deployed by Risk Score'
-        )
+    # Create summary by sector code (numeric value) instead of risk score
+    if 'sector_code' in df.columns and not df['sector_code'].isna().all():
+        sector_summary = df.groupby(['sector_code', 'sector_name']).agg({
+            'deal_number': 'count',
+            'csl_participation': 'sum',
+            'csl_principal_at_risk': 'sum',
+            'risk_score': 'first'
+        }).reset_index()
         
-        st.altair_chart(pie_deployed, use_container_width=True)
-    
-    # Pie chart for Capital at Risk
-    with col2:
-        pie_risk = alt.Chart(industry_summary).mark_arc(innerRadius=50).encode(
-            theta=alt.Theta('CSL Capital at Risk:Q', title='Capital at Risk'),
-            color=alt.Color('Risk Score:O',
-                           scale=alt.Scale(range=RISK_GRADIENT),
-                           title='Industry Risk Score'),
-            tooltip=[
-                alt.Tooltip('Risk Score:O', title='Risk Score'),
-                alt.Tooltip('CSL Capital at Risk:Q', title='Capital at Risk', format='$,.0f'),
-                alt.Tooltip('Deal Count:Q', title='Number of Deals'),
-                alt.Tooltip('Sectors:N', title='Primary Sectors')
-            ]
-        ).properties(
-            width=300,
-            height=300,
-            title='CSL Capital at Risk by Risk Score'
-        )
+        sector_summary.columns = ['Sector Code', 'Sector Name', 'Deal Count', 'CSL Capital Deployed', 'CSL Capital at Risk', 'Risk Score']
         
-        st.altair_chart(pie_risk, use_container_width=True)
+        col1, col2 = st.columns(2)
+        
+        # Pie chart for Capital Deployed by sector
+        with col1:
+            pie_deployed = alt.Chart(sector_summary).mark_arc(innerRadius=50).encode(
+                theta=alt.Theta('CSL Capital Deployed:Q', title='Capital Deployed'),
+                color=alt.Color('Sector Code:N',
+                               scale=alt.Scale(range=RISK_GRADIENT),
+                               title='Sector Code'),
+                tooltip=[
+                    alt.Tooltip('Sector Code:N', title='Sector Code'),
+                    alt.Tooltip('Sector Name:N', title='Industry Name'),
+                    alt.Tooltip('CSL Capital Deployed:Q', title='Capital Deployed', format='$,.0f'),
+                    alt.Tooltip('Deal Count:Q', title='Number of Deals'),
+                    alt.Tooltip('Risk Score:O', title='Risk Score')
+                ]
+            ).properties(
+                width=300,
+                height=300,
+                title='CSL Capital Deployed by Sector'
+            )
+            
+            st.altair_chart(pie_deployed, use_container_width=True)
+        
+        # Pie chart for Capital at Risk by sector
+        with col2:
+            pie_risk = alt.Chart(sector_summary).mark_arc(innerRadius=50).encode(
+                theta=alt.Theta('CSL Capital at Risk:Q', title='Capital at Risk'),
+                color=alt.Color('Sector Code:N',
+                               scale=alt.Scale(range=RISK_GRADIENT),
+                               title='Sector Code'),
+                tooltip=[
+                    alt.Tooltip('Sector Code:N', title='Sector Code'),
+                    alt.Tooltip('Sector Name:N', title='Industry Name'),
+                    alt.Tooltip('CSL Capital at Risk:Q', title='Capital at Risk', format='$,.0f'),
+                    alt.Tooltip('Deal Count:Q', title='Number of Deals'),
+                    alt.Tooltip('Risk Score:O', title='Risk Score')
+                ]
+            ).properties(
+                width=300,
+                height=300,
+                title='CSL Capital at Risk by Sector'
+            )
+            
+            st.altair_chart(pie_risk, use_container_width=True)
+
+    # Portfolio Summary Table by Sector
+    st.subheader("Portfolio Summary by Industry Sector")
+    
+    if 'sector_code' in df.columns and not df['sector_code'].isna().all():
+        # Create comprehensive sector summary
+        sector_portfolio_summary = df.groupby(['sector_code', 'sector_name']).agg({
+            'deal_number': 'count',
+            'csl_participation': 'sum',
+            'csl_principal_at_risk': 'sum',
+            'risk_score': 'first'
+        }).reset_index()
+        
+        # Calculate percentage of total deals
+        sector_portfolio_summary['pct_of_total'] = (sector_portfolio_summary['deal_number'] / sector_portfolio_summary['deal_number'].sum()) * 100
+        
+        sector_portfolio_summary.columns = ['Sector Number', 'Industry Name', 'Count of Deals', 'Total Deployed', 'Capital Exposed', 'Risk Score', '% of Total']
+        
+        # Sort by capital deployed descending
+        sector_portfolio_summary = sector_portfolio_summary.sort_values('Total Deployed', ascending=False)
+        
+        # Add total row
+        total_row_portfolio = pd.DataFrame({
+            'Sector Number': ['TOTAL'],
+            'Industry Name': ['ALL SECTORS'],
+            'Count of Deals': [sector_portfolio_summary['Count of Deals'].sum()],
+            'Total Deployed': [sector_portfolio_summary['Total Deployed'].sum()],
+            'Capital Exposed': [sector_portfolio_summary['Capital Exposed'].sum()],
+            'Risk Score': [''],
+            '% of Total': [100.0]
+        })
+        sector_portfolio_summary = pd.concat([sector_portfolio_summary, total_row_portfolio], ignore_index=True)
+        
+        st.dataframe(
+            sector_portfolio_summary,
+            use_container_width=True,
+            column_config={
+                "Total Deployed": st.column_config.NumberColumn("Total Deployed", format="$%.0f"),
+                "Capital Exposed": st.column_config.NumberColumn("Capital Exposed", format="$%.0f"),
+                "% of Total": st.column_config.NumberColumn("% of Total", format="%.1f%%"),
+            }
+        )
 
 # FICO Score Analysis
 if 'fico' in df.columns:
@@ -647,9 +702,19 @@ if 'fico' in df.columns:
     with col2:
         st.altair_chart(fico_capital_chart, use_container_width=True)
     
-    # FICO summary table
+    # FICO summary table with total row
+    fico_summary_with_total = fico_summary.copy()
+    total_row = pd.DataFrame({
+        'FICO Band': ['TOTAL'],
+        'Deal Count': [fico_summary['Deal Count'].sum()],
+        'CSL Capital Deployed': [fico_summary['CSL Capital Deployed'].sum()],
+        'CSL Capital at Risk': [fico_summary['CSL Capital at Risk'].sum()],
+        'Pct of Total': [100.0]
+    })
+    fico_summary_with_total = pd.concat([fico_summary_with_total, total_row], ignore_index=True)
+    
     st.dataframe(
-        fico_summary,
+        fico_summary_with_total,
         use_container_width=True,
         column_config={
             "CSL Capital Deployed": st.column_config.NumberColumn("CSL Capital Deployed", format="$%.0f"),
@@ -658,13 +723,12 @@ if 'fico' in df.columns:
         }
     )
 
-# Term Analysis - Modified to use years as requested
+# Term Analysis - Modified to use years as requested (TIB is already in years)
 if 'tib' in df.columns:
     st.subheader("Capital Exposure by Time in Business")
     
-    # Create TIB bands using years (5, 10, 15, 25, 35, 45)
-    df['tib_years'] = df['tib'] 
-    df['tib_band'] = pd.cut(df['tib_years'], 
+    # Create TIB bands using years (5, 10, 15, 25, 35, 45) - TIB is already in years
+    df['tib_band'] = pd.cut(df['tib'], 
                            bins=[0, 5, 10, 15, 25, 35, 45, 1000], 
                            labels=['≤5 years', '5-10 years', '10-15 years', '15-25 years', '25-35 years', '35-45 years', '>45 years'],
                            include_lowest=True)
@@ -701,9 +765,18 @@ if 'tib' in df.columns:
     
     st.altair_chart(tib_chart, use_container_width=True)
     
-    # TIB summary table
+    # TIB summary table with total row
+    tib_summary_with_total = tib_summary.copy()
+    total_row_tib = pd.DataFrame({
+        'TIB Band': ['TOTAL'],
+        'Deal Count': [tib_summary['Deal Count'].sum()],
+        'CSL Capital Deployed': [tib_summary['CSL Capital Deployed'].sum()],
+        'CSL Capital at Risk': [tib_summary['CSL Capital at Risk'].sum()]
+    })
+    tib_summary_with_total = pd.concat([tib_summary_with_total, total_row_tib], ignore_index=True)
+    
     st.dataframe(
-        tib_summary,
+        tib_summary_with_total,
         use_container_width=True,
         column_config={
             "CSL Capital Deployed": st.column_config.NumberColumn("CSL Capital Deployed", format="$%.0f"),
