@@ -105,6 +105,43 @@ total_expected_return_sum = total_expected_return.sum()
 moic = total_expected_return_sum / total_capital_deployed if total_capital_deployed > 0 else 0
 projected_irr = (moic ** (12 / avg_term) - 1) if avg_term > 0 else 0
 
+# Temporary investigation for closed won deals specifically
+st.write("### TIB/FICO Investigation for Closed Won Deals")
+
+st.write(f"**Total closed won deals:** {len(closed_won)}")
+
+# Check TIB for closed won deals
+if len(closed_won) > 0:
+    tib_non_null_count = closed_won["tib"].count()
+    tib_null_count = closed_won["tib"].isnull().sum()
+    
+    st.write(f"**TIB for closed won deals:**")
+    st.write(f"- Non-null TIB values: {tib_non_null_count}")
+    st.write(f"- Null TIB values: {tib_null_count}")
+    
+    if tib_non_null_count > 0:
+        st.write(f"- Min TIB: ${closed_won['tib'].min():,.0f}")
+        st.write(f"- Max TIB: ${closed_won['tib'].max():,.0f}")
+        st.write(f"- Average TIB: ${closed_won['tib'].mean():,.0f}")
+        st.write(f"- Sample TIB values: {closed_won['tib'].dropna().head().tolist()}")
+    
+    # Check FICO for closed won deals  
+    fico_non_null_count = closed_won["fico"].count()
+    fico_null_count = closed_won["fico"].isnull().sum()
+    
+    st.write(f"**FICO for closed won deals:**")
+    st.write(f"- Non-null FICO values: {fico_non_null_count}")
+    st.write(f"- Null FICO values: {fico_null_count}")
+    
+    if fico_non_null_count > 0:
+        st.write(f"- Min FICO: {closed_won['fico'].min():.0f}")
+        st.write(f"- Max FICO: {closed_won['fico'].max():.0f}")
+        st.write(f"- Average FICO: {closed_won['fico'].mean():.0f}")
+        st.write(f"- Median FICO: {closed_won['fico'].median():.0f}")
+        st.write(f"- Sample FICO values: {closed_won['fico'].dropna().head().tolist()}")
+
+st.write("---")
+
 # Rolling deal flow calculations - Fixed to look back from today
 periods = [
     ("91-120 Days", 91, 120),
