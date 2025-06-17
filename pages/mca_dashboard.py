@@ -4,9 +4,9 @@ from scripts.combine_hubspot_mca import combine_deals
 from scripts.get_naics_sector_risk import get_naics_sector_risk
 
 # ----------------------------
-# Define risk gradient color scheme (updated colors)
+# Define risk gradient color scheme (updated colors) https://www.color-hex.com/color-palette/25513
 # ----------------------------
-RISK_GRADIENT = ["#ff0505", "#ff8f00", "#ff5b00", "#ffc302","#fff600"]
+RISK_GRADIENT = ["#ff0505","#ff5b00", "#ff8f00", "#ffc302","#fff600"]
 
 # ----------------------------
 # Supabase connection
@@ -257,21 +257,21 @@ if len(risk_df) > 0:
 # Portfolio Summary
 st.subheader("CSL Portfolio Summary")
 col1, col2, col3 = st.columns(3)
-col1.metric("Total Deals", total_deals)
-col2.metric("Matured Deals", total_matured)
-col3.metric("Current Deals", total_current)
+col1.metric("Total Deals", total_deals, help="Total number of deals in the portfolio (excludes Canceled deals)")
+col2.metric("Matured Deals", total_matured, help="Number of deals that have been fully paid off and closed")
+col3.metric("Current Deals", total_current, help="Number of deals that are performing and up-to-date on payments")
 
 col4, col5, col6 = st.columns(3)
-col4.metric("Not Current Deals", total_non_current)
-col5.metric("Pct. Outstanding Deals Current", f"{pct_current:.1%}")
-col6.metric("Pct. Outstanding Deals Not Current", f"{pct_non_current:.1%}")
+col4.metric("Not Current Deals", total_non_current, help="Number of deals that are delinquent or past due on payments")
+col5.metric("Pct. Outstanding Deals Current", f"{pct_current:.1%}", help="Percentage of active deals (Current + Not Current) that are performing well")
+col6.metric("Pct. Outstanding Deals Not Current", f"{pct_non_current:.1%}", help="Percentage of active deals (Current + Not Current) that are delinquent")
 
 # CSL Investment Overview
 st.subheader("CSL Investment Overview")
 col7, col8, col9 = st.columns(3)
-col7.metric("Capital Deployed", f"${csl_capital_deployed:,.0f}")
-col8.metric("Past Due Exposure", f"${total_csl_past_due:,.0f}")
-col9.metric("Outstanding CSL Principal", f"${total_csl_at_risk:,.0f}")
+col7.metric("Capital Deployed", f"${csl_capital_deployed:,.0f}", help="Total amount of capital that CSL has invested across all deals (sum of CSL participation amounts)")
+col8.metric("Past Due Exposure", f"${total_csl_past_due:,.0f}", help="CSL's proportional share of all past due amounts based on participation ratio")
+col9.metric("Outstanding CSL Principal", f"${total_csl_at_risk:,.0f}", help="CSL's share of remaining principal on 'Not Current' deals - represents capital that could be at risk if deals default")
 
 # NOTE: Outstanding CSL Principal Calculation Explanation:
 # This metric represents CSL's capital that is currently at risk in "Not Current" deals.
@@ -292,9 +292,9 @@ col9.metric("Outstanding CSL Principal", f"${total_csl_at_risk:,.0f}")
 # CSL Commission Summary
 st.subheader("CSL Commission Summary")
 col10, col11, col12 = st.columns(3)
-col10.metric("Avg. Commission Rate", f"{average_commission_pct:.2%}")
-col11.metric("Avg. Applied to Participation", f"{average_commission_on_loan:.2%}")
-col12.metric("Total Commission Paid", f"${total_commission_paid:,.0f}")
+col10.metric("Avg. Commission Rate", f"{average_commission_pct:.2%}", help="Average commission rate across all deals (unweighted average)")
+col11.metric("Avg. Applied to Participation", f"{average_commission_on_loan:.2%}", help="Average commission rate weighted by CSL participation amounts - shows effective commission rate paid")
+col12.metric("Total Commission Paid", f"${total_commission_paid:,.0f}", help="Total commission payments made by CSL across all deals (sum of participation × commission rate)")
 
 # ----------------------------
 # Tables and visualizations
