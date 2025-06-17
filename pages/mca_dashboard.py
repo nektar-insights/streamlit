@@ -4,9 +4,9 @@ from scripts.combine_hubspot_mca import combine_deals
 from scripts.get_naics_sector_risk import get_naics_sector_risk
 
 # ----------------------------
-# Define risk gradient color scheme (dark red to light red with 5 shades)
+# Define risk gradient color scheme 
 # ----------------------------
-RISK_GRADIENT = ["#8B0000", "#B22222", "#DC143C", "#F08080", "#FFB6C1"]
+RISK_GRADIENT = ["#ff0505", "#ff8f00", "#ff5b00", "#ffc302", "#fff600"]
 
 # ----------------------------
 # Supabase connection
@@ -663,7 +663,7 @@ if 'tib' in df.columns:
     st.subheader("Capital Exposure by Time in Business")
     
     # Create TIB bands using years (5, 10, 15, 25, 35, 45)
-    df['tib_years'] = df['tib'] / 12  # Convert months to years
+    df['tib_years'] = df['tib'] # Convert months to years
     df['tib_band'] = pd.cut(df['tib_years'], 
                            bins=[0, 5, 10, 15, 25, 35, 45, 1000], 
                            labels=['≤5 years', '5-10 years', '10-15 years', '15-25 years', '25-35 years', '35-45 years', '>45 years'],
