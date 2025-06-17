@@ -369,7 +369,8 @@ if has_tib_data and has_fico_data:
             ).encode(
                 y=alt.Y("fico:Q", 
                         title="FICO Score",
-                        axis=alt.Axis(format=".0f")),
+                        axis=alt.Axis(format=".0f"),
+                        scale=alt.Scale(domain=[300, 850])),  
                 tooltip=[
                     alt.Tooltip("fico:Q", title="FICO Score", format=".0f")
                 ]
