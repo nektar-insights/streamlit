@@ -4,9 +4,9 @@ from scripts.combine_hubspot_mca import combine_deals
 from scripts.get_naics_sector_risk import get_naics_sector_risk
 
 # ----------------------------
-# Define risk gradient color scheme
+# Define risk gradient color scheme (dark red to light red with 5 shades)
 # ----------------------------
-RISK_GRADIENT = ["#2ca02c", "#ffff99", "#ff7f0e", "#d62728"]
+RISK_GRADIENT = ["#8B0000", "#B22222", "#DC143C", "#F08080", "#FFB6C1"]
 
 # ----------------------------
 # Supabase connection
@@ -459,6 +459,7 @@ st.header("Portfolio Composition & Risk Insights")
 # Industry Analysis - Modified to group by risk_score
 if 'sector_name' in df.columns and not df['sector_name'].isna().all():
     st.subheader("Deal Distribution by Industry Sector")
+    st.caption("*Risk scores are based on industry sector risk profiles from NAICS data. Risk Score 5 represents the highest industry risk (darkest red).*")
     
     # Group by risk_score from naics_sector_risk_profile table
     industry_summary = df.groupby(['risk_score']).agg({
@@ -478,7 +479,7 @@ if 'sector_name' in df.columns and not df['sector_name'].isna().all():
         y=alt.Y('Deal Count:Q', title='Number of Deals'),
         color=alt.Color('Risk Score:O', 
                        scale=alt.Scale(range=RISK_GRADIENT),
-                       title='Risk Score'),
+                       title='Industry Risk Score'),
         tooltip=[
             alt.Tooltip('Risk Score:O', title='Risk Score'),
             alt.Tooltip('Deal Count:Q', title='Number of Deals'),
@@ -497,13 +498,14 @@ if 'sector_name' in df.columns and not df['sector_name'].isna().all():
     
     # Capital exposure by risk score
     st.subheader("CSL Capital Exposure by Industry")
+    st.caption("*Risk scores are based on industry sector risk profiles from NAICS data. Risk Score 5 represents the highest industry risk (darkest red).*")
     
     capital_chart = alt.Chart(industry_summary).mark_bar().encode(
         x=alt.X('Risk Score:O', title='Risk Score', axis=alt.Axis(labelAngle=0)),
         y=alt.Y('CSL Capital at Risk:Q', title='CSL Capital at Risk ($)', axis=alt.Axis(format='$,.0f')),
         color=alt.Color('Risk Score:O',
                        scale=alt.Scale(range=RISK_GRADIENT),
-                       title='Risk Score'),
+                       title='Industry Risk Score'),
         tooltip=[
             alt.Tooltip('Risk Score:O', title='Risk Score'),
             alt.Tooltip('CSL Capital Deployed:Q', title='Total Capital Deployed', format='$,.0f'),
@@ -540,14 +542,17 @@ if 'fico' in df.columns:
                             labels=['<580', '580-619', '620-659', '660-699', '700-739', '740+'],
                             include_lowest=True)
     
-    # FICO analysis
+    # FICO analysis with percentage of total
     fico_summary = df.groupby('fico_band').agg({
         'deal_number': 'count',
         'csl_participation': 'sum',
         'csl_principal_at_risk': 'sum'
     }).reset_index()
     
-    fico_summary.columns = ['FICO Band', 'Deal Count', 'CSL Capital Deployed', 'CSL Capital at Risk']
+    # Calculate percentage of total deals
+    fico_summary['pct_of_total'] = (fico_summary['deal_number'] / fico_summary['deal_number'].sum()) * 100
+    
+    fico_summary.columns = ['FICO Band', 'Deal Count', 'CSL Capital Deployed', 'CSL Capital at Risk', 'Pct of Total']
     
     # FICO deals chart
     fico_deals_chart = alt.Chart(fico_summary).mark_bar().encode(
@@ -559,6 +564,7 @@ if 'fico' in df.columns:
         tooltip=[
             alt.Tooltip('FICO Band:N', title='FICO Band'),
             alt.Tooltip('Deal Count:Q', title='Number of Deals'),
+            alt.Tooltip('Pct of Total:Q', title='% of Total Deals', format='.1f'),
             alt.Tooltip('CSL Capital Deployed:Q', title='Capital Deployed', format='$,.0f'),
             alt.Tooltip('CSL Capital at Risk:Q', title='Capital at Risk', format='$,.0f')
         ]
@@ -579,7 +585,8 @@ if 'fico' in df.columns:
             alt.Tooltip('FICO Band:N', title='FICO Band'),
             alt.Tooltip('CSL Capital Deployed:Q', title='Total Capital Deployed', format='$,.0f'),
             alt.Tooltip('CSL Capital at Risk:Q', title='Capital at Risk', format='$,.0f'),
-            alt.Tooltip('Deal Count:Q', title='Number of Deals')
+            alt.Tooltip('Deal Count:Q', title='Number of Deals'),
+            alt.Tooltip('Pct of Total:Q', title='% of Total Deals', format='.1f')
         ]
     ).properties(
         width=600,
@@ -600,6 +607,7 @@ if 'fico' in df.columns:
         column_config={
             "CSL Capital Deployed": st.column_config.NumberColumn("CSL Capital Deployed", format="$%.0f"),
             "CSL Capital at Risk": st.column_config.NumberColumn("CSL Capital at Risk", format="$%.0f"),
+            "Pct of Total": st.column_config.NumberColumn("% of Total", format="%.1f%%"),
         }
     )
 
@@ -608,7 +616,7 @@ if 'tib' in df.columns:
     st.subheader("Capital Exposure by Time in Business")
     
     # Create TIB bands using years (5, 10, 15, 25, 35, 45)
-    df['tib_years'] = df['tib'] / 12  # Convert months to years
+    df['tib_years'] = df['tib'] 
     df['tib_band'] = pd.cut(df['tib_years'], 
                            bins=[0, 5, 10, 15, 25, 35, 45, 1000], 
                            labels=['≤5 years', '5-10 years', '10-15 years', '15-25 years', '25-35 years', '35-45 years', '>45 years'],
