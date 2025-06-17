@@ -217,7 +217,7 @@ if has_tib_data or has_fico_data:
     elif has_tib_data:
         # Only TIB available
         col20, _ = st.columns(2)
-        col20.metric("Avg TIB", f"$avg_tib:,.0f}")
+        col20.metric("Avg TIB", f"{avg_tib:,.0f}")
     elif has_fico_data:
         # Only FICO available
         col21, _ = st.columns(2)
