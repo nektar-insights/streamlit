@@ -611,4 +611,63 @@ if 'tib' in df.columns:
     df['tib_years'] = df['tib'] / 12  # Convert months to years
     df['tib_band'] = pd.cut(df['tib_years'], 
                            bins=[0, 5, 10, 15, 25, 35, 45, 1000], 
-                           labels=['≤5 years', '5-10 years', '10-15 years', '15-25 years', '25-35
+                           labels=['≤5 years', '5-10 years', '10-15 years', '15-25 years', '25-35 years', '35-45 years', '>45 years'],
+                           include_lowest=True)
+    
+    # TIB analysis
+    tib_summary = df.groupby('tib_band').agg({
+        'deal_number': 'count',
+        'csl_participation': 'sum',
+        'csl_principal_at_risk': 'sum'
+    }).reset_index()
+    
+    tib_summary.columns = ['TIB Band', 'Deal Count', 'CSL Capital Deployed', 'CSL Capital at Risk']
+    
+    # TIB capital exposure chart
+    tib_chart = alt.Chart(tib_summary).mark_bar().encode(
+        x=alt.X('TIB Band:N', title='Time in Business'),
+        y=alt.Y('CSL Capital at Risk:Q', title='CSL Capital at Risk ($)', axis=alt.Axis(format='$,.0f')),
+        color=alt.Color('TIB Band:N',
+                       scale=alt.Scale(range=RISK_GRADIENT),
+                       legend=None),
+        tooltip=[
+            alt.Tooltip('TIB Band:N', title='TIB Band'),
+            alt.Tooltip('Deal Count:Q', title='Number of Deals'),
+            alt.Tooltip('CSL Capital Deployed:Q', title='Total Capital Deployed', format='$,.0f'),
+            alt.Tooltip('CSL Capital at Risk:Q', title='Capital at Risk', format='$,.0f')
+        ]
+    ).properties(
+        width=700,
+        height=400,
+        title='CSL Capital at Risk by Time in Business'
+    )
+    
+    st.altair_chart(tib_chart, use_container_width=True)
+    
+    # TIB summary table
+    st.dataframe(
+        tib_summary,
+        use_container_width=True,
+        column_config={
+            "CSL Capital Deployed": st.column_config.NumberColumn("CSL Capital Deployed", format="$%.0f"),
+            "CSL Capital at Risk": st.column_config.NumberColumn("CSL Capital at Risk", format="$%.0f"),
+        }
+    )
+
+# Download buttons
+csv = loan_tape.to_csv(index=False).encode("utf-8")
+st.download_button(
+    label="Download Loan Tape as CSV",
+    data=csv,
+    file_name="loan_tape.csv",
+    mime="text/csv"
+)
+
+if len(risk_df) > 0:
+    csv_risk = top_risk_display.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="Download Top 10 Risk Deals as CSV",
+        data=csv_risk,
+        file_name="top_risk_deals.csv",
+        mime="text/csv"
+    )
