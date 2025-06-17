@@ -66,7 +66,7 @@ total_deals = len(df)
 participation_ratio = len(closed_won) / total_deals if total_deals > 0 else 0
 months = df["month"].nunique()
 
-closed_won.head()
+print(closed_won.head())
 
 # Calculate date range and deal flow metrics
 date_range_days = (df["date_created"].max() - df["date_created"].min()).days + 1
