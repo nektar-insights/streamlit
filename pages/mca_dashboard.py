@@ -604,8 +604,8 @@ if 'tib' in df.columns:
     
     # Create TIB bands (assuming TIB is in months)
     df['tib_band'] = pd.cut(df['tib'], 
-                           bins=[0, 5, 10, 15, 20, 30, 40], 
-                           labels=['≤5 year', '5-10 years', '10-15 years', '15-20 years', '20-30 years', '>40 years'],
+                           bins=[0, 12, 24, 36, 60, 120, 1000], 
+                           labels=['≤1 year', '1-2 years', '2-3 years', '3-5 years', '5-10 years', '>10 years'],
                            include_lowest=True)
     
     # TIB analysis
