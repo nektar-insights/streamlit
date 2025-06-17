@@ -248,8 +248,7 @@ with col1:
             alt.Tooltip("amount:Q", title="Amount", format="$,.0f")
         ]
     ).properties(
-        height=300,
-        title="CSL Participation Amount"
+        height=300
     )
     
     st.altair_chart(participation_box, use_container_width=True)
@@ -268,8 +267,7 @@ with col2:
             alt.Tooltip("factor_rate:Q", title="Factor Rate", format=".3f")
         ]
     ).properties(
-        height=300,
-        title="Factor Rate Distribution"
+        height=300
     )
     
     st.altair_chart(factor_box, use_container_width=True)
@@ -291,8 +289,7 @@ with col3:
             alt.Tooltip("loan_term:Q", title="Term (months)", format=".1f")
         ]
     ).properties(
-        height=300,
-        title="Loan Term Distribution"
+        height=300
     )
     
     st.altair_chart(term_box, use_container_width=True)
@@ -313,8 +310,7 @@ with col4:
                 alt.Tooltip("tib:Q", title="TIB", format=",.0f")
             ]
         ).properties(
-            height=300,
-            title="TIB Distribution"
+            height=300
         )
         
         st.altair_chart(tib_box, use_container_width=True)
@@ -332,8 +328,7 @@ with col4:
                 alt.Tooltip("fico:Q", title="FICO Score", format=".0f")
             ]
         ).properties(
-            height=300,
-            title="FICO Score Distribution"
+            height=300
         )
         
         st.altair_chart(fico_box, use_container_width=True)
@@ -359,31 +354,30 @@ if has_tib_data and has_fico_data:
                 alt.Tooltip("tib:Q", title="TIB", format=",.0f")
             ]
         ).properties(
-            height=300,
-            title="TIB Distribution"
+            height=300
         )
         
         st.altair_chart(tib_box, use_container_width=True)
     
+
     with col6:
-        st.write("**FICO Score Distribution**")
-        fico_box = alt.Chart(closed_won.dropna(subset=['fico'])).mark_boxplot(
-            size=60,
-            color=COLOR_PALETTE[3],
-            outliers={"color": COLOR_PALETTE[4], "size": 40}
-        ).encode(
-            y=alt.Y("fico:Q", 
-                    title="FICO Score",
-                    axis=alt.Axis(format=".0f")),
-            tooltip=[
-                alt.Tooltip("fico:Q", title="FICO Score", format=".0f")
-            ]
-        ).properties(
-            height=300,
-            title="FICO Score Distribution"
-        )
-        
-        st.altair_chart(fico_box, use_container_width=True)
+            st.write("**FICO Score Distribution**")
+            fico_box = alt.Chart(closed_won.dropna(subset=['fico'])).mark_boxplot(
+                size=60,
+                color="#2E8B57",      # Experian green for good credit
+                outliers={"color": "#DC143C", "size": 40}  # Red for outliers (poor credit indicators)
+            ).encode(
+                y=alt.Y("fico:Q", 
+                        title="FICO Score",
+                        axis=alt.Axis(format=".0f")),
+                tooltip=[
+                    alt.Tooltip("fico:Q", title="FICO Score", format=".0f")
+                ]
+            ).properties(
+                height=300
+            )
+            
+            st.altair_chart(fico_box, use_container_width=True)
     
 # ----------------------------
 # Rolling Deal Flow
