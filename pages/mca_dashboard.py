@@ -663,7 +663,7 @@ if 'tib' in df.columns:
     st.subheader("Capital Exposure by Time in Business")
     
     # Create TIB bands using years (5, 10, 15, 25, 35, 45)
-    df['tib_years'] = df['tib'] # Convert months to years
+    df['tib_years'] = df['tib'] 
     df['tib_band'] = pd.cut(df['tib_years'], 
                            bins=[0, 5, 10, 15, 25, 35, 45, 1000], 
                            labels=['≤5 years', '5-10 years', '10-15 years', '15-25 years', '25-35 years', '35-45 years', '>45 years'],
