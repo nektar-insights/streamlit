@@ -349,8 +349,169 @@ if 'status_category' in mca_deals_combined.columns:
             ]
             st.metric("Current with Past Due", len(current_with_past_due))
 
-# QA Check 4: Date Validation
-st.write("### 4. Date Validation")
+# QA Check 4: Missing Deals Analysis (Raw vs Combined)
+st.write("### 4. Missing Deals Analysis (Raw vs Combined)")
+
+if len(mca_deals_raw) > 0 and len(mca_deals_combined) > 0:
+    # Compare deal numbers between raw and combined datasets
+    if 'deal_number' in mca_deals_raw.columns and 'deal_number' in mca_deals_combined.columns:
+        raw_deal_numbers = set(mca_deals_raw['deal_number'].dropna().astype(str))
+        combined_deal_numbers = set(mca_deals_combined['deal_number'].dropna().astype(str))
+        
+        # Deals in raw but not in combined
+        missing_from_combined = raw_deal_numbers - combined_deal_numbers
+        
+        # Deals in combined but not in raw (shouldn't happen, but good to check)
+        extra_in_combined = combined_deal_numbers - raw_deal_numbers
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**Deals Missing from Combined Dataset:**")
+            st.metric("Deals in Raw but Not Combined", len(missing_from_combined))
+            st.metric("Total Raw Deals", len(raw_deal_numbers))
+            
+            if len(missing_from_combined) > 0:
+                missing_pct = (len(missing_from_combined) / len(raw_deal_numbers)) * 100
+                st.metric("Missing Percentage", f"{missing_pct:.1f}%")
+                
+                # Show details of missing deals
+                missing_deals_df = mca_deals_raw[
+                    mca_deals_raw['deal_number'].astype(str).isin(missing_from_combined)
+                ].copy()
+                
+                if len(missing_deals_df) > 0:
+                    st.write("**Details of Missing Deals:**")
+                    
+                    # Select relevant columns for display
+                    display_cols = ['deal_number', 'dba', 'funding_date', 'status_category', 
+                                  'purchase_price', 'total_funded_amount']
+                    available_cols = [col for col in display_cols if col in missing_deals_df.columns]
+                    
+                    missing_display = missing_deals_df[available_cols].copy()
+                    
+                    # Format for display
+                    if 'funding_date' in missing_display.columns:
+                        missing_display['funding_date'] = pd.to_datetime(missing_display['funding_date']).dt.strftime('%Y-%m-%d')
+                    
+                    for col in ['purchase_price', 'total_funded_amount']:
+                        if col in missing_display.columns:
+                            missing_display[col] = missing_display[col].apply(
+                                lambda x: f"${x:,.0f}" if pd.notna(x) else "N/A"
+                            )
+                    
+                    # Rename columns for display
+                    column_rename = {
+                        'deal_number': 'Deal Number',
+                        'dba': 'Business Name',
+                        'funding_date': 'Funding Date',
+                        'status_category': 'Status',
+                        'purchase_price': 'Purchase Price',
+                        'total_funded_amount': 'Total Funded'
+                    }
+                    
+                    missing_display = missing_display.rename(columns=column_rename)
+                    st.dataframe(missing_display, use_container_width=True, hide_index=True)
+                    
+                    # Analyze patterns in missing deals
+                    st.write("**Analysis of Missing Deals:**")
+                    
+                    # Status analysis
+                    if 'status_category' in missing_deals_df.columns:
+                        status_counts = missing_deals_df['status_category'].value_counts()
+                        st.write("*Status distribution of missing deals:*")
+                        for status, count in status_counts.items():
+                            st.write(f"• {status}: {count}")
+                    
+                    # Date analysis
+                    if 'funding_date' in missing_deals_df.columns:
+                        funding_dates = pd.to_datetime(missing_deals_df['funding_date'], errors='coerce')
+                        if funding_dates.notna().any():
+                            earliest = funding_dates.min()
+                            latest = funding_dates.max()
+                            st.write(f"*Funding date range of missing deals:* {earliest.strftime('%Y-%m-%d')} to {latest.strftime('%Y-%m-%d')}")
+                    
+                    # Amount analysis
+                    if 'purchase_price' in missing_deals_df.columns:
+                        purchase_prices = pd.to_numeric(missing_deals_df['purchase_price'], errors='coerce')
+                        if purchase_prices.notna().any():
+                            avg_amount = purchase_prices.mean()
+                            total_amount = purchase_prices.sum()
+                            st.write(f"*Average deal size:* ${avg_amount:,.0f}")
+                            st.write(f"*Total missing volume:* ${total_amount:,.0f}")
+                    
+                    # Download option for missing deals
+                    csv_data = missing_deals_df[available_cols].to_csv(index=False).encode("utf-8")
+                    st.download_button(
+                        label="📥 Download Missing Deals List",
+                        data=csv_data,
+                        file_name=f"missing_deals_raw_vs_combined_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv"
+                    )
+            else:
+                st.success("✅ All raw deals found in combined dataset")
+        
+        with col2:
+            st.write("**Data Processing Validation:**")
+            st.metric("Deals in Combined but Not Raw", len(extra_in_combined))
+            
+            if len(extra_in_combined) > 0:
+                st.warning(f"⚠️ Found {len(extra_in_combined)} deals in combined that aren't in raw data")
+                st.write("*This could indicate data processing issues*")
+                
+                # Show extra deals
+                extra_deals_df = mca_deals_combined[
+                    mca_deals_combined['deal_number'].astype(str).isin(extra_in_combined)
+                ]
+                
+                if len(extra_deals_df) > 0:
+                    st.write("**Extra Deals in Combined:**")
+                    extra_display_cols = ['deal_number', 'dba', 'funding_date']
+                    extra_available_cols = [col for col in extra_display_cols if col in extra_deals_df.columns]
+                    st.dataframe(extra_deals_df[extra_available_cols], use_container_width=True, hide_index=True)
+            else:
+                st.success("✅ No unexpected deals in combined dataset")
+            
+            # Processing efficiency metrics
+            processing_efficiency = (len(combined_deal_numbers) / len(raw_deal_numbers)) * 100 if len(raw_deal_numbers) > 0 else 0
+            st.metric("Processing Efficiency", f"{processing_efficiency:.1f}%")
+            
+            # Recommendations based on missing deals
+            if len(missing_from_combined) > 0:
+                st.write("**🔍 Investigation Recommendations:**")
+                
+                # Check if missing deals have common characteristics
+                if 'status_category' in missing_deals_df.columns:
+                    status_counts = missing_deals_df['status_category'].value_counts()
+                    most_common_status = status_counts.index[0] if len(status_counts) > 0 else "Unknown"
+                    
+                    if status_counts.iloc[0] / len(missing_deals_df) > 0.7:  # If >70% have same status
+                        st.write(f"• Most missing deals have status: **{most_common_status}**")
+                        st.write("• Check if combine_deals() filters this status")
+                
+                # Check for data quality issues in missing deals
+                if 'purchase_price' in missing_deals_df.columns:
+                    null_prices = missing_deals_df['purchase_price'].isna().sum()
+                    if null_prices > len(missing_deals_df) * 0.5:  # If >50% have null prices
+                        st.write("• Many missing deals have null purchase prices")
+                        st.write("• Check if combine_deals() requires valid amounts")
+                
+                if 'funding_date' in missing_deals_df.columns:
+                    null_dates = pd.to_datetime(missing_deals_df['funding_date'], errors='coerce').isna().sum()
+                    if null_dates > len(missing_deals_df) * 0.5:  # If >50% have null dates
+                        st.write("• Many missing deals have invalid funding dates")
+                        st.write("• Check if combine_deals() requires valid dates")
+    
+    else:
+        st.warning("⚠️ Cannot compare datasets - deal_number column missing in one or both datasets")
+
+elif len(mca_deals_raw) == 0:
+    st.warning("⚠️ No raw MCA data available for comparison")
+elif len(mca_deals_combined) == 0:
+    st.warning("⚠️ No combined MCA data available for comparison")
+
+# QA Check 5: Date Validation
+st.write("### 5. Date Validation")
 
 if 'funding_date' in mca_deals_combined.columns:
     col1, col2 = st.columns(2)
