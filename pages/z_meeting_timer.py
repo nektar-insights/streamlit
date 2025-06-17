@@ -332,12 +332,6 @@ def render_add_timer_section():
 
 def main():
     """Main application"""
-    st.set_page_config(
-        page_title="PTI-Style Meeting Timers",
-        page_icon="⏱️",
-        layout="wide"
-    )
-    
     # Initialize session state
     initialize_session_state()
     
