@@ -1,6 +1,7 @@
 # pages/comprehensive_audit.py
 from utils.imports import *
 import numpy as np
+from scripts.combine_hubspot_mca import combine_deals
 
 # ----------------------------
 # Supabase connection
@@ -21,18 +22,31 @@ def load_qbo_data():
     df_gl = pd.DataFrame(supabase.table("qbo_general_ledger").select("*").execute().data)
     return df_txn, df_gl
 
+@st.cache_data(ttl=3600)
+def load_mca_deals():
+    """Load MCA deals from Supabase"""
+    res = supabase.table("mca_deals").select("*").execute()
+    return pd.DataFrame(res.data)
+
+@st.cache_data(ttl=3600)
+def load_combined_mca_deals():
+    """Load combined MCA deals using the combine_deals function"""
+    return combine_deals()
+
 def preprocess_data(dataframe):
     """Clean and preprocess dataframe"""
     df_clean = dataframe.copy()
     
     # Handle numeric columns
-    numeric_cols = ['amount', 'debit', 'credit', 'balance']
+    numeric_cols = ['amount', 'debit', 'credit', 'balance', 'purchase_price', 'receivables_amount', 
+                   'current_balance', 'past_due_amount', 'principal_amount', 'rtr_balance', 
+                   'amount_hubspot', 'total_funded_amount']
     for col in numeric_cols:
         if col in df_clean.columns:
             df_clean[col] = pd.to_numeric(df_clean[col], errors='coerce')
     
     # Handle date columns
-    date_cols = ['date', 'txn_date', 'date_created']
+    date_cols = ['date', 'txn_date', 'date_created', 'funding_date']
     for col in date_cols:
         if col in df_clean.columns:
             df_clean[col] = pd.to_datetime(df_clean[col], errors='coerce')
@@ -42,17 +56,21 @@ def preprocess_data(dataframe):
 # Load all data
 deals_df = load_deals()
 qbo_txn_df, qbo_gl_df = load_qbo_data()
+mca_deals_raw = load_mca_deals()
+mca_deals_combined = load_combined_mca_deals()
 
 # Preprocess all datasets
 deals_df = preprocess_data(deals_df)
 qbo_txn_df = preprocess_data(qbo_txn_df)
 qbo_gl_df = preprocess_data(qbo_gl_df)
+mca_deals_raw = preprocess_data(mca_deals_raw)
+mca_deals_combined = preprocess_data(mca_deals_combined)
 
 # ----------------------------
 # Page setup
 # ----------------------------
 st.title("Comprehensive Data Audit Dashboard")
-st.markdown("Complete quality assurance checks for deal data integrity and QBO financial analysis")
+st.markdown("Complete quality assurance checks for deal data integrity, MCA deals, and QBO financial analysis")
 
 # ----------------------------
 # Executive Summary
@@ -71,6 +89,10 @@ with col2:
     st.metric("QBO GL Entries", len(qbo_gl_df))
 
 with col3:
+    st.metric("MCA Deals (Raw)", len(mca_deals_raw))
+    st.metric("MCA Deals (Combined)", len(mca_deals_combined))
+
+with col4:
     # Missing loan IDs calculation
     if "is_closed_won" in deals_df.columns and "loan_id" in deals_df.columns:
         won_deals = deals_df[deals_df["is_closed_won"] == True]
@@ -86,15 +108,27 @@ with col3:
         st.metric("Missing Loan IDs", "N/A")
         st.metric("Missing Rate", "N/A")
 
-with col4:
-    # Data freshness
+# Data freshness indicators
+st.subheader("Data Freshness")
+col1, col2, col3 = st.columns(3)
+
+with col1:
     if len(deals_df) > 0 and 'date_created' in deals_df.columns:
         latest_deal = deals_df["date_created"].max()
         days_since_last = (pd.Timestamp.now() - latest_deal).days
         st.metric("Days Since Last Deal", days_since_last)
     else:
         st.metric("Days Since Last Deal", "N/A")
-    
+
+with col2:
+    if len(mca_deals_raw) > 0 and 'funding_date' in mca_deals_raw.columns:
+        latest_mca = mca_deals_raw["funding_date"].max()
+        mca_days_since = (pd.Timestamp.now() - latest_mca).days
+        st.metric("Days Since Last MCA Deal", mca_days_since)
+    else:
+        st.metric("Days Since Last MCA Deal", "N/A")
+
+with col3:
     # QBO data freshness
     qbo_latest = None
     if len(qbo_gl_df) > 0 and 'txn_date' in qbo_gl_df.columns:
@@ -109,9 +143,325 @@ with col4:
         st.metric("Days Since Last QBO Entry", "N/A")
 
 # ----------------------------
-# DEAL DATA AUDIT SECTION
+# MCA DEALS AUDIT SECTION
 # ----------------------------
-st.header("Deal Data Audit")
+st.header("🏦 MCA Deals Audit")
+
+# MCA Data Quality Overview
+col1, col2 = st.columns(2)
+
+with col1:
+    st.subheader("Raw MCA Data Quality")
+    if len(mca_deals_raw) > 0:
+        st.metric("Total Records", len(mca_deals_raw))
+        if 'funding_date' in mca_deals_raw.columns:
+            funding_dates = mca_deals_raw['funding_date'].dropna()
+            if len(funding_dates) > 0:
+                date_range = f"{funding_dates.min().strftime('%m/%d/%y')} to {funding_dates.max().strftime('%m/%d/%y')}"
+                st.metric("Funding Date Range", date_range)
+        st.metric("Null Values", mca_deals_raw.isnull().sum().sum())
+        
+        # Check for duplicate deal numbers
+        if 'deal_number' in mca_deals_raw.columns:
+            duplicate_deals = mca_deals_raw['deal_number'].duplicated().sum()
+            st.metric("Duplicate Deal Numbers", duplicate_deals)
+    else:
+        st.warning("No MCA deals data available")
+
+with col2:
+    st.subheader("Combined MCA Data Quality")
+    if len(mca_deals_combined) > 0:
+        st.metric("Total Records", len(mca_deals_combined))
+        if 'funding_date' in mca_deals_combined.columns:
+            funding_dates = mca_deals_combined['funding_date'].dropna()
+            if len(funding_dates) > 0:
+                date_range = f"{funding_dates.min().strftime('%m/%d/%y')} to {funding_dates.max().strftime('%m/%d/%y')}"
+                st.metric("Funding Date Range", date_range)
+        st.metric("Null Values", mca_deals_combined.isnull().sum().sum())
+        
+        # Status category distribution
+        if 'status_category' in mca_deals_combined.columns:
+            status_counts = mca_deals_combined['status_category'].value_counts()
+            st.write("**Status Distribution:**")
+            for status, count in status_counts.items():
+                st.write(f"• {status}: {count}")
+    else:
+        st.warning("No combined MCA deals data available")
+
+# MCA Debug Info Expander
+with st.expander("MCA Data Debug Info", expanded=False):
+    st.write("**Raw MCA Data source:** `mca_deals` table from Supabase")
+    st.write(f"**Total raw rows:** {len(mca_deals_raw)}")
+    if len(mca_deals_raw) > 0:
+        st.write("**Available columns in raw data:**")
+        st.dataframe(pd.DataFrame({"Column Name": mca_deals_raw.columns, "Data Type": mca_deals_raw.dtypes.astype(str)}), use_container_width=True)
+        
+        st.write("**Sample raw data (first 3 rows):**")
+        st.dataframe(mca_deals_raw.head(3), use_container_width=True)
+    
+    st.write("---")
+    st.write("**Combined MCA Data source:** `combine_deals()` function")
+    st.write(f"**Total combined rows:** {len(mca_deals_combined)}")
+    if len(mca_deals_combined) > 0:
+        st.write("**Available columns in combined data:**")
+        st.dataframe(pd.DataFrame({"Column Name": mca_deals_combined.columns, "Data Type": mca_deals_combined.dtypes.astype(str)}), use_container_width=True)
+        
+        st.write("**Sample combined data (first 3 rows):**")
+        st.dataframe(mca_deals_combined.head(3), use_container_width=True)
+
+# MCA QA Checks
+st.subheader("MCA Data Quality Checks")
+
+# QA Check 1: Missing Critical Fields
+st.write("### 1. Missing Critical Fields in MCA Deals")
+
+critical_mca_fields = ['deal_number', 'dba', 'funding_date', 'purchase_price', 'total_funded_amount', 'status_category']
+missing_critical_mca = []
+
+for field in critical_mca_fields:
+    if field in mca_deals_combined.columns:
+        missing_count = mca_deals_combined[field].isna().sum()
+        missing_critical_mca.append({
+            "Field": field.replace("_", " ").title(),
+            "Missing Count": missing_count,
+            "Missing %": f"{(missing_count / len(mca_deals_combined) * 100):.1f}%" if len(mca_deals_combined) > 0 else "0.0%"
+        })
+    else:
+        missing_critical_mca.append({
+            "Field": field.replace("_", " ").title(),
+            "Missing Count": "FIELD NOT FOUND",
+            "Missing %": "N/A"
+        })
+
+critical_mca_df = pd.DataFrame(missing_critical_mca)
+st.dataframe(critical_mca_df, use_container_width=True, hide_index=True)
+
+# QA Check 2: Financial Data Validation
+st.write("### 2. Financial Data Validation")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.write("**Purchase Price vs Total Funded Analysis**")
+    if 'purchase_price' in mca_deals_combined.columns and 'total_funded_amount' in mca_deals_combined.columns:
+        # Check for mismatches between purchase price and total funded
+        valid_comparison = mca_deals_combined[
+            (mca_deals_combined['purchase_price'].notna()) & 
+            (mca_deals_combined['total_funded_amount'].notna()) &
+            (mca_deals_combined['purchase_price'] > 0) &
+            (mca_deals_combined['total_funded_amount'] > 0)
+        ].copy()
+        
+        if len(valid_comparison) > 0:
+            valid_comparison['price_difference'] = abs(valid_comparison['purchase_price'] - valid_comparison['total_funded_amount'])
+            valid_comparison['price_diff_pct'] = valid_comparison['price_difference'] / valid_comparison['total_funded_amount']
+            
+            significant_differences = valid_comparison[valid_comparison['price_diff_pct'] > 0.05]  # > 5% difference
+            
+            st.metric("Deals with Price Mismatches (>5%)", len(significant_differences))
+            st.metric("Total Deals Comparable", len(valid_comparison))
+            
+            if len(significant_differences) > 0:
+                st.write("**Deals with Significant Price Differences:**")
+                price_diff_display = significant_differences[['deal_number', 'dba', 'purchase_price', 'total_funded_amount', 'price_diff_pct']].copy()
+                price_diff_display['price_diff_pct'] = price_diff_display['price_diff_pct'].apply(lambda x: f"{x:.1%}")
+                price_diff_display['purchase_price'] = price_diff_display['purchase_price'].apply(lambda x: f"${x:,.0f}")
+                price_diff_display['total_funded_amount'] = price_diff_display['total_funded_amount'].apply(lambda x: f"${x:,.0f}")
+                
+                st.dataframe(price_diff_display.rename(columns={
+                    'deal_number': 'Deal Number',
+                    'dba': 'Business Name',
+                    'purchase_price': 'Purchase Price',
+                    'total_funded_amount': 'Total Funded',
+                    'price_diff_pct': 'Difference %'
+                }), use_container_width=True, hide_index=True)
+        else:
+            st.info("No valid price comparisons available")
+    else:
+        st.warning("Purchase price or total funded amount fields not available")
+
+with col2:
+    st.write("**Balance Validation**")
+    if 'current_balance' in mca_deals_combined.columns and 'past_due_amount' in mca_deals_combined.columns:
+        balance_issues = mca_deals_combined[
+            (mca_deals_combined['past_due_amount'] > mca_deals_combined['current_balance']) &
+            (mca_deals_combined['past_due_amount'].notna()) &
+            (mca_deals_combined['current_balance'].notna()) &
+            (mca_deals_combined['current_balance'] > 0)
+        ]
+        
+        st.metric("Past Due > Current Balance", len(balance_issues))
+        
+        # Negative balance check
+        negative_balances = mca_deals_combined[
+            (mca_deals_combined['current_balance'] < 0) &
+            (mca_deals_combined['current_balance'].notna())
+        ]
+        st.metric("Negative Current Balances", len(negative_balances))
+        
+        # Zero balances but not matured
+        if 'status_category' in mca_deals_combined.columns:
+            zero_balance_not_matured = mca_deals_combined[
+                (mca_deals_combined['current_balance'] == 0) &
+                (mca_deals_combined['status_category'] != 'Matured') &
+                (mca_deals_combined['current_balance'].notna())
+            ]
+            st.metric("Zero Balance (Not Matured)", len(zero_balance_not_matured))
+    else:
+        st.warning("Balance fields not available for validation")
+
+# QA Check 3: Status Category Analysis
+st.write("### 3. Status Category Analysis")
+
+if 'status_category' in mca_deals_combined.columns:
+    status_analysis = mca_deals_combined['status_category'].value_counts()
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.write("**Status Distribution:**")
+        status_df = pd.DataFrame({
+            'Status': status_analysis.index,
+            'Count': status_analysis.values,
+            'Percentage': (status_analysis.values / len(mca_deals_combined) * 100).round(1)
+        })
+        st.dataframe(status_df, use_container_width=True, hide_index=True)
+    
+    with col2:
+        # Check for unusual status patterns
+        st.write("**Status Validation:**")
+        
+        # Matured deals with balance
+        if 'current_balance' in mca_deals_combined.columns:
+            matured_with_balance = mca_deals_combined[
+                (mca_deals_combined['status_category'] == 'Matured') &
+                (mca_deals_combined['current_balance'] > 0) &
+                (mca_deals_combined['current_balance'].notna())
+            ]
+            st.metric("Matured with Balance > 0", len(matured_with_balance))
+        
+        # Current deals with past due
+        if 'past_due_amount' in mca_deals_combined.columns:
+            current_with_past_due = mca_deals_combined[
+                (mca_deals_combined['status_category'] == 'Current') &
+                (mca_deals_combined['past_due_amount'] > 0) &
+                (mca_deals_combined['past_due_amount'].notna())
+            ]
+            st.metric("Current with Past Due", len(current_with_past_due))
+
+# QA Check 4: Date Validation
+st.write("### 4. Date Validation")
+
+if 'funding_date' in mca_deals_combined.columns:
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.write("**Funding Date Issues:**")
+        
+        # Future funding dates
+        future_funding = mca_deals_combined[
+            (mca_deals_combined['funding_date'] > pd.Timestamp.now()) &
+            (mca_deals_combined['funding_date'].notna())
+        ]
+        st.metric("Future Funding Dates", len(future_funding))
+        
+        # Very old funding dates (>10 years)
+        very_old_funding = mca_deals_combined[
+            (mca_deals_combined['funding_date'] < pd.Timestamp.now() - pd.Timedelta(days=3650)) &
+            (mca_deals_combined['funding_date'].notna())
+        ]
+        st.metric("Very Old Funding (>10 years)", len(very_old_funding))
+        
+        # Missing funding dates
+        missing_funding_dates = mca_deals_combined['funding_date'].isna().sum()
+        st.metric("Missing Funding Dates", missing_funding_dates)
+    
+    with col2:
+        if len(mca_deals_combined[mca_deals_combined['funding_date'].notna()]) > 0:
+            st.write("**Funding Date Range:**")
+            min_date = mca_deals_combined['funding_date'].min()
+            max_date = mca_deals_combined['funding_date'].max()
+            st.write(f"Earliest: {min_date.strftime('%Y-%m-%d') if pd.notna(min_date) else 'N/A'}")
+            st.write(f"Latest: {max_date.strftime('%Y-%m-%d') if pd.notna(max_date) else 'N/A'}")
+            
+            # Recent activity (last 30 days)
+            recent_cutoff = pd.Timestamp.now() - pd.Timedelta(days=30)
+            recent_deals = mca_deals_combined[mca_deals_combined['funding_date'] >= recent_cutoff]
+            st.metric("Recent Deals (30 days)", len(recent_deals))
+
+# Full MCA Deals List for Scraper Verification
+st.subheader("Complete MCA Deals List (Scraper Verification)")
+st.caption("Use this section to verify all deals are being captured by your scraper")
+
+# Create comprehensive deals list
+if len(mca_deals_combined) > 0:
+    # Select key columns for verification
+    verification_columns = ['deal_number', 'dba', 'funding_date', 'status_category', 'purchase_price', 
+                           'total_funded_amount', 'current_balance', 'past_due_amount']
+    existing_verification_columns = [col for col in verification_columns if col in mca_deals_combined.columns]
+    
+    verification_df = mca_deals_combined[existing_verification_columns].copy()
+    
+    # Format for display
+    if 'funding_date' in verification_df.columns:
+        verification_df['funding_date'] = verification_df['funding_date'].dt.strftime('%Y-%m-%d')
+    
+    for col in ['purchase_price', 'total_funded_amount', 'current_balance', 'past_due_amount']:
+        if col in verification_df.columns:
+            verification_df[col] = verification_df[col].apply(lambda x: f"${x:,.0f}" if pd.notna(x) else "N/A")
+    
+    # Rename columns for display
+    column_rename = {
+        'deal_number': 'Deal Number',
+        'dba': 'Business Name',
+        'funding_date': 'Funding Date',
+        'status_category': 'Status',
+        'purchase_price': 'Purchase Price',
+        'total_funded_amount': 'Total Funded',
+        'current_balance': 'Current Balance',
+        'past_due_amount': 'Past Due Amount'
+    }
+    
+    verification_df = verification_df.rename(columns=column_rename)
+    
+    # Add search functionality
+    search_term = st.text_input("Search deals (by deal number or business name):", "")
+    if search_term:
+        mask = (
+            verification_df['Deal Number'].astype(str).str.contains(search_term, case=False, na=False) |
+            verification_df['Business Name'].astype(str).str.contains(search_term, case=False, na=False)
+        )
+        verification_df = verification_df[mask]
+    
+    # Display the table
+    st.dataframe(verification_df, use_container_width=True, hide_index=True)
+    
+    # Summary statistics
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total Deals Displayed", len(verification_df))
+    with col2:
+        if 'Status' in verification_df.columns:
+            active_deals = len(verification_df[verification_df['Status'].isin(['Current', 'Not Current'])])
+            st.metric("Active Deals", active_deals)
+    with col3:
+        if 'Status' in verification_df.columns:
+            matured_deals = len(verification_df[verification_df['Status'] == 'Matured'])
+            st.metric("Matured Deals", matured_deals)
+    
+    # Download option for verification
+    csv_data = mca_deals_combined[existing_verification_columns].to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="📥 Download Complete MCA Deals List",
+        data=csv_data,
+        file_name=f"mca_deals_complete_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
+        mime="text/csv"
+    )
+
+# ----------------------------
+# DEAL DATA AUDIT SECTION (Original)
+# ----------------------------
+st.header("📋 Deal Data Audit")
 
 # Debug Info Expander
 with st.expander("Deal Data Debug Info", expanded=False):
@@ -241,75 +591,6 @@ with col1:
             st.success("No duplicate loan IDs found")
         else:
             st.error(f"❌ Found {duplicate_loan_ids} duplicate loan IDs")
-            
-            # Show the duplicate loan IDs with deal names
-            duplicated_loans = valid_loan_ids[valid_loan_ids["loan_id"].duplicated(keep=False)].copy()
-            if len(duplicated_loans) > 0:
-                st.subheader("Duplicate Loan ID Details")
-                
-                # Find the best name field to display
-                possible_name_fields = ["deal_name", "name", "company_name", "business_name", "dba", "client_name"]
-                name_field = None
-                
-                for field in possible_name_fields:
-                    if field in duplicated_loans.columns:
-                        name_field = field
-                        break
-                
-                # Select columns to display
-                display_cols = ["loan_id", "id"]
-                if name_field:
-                    display_cols.insert(1, name_field)
-                
-                # Add other relevant columns if they exist
-                additional_cols = ["date_created", "amount", "is_closed_won"]
-                for col in additional_cols:
-                    if col in duplicated_loans.columns:
-                        display_cols.append(col)
-                
-                # Filter to only existing columns
-                available_cols = [col for col in display_cols if col in duplicated_loans.columns]
-                duplicate_display = duplicated_loans[available_cols].copy()
-                
-                # Format the data
-                if "amount" in duplicate_display.columns:
-                    duplicate_display["amount"] = duplicate_display["amount"].apply(lambda x: f"${x:,.0f}" if pd.notna(x) else "N/A")
-                if "date_created" in duplicate_display.columns:
-                    duplicate_display["date_created"] = duplicate_display["date_created"].dt.strftime("%Y-%m-%d")
-                
-                # Rename columns for display
-                column_rename = {
-                    "id": "Deal ID",
-                    "loan_id": "Loan ID",
-                    "date_created": "Date Created",
-                    "amount": "Amount",
-                    "is_closed_won": "Won?"
-                }
-                
-                if name_field:
-                    column_rename[name_field] = "Deal Name"
-                
-                duplicate_display = duplicate_display.rename(columns=column_rename)
-                duplicate_display = duplicate_display.sort_values("Loan ID")
-                
-                st.dataframe(duplicate_display, use_container_width=True, hide_index=True)
-                
-                # Show summary by loan ID
-                duplicate_summary = duplicated_loans.groupby("loan_id").size().reset_index(name="Count")
-                duplicate_summary = duplicate_summary.sort_values("Count", ascending=False)
-                
-                st.write("**Duplicate Summary:**")
-                for _, row in duplicate_summary.iterrows():
-                    st.write(f"• Loan ID `{row['loan_id']}`: {row['Count']} deals")
-                
-                # Download option for duplicates
-                csv_data = duplicated_loans[available_cols].to_csv(index=False).encode("utf-8")
-                st.download_button(
-                    label="📥 Download Duplicate Loan IDs",
-                    data=csv_data,
-                    file_name=f"duplicate_loan_ids_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv"
-                )
 
 with col2:
     # Recent activity
@@ -348,7 +629,7 @@ if "is_closed_won" in deals_df.columns:
 # ----------------------------
 # QBO DATA ANALYSIS SECTION
 # ----------------------------
-st.header("QBO Financial Data Analysis")
+st.header("💰 QBO Financial Data Analysis")
 
 # QBO Data Quality Overview
 col1, col2 = st.columns(2)
@@ -393,19 +674,6 @@ with tab1:
                 'Total Amount': '${:,.2f}',
                 'Average Amount': '${:,.2f}'
             }), use_container_width=True)
-            
-            # Visualization
-            chart_data = gl_by_type.reset_index()
-            fig_type = alt.Chart(chart_data).mark_bar().encode(
-                x=alt.X('txn_type:N', title='Transaction Type', axis=alt.Axis(labelAngle=-45)),
-                y=alt.Y('Total Amount:Q', title='Total Amount ($)', axis=alt.Axis(format='$,.0f')),
-                tooltip=['txn_type:N', alt.Tooltip('Total Amount:Q', format='$,.2f')]
-            ).properties(
-                width=600,
-                height=400,
-                title='General Ledger: Total Amount by Transaction Type'
-            )
-            st.altair_chart(fig_type, use_container_width=True)
         
         # Group by name
         if 'name' in qbo_gl_df.columns:
@@ -520,44 +788,6 @@ with tab3:
             st.info("No loan-related transactions found")
     else:
         st.info("No QBO data available for loan performance analysis")
-    
-    # Original analysis for comparison (using transaction data)
-    if not qbo_txn_df.empty and 'transaction_type' in qbo_txn_df.columns and 'name' in qbo_txn_df.columns:
-        st.subheader("Original Analysis (Transaction Report)")
-        
-        filtered_df = qbo_txn_df[qbo_txn_df["transaction_type"].isin(["Invoice", "Payment"])].copy()
-        filtered_df = filtered_df[~filtered_df["name"].isin(["CSL", "VEEM"])]
-        
-        if 'amount' in filtered_df.columns:
-            filtered_df["amount"] = filtered_df["amount"].abs()
-            
-            pivot = filtered_df.pivot_table(
-                index="name",
-                columns="transaction_type",
-                values="amount",
-                aggfunc="sum",
-                fill_value=0
-            ).reset_index()
-            
-            if "Invoice" in pivot.columns:
-                pivot["balance"] = pivot.get("Invoice", 0) - pivot.get("Payment", 0)
-                pivot["balance_ratio"] = pivot["balance"] / pivot["Invoice"]
-                pivot["indicator"] = pivot["balance_ratio"].apply(
-                    lambda x: "🔴" if x >= 0.25 else ("🟡" if x >= 0.10 else "🟢")
-                )
-                
-                pivot_display = pivot.copy()
-                pivot_display["Invoice"] = pivot_display["Invoice"].map("${:,.2f}".format)
-                pivot_display["Payment"] = pivot_display["Payment"].map("${:,.2f}".format)
-                pivot_display["balance"] = pivot_display["balance"].map("${:,.2f}".format)
-                pivot_display["Deal Name"] = pivot_display["name"]
-                pivot_display["Balance (with Risk)"] = pivot_display["indicator"] + " " + pivot_display["balance"]
-                
-                st.dataframe(
-                    pivot_display[["Deal Name", "Invoice", "Payment", "Balance (with Risk)"]]
-                    .sort_values("Balance (with Risk)", ascending=False),
-                    use_container_width=True
-                )
 
 with tab4:
     st.subheader("Data Quality Issues")
@@ -669,7 +899,7 @@ st.header("🔧 Data Management")
 st.subheader("Cache Management")
 st.info("💡 Use these buttons to refresh cached data across different dashboards. After clicking, navigate to the respective dashboard to see updated data.")
 
-col1, col2, col3 = st.columns(3)
+col1, col2, col3, col4 = st.columns(4)
 
 with col1:
     if st.button("🔄 Refresh Pipeline Data", help="Clears cache for main pipeline dashboard (load_deals function)"):
@@ -686,41 +916,15 @@ with col3:
         clear_qbo_cache()
         st.success("QBO dashboard cache cleared!")
 
-if st.button("🔄 Refresh All Data Caches", type="primary", help="Clears all cached data across the entire application"):
-    st.cache_data.clear()
-    st.success("All data caches cleared! Navigate to other pages to see fresh data.")
-
-# Show cache status
-st.subheader("Cache Status")
-cache_info = []
-
-# Check if we have any cached functions
-if hasattr(st.session_state, '_cache'):
-    cache_count = len(st.session_state._cache)
-    cache_info.append(f"Session cache entries: {cache_count}")
-else:
-    cache_info.append("No session cache detected")
-
-# Display cache info
-for info in cache_info:
-    st.text(info)
-
-# Add timestamp of last refresh
-if "last_cache_clear" not in st.session_state:
-    st.session_state.last_cache_clear = "Never"
-
-if st.session_state.get("last_cache_clear") != "Never":
-    st.text(f"Last cache clear: {st.session_state.last_cache_clear}")
-
-# Update timestamp when any cache is cleared
-if st.button("Mark Cache Clear Time"):
-    st.session_state.last_cache_clear = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
-    st.success(f"Cache clear time marked: {st.session_state.last_cache_clear}")
+with col4:
+    if st.button("🔄 Refresh All Caches", type="primary", help="Clears all cached data across the entire application"):
+        st.cache_data.clear()
+        st.success("All data caches cleared!")
 
 # ----------------------------
 # Cross-Dataset Analysis
 # ----------------------------
-st.header("Cross-Dataset Analysis")
+st.header("📊 Cross-Dataset Analysis")
 
 st.subheader("Data Comparison Overview")
 col1, col2 = st.columns(2)
@@ -735,41 +939,41 @@ with col1:
             (deals_df['date_created'].max() - deals_df['date_created'].min()).days if 'date_created' in deals_df.columns and deals_df['date_created'].notna().any() else 0,
             deals_df['amount'].sum() if 'amount' in deals_df.columns else 0
         ],
+        'MCA Deals': [
+            len(mca_deals_combined),
+            mca_deals_combined['dba'].nunique() if 'dba' in mca_deals_combined.columns else 0,
+            (mca_deals_combined['funding_date'].max() - mca_deals_combined['funding_date'].min()).days if 'funding_date' in mca_deals_combined.columns and mca_deals_combined['funding_date'].notna().any() else 0,
+            mca_deals_combined['total_funded_amount'].sum() if 'total_funded_amount' in mca_deals_combined.columns else 0
+        ],
         'QBO Transactions': [
             len(qbo_txn_df),
             qbo_txn_df['name'].nunique() if 'name' in qbo_txn_df.columns else 0,
             (qbo_txn_df['date'].max() - qbo_txn_df['date'].min()).days if 'date' in qbo_txn_df.columns and qbo_txn_df['date'].notna().any() else 0,
             qbo_txn_df['amount'].sum() if 'amount' in qbo_txn_df.columns else 0
-        ],
-        'QBO General Ledger': [
-            len(qbo_gl_df),
-            qbo_gl_df['name'].nunique() if 'name' in qbo_gl_df.columns else 0,
-            (qbo_gl_df['txn_date'].max() - qbo_gl_df['txn_date'].min()).days if 'txn_date' in qbo_gl_df.columns and qbo_gl_df['txn_date'].notna().any() else 0,
-            qbo_gl_df['amount'].sum() if 'amount' in qbo_gl_df.columns else 0
         ]
     }
     comparison_df = pd.DataFrame(comparison_data)
     st.dataframe(comparison_df, use_container_width=True)
 
 with col2:
-    # Common names analysis
-    if 'name' in deals_df.columns and 'name' in qbo_txn_df.columns:
-        deal_names = set(deals_df['name'].dropna().unique()) if 'name' in deals_df.columns else set()
-        qbo_txn_names = set(qbo_txn_df['name'].dropna().unique()) if 'name' in qbo_txn_df.columns else set()
+    # Common names analysis between MCA and QBO data
+    if 'dba' in mca_deals_combined.columns and 'name' in qbo_txn_df.columns:
+        mca_names = set(mca_deals_combined['dba'].dropna().unique())
+        qbo_txn_names = set(qbo_txn_df['name'].dropna().unique())
         qbo_gl_names = set(qbo_gl_df['name'].dropna().unique()) if 'name' in qbo_gl_df.columns else set()
         
-        common_deal_qbo = deal_names.intersection(qbo_txn_names)
-        common_all = deal_names.intersection(qbo_txn_names).intersection(qbo_gl_names)
+        common_mca_qbo = mca_names.intersection(qbo_txn_names)
+        common_all = mca_names.intersection(qbo_txn_names).intersection(qbo_gl_names)
         
         st.write("**Name Overlap Analysis:**")
-        st.metric("Deal & QBO Transaction Names", len(common_deal_qbo))
+        st.metric("MCA & QBO Transaction Names", len(common_mca_qbo))
         st.metric("Common Across All Datasets", len(common_all))
-        st.metric("Deal Names Only", len(deal_names - qbo_txn_names - qbo_gl_names))
+        st.metric("MCA Names Only", len(mca_names - qbo_txn_names - qbo_gl_names))
 
 # ----------------------------
 # System Health Summary
 # ----------------------------
-st.header("System Health Summary")
+st.header("🏥 System Health Summary")
 
 health_status = []
 
@@ -795,6 +999,20 @@ if len(deals_df) > 0:
 else:
     health_status.append("🔴 Deal Data: No deal data available")
 
+# MCA data health
+mca_health_issues = 0
+if len(mca_deals_raw) == 0:
+    mca_health_issues += 1
+if len(mca_deals_combined) == 0:
+    mca_health_issues += 1
+
+if mca_health_issues == 0:
+    health_status.append("✅ MCA Data: Both raw and combined datasets available")
+elif mca_health_issues == 1:
+    health_status.append("🟡 MCA Data: One dataset missing or empty")
+else:
+    health_status.append("🔴 MCA Data: Multiple datasets missing or empty")
+
 # QBO data health
 qbo_health_issues = 0
 if len(qbo_txn_df) == 0:
@@ -817,17 +1035,17 @@ if len(deals_df) > 0 and 'date_created' in deals_df.columns:
     if days_since_last > 7:
         freshness_issues.append(f"Deal Data ({days_since_last} days old)")
 
+if len(mca_deals_combined) > 0 and 'funding_date' in mca_deals_combined.columns:
+    latest_mca = mca_deals_combined["funding_date"].max()
+    mca_days_since = (pd.Timestamp.now() - latest_mca).days
+    if mca_days_since > 7:
+        freshness_issues.append(f"MCA Data ({mca_days_since} days old)")
+
 if len(qbo_txn_df) > 0 and 'date' in qbo_txn_df.columns:
     qbo_txn_latest = qbo_txn_df["date"].max()
     qbo_txn_days_since = (pd.Timestamp.now() - qbo_txn_latest).days
     if qbo_txn_days_since > 7:
         freshness_issues.append(f"QBO Transactions ({qbo_txn_days_since} days old)")
-
-if len(qbo_gl_df) > 0 and 'txn_date' in qbo_gl_df.columns:
-    qbo_gl_latest = qbo_gl_df["txn_date"].max()
-    qbo_gl_days_since = (pd.Timestamp.now() - qbo_gl_latest).days
-    if qbo_gl_days_since > 7:
-        freshness_issues.append(f"QBO General Ledger ({qbo_gl_days_since} days old)")
 
 if len(freshness_issues) == 0:
     health_status.append("✅ Data Freshness: All data appears current")
@@ -871,6 +1089,7 @@ with col1:
         report_data = {
             "Report Generated": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
             "Deal Data Records": len(deals_df),
+            "MCA Deals Records": len(mca_deals_combined),
             "QBO Transaction Records": len(qbo_txn_df),
             "QBO GL Records": len(qbo_gl_df),
             "System Health Score": f"{health_score:.0f}%",
@@ -909,36 +1128,26 @@ with col2:
                 mime="text/csv"
             )
     
-    # Export QBO data quality issues
-    if not qbo_txn_df.empty or not qbo_gl_df.empty:
-        if st.button("Export QBO Quality Report"):
+    # Export MCA data quality issues
+    if len(mca_deals_combined) > 0:
+        if st.button("Export MCA Quality Report"):
             quality_data = []
             
-            # Add transaction data quality info
-            if not qbo_txn_df.empty:
-                quality_data.append({
-                    "Dataset": "QBO Transactions",
-                    "Total Records": len(qbo_txn_df),
-                    "Null Values": qbo_txn_df.isnull().sum().sum(),
-                    "Date Range": f"{qbo_txn_df['date'].min().strftime('%m/%d/%y') if 'date' in qbo_txn_df.columns and qbo_txn_df['date'].notna().any() else 'N/A'} to {qbo_txn_df['date'].max().strftime('%m/%d/%y') if 'date' in qbo_txn_df.columns and qbo_txn_df['date'].notna().any() else 'N/A'}"
-                })
-            
-            # Add GL data quality info
-            if not qbo_gl_df.empty:
-                quality_data.append({
-                    "Dataset": "QBO General Ledger",
-                    "Total Records": len(qbo_gl_df),
-                    "Null Values": qbo_gl_df.isnull().sum().sum(),
-                    "Date Range": f"{qbo_gl_df['txn_date'].min().strftime('%m/%d/%y') if 'txn_date' in qbo_gl_df.columns and qbo_gl_df['txn_date'].notna().any() else 'N/A'} to {qbo_gl_df['txn_date'].max().strftime('%m/%d/%y') if 'txn_date' in qbo_gl_df.columns and qbo_gl_df['txn_date'].notna().any() else 'N/A'}"
-                })
+            # Add MCA data quality info
+            quality_data.append({
+                "Dataset": "MCA Deals Combined",
+                "Total Records": len(mca_deals_combined),
+                "Null Values": mca_deals_combined.isnull().sum().sum(),
+                "Date Range": f"{mca_deals_combined['funding_date'].min().strftime('%m/%d/%y') if 'funding_date' in mca_deals_combined.columns and mca_deals_combined['funding_date'].notna().any() else 'N/A'} to {mca_deals_combined['funding_date'].max().strftime('%m/%d/%y') if 'funding_date' in mca_deals_combined.columns and mca_deals_combined['funding_date'].notna().any() else 'N/A'}"
+            })
             
             quality_df = pd.DataFrame(quality_data)
             csv_data = quality_df.to_csv(index=False).encode("utf-8")
             
             st.download_button(
-                label="Download QBO Quality Report",
+                label="Download MCA Quality Report",
                 data=csv_data,
-                file_name=f"qbo_quality_report_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
+                file_name=f"mca_quality_report_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv"
             )
 
@@ -946,4 +1155,4 @@ with col2:
 # Footer with Last Updated
 # ----------------------------
 st.divider()
-st.caption(f"Dashboard last updated: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')} | Data sources: Supabase (deals, qbo_transactions, qbo_general_ledger)")
+st.caption(f"Dashboard last updated: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')} | Data sources: Supabase (deals, mca_deals, qbo_transactions, qbo_general_ledger)")
