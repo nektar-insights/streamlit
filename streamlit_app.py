@@ -88,8 +88,11 @@ avg_factor = closed_won["factor_rate"].mean()
 avg_term = closed_won["loan_term"].mean()
 avg_participation_pct = (closed_won["amount"] / closed_won["total_funded_amount"]).mean()
 avg_commission = closed_won["commission"].mean()
-avg_tib = closed_won["tib"].mean() if "tib" in closed_won.columns else 0
-avg_fico = closed_won["fico"].mean() if "fico" in closed_won.columns else 0
+has_tib_data = "tib" in closed_won.columns and closed_won["tib"].count() > 0
+has_fico_data = "fico" in closed_won.columns and closed_won["fico"].count() > 0
+
+avg_tib = closed_won["tib"].mean() if has_tib_data else None
+avg_fico = closed_won["fico"].mean() if has_fico_data else None
 
 # Financial calculations
 total_capital_deployed = closed_won["amount"].sum()
@@ -101,56 +104,6 @@ total_expected_return = ((closed_won["amount"] * closed_won["factor_rate"]) -
 total_expected_return_sum = total_expected_return.sum()
 moic = total_expected_return_sum / total_capital_deployed if total_capital_deployed > 0 else 0
 projected_irr = (moic ** (12 / avg_term) - 1) if avg_term > 0 else 0
-
-# Add this debugging section temporarily to check your data
-st.write("### Data Investigation (Remove this section after checking)")
-
-# Check what columns exist
-st.write("**Available columns in your dataset:**")
-st.write(list(df.columns))
-
-# Check if tib and fico columns exist
-has_tib = "tib" in df.columns
-has_fico = "fico" in df.columns
-
-st.write(f"**TIB column exists:** {has_tib}")
-st.write(f"**FICO column exists:** {has_fico}")
-
-if has_tib:
-    st.write("**TIB column info:**")
-    st.write(f"- Non-null count: {df['tib'].count()}")
-    st.write(f"- Total rows: {len(df)}")
-    st.write(f"- Null values: {df['tib'].isnull().sum()}")
-    st.write(f"- Sample values: {df['tib'].dropna().head().tolist()}")
-    
-    # Check participated deals specifically
-    st.write("**TIB for participated deals:**")
-    st.write(f"- Non-null count: {closed_won['tib'].count()}")
-    st.write(f"- Participated deals: {len(closed_won)}")
-    st.write(f"- Average TIB: {closed_won['tib'].mean()}")
-
-if has_fico:
-    st.write("**FICO column info:**")
-    st.write(f"- Non-null count: {df['fico'].count()}")
-    st.write(f"- Total rows: {len(df)}")
-    st.write(f"- Null values: {df['fico'].isnull().sum()}")
-    st.write(f"- Sample values: {df['fico'].dropna().head().tolist()}")
-    
-    # Check participated deals specifically
-    st.write("**FICO for participated deals:**")
-    st.write(f"- Non-null count: {closed_won['fico'].count()}")
-    st.write(f"- Participated deals: {len(closed_won)}")
-    st.write(f"- Average FICO: {closed_won['fico'].mean()}")
-
-# Check for alternative column names
-potential_tib_cols = [col for col in df.columns if 'tib' in col.lower()]
-potential_fico_cols = [col for col in df.columns if 'fico' in col.lower()]
-
-st.write(f"**Columns containing 'tib':** {potential_tib_cols}")
-st.write(f"**Columns containing 'fico':** {potential_fico_cols}")
-
-st.write("---")
-
 
 # Rolling deal flow calculations - Fixed to look back from today
 periods = [
@@ -245,17 +198,32 @@ col14.metric("Projected IRR", f"{projected_irr:.2%}")
 col15.metric("Avg % of Deal", f"{avg_participation_pct:.2%}")
 col16.metric("Commission Paid", f"${total_commissions_paid:,.0f}")
 
+# Deal Characteristics
 st.subheader("Deal Characteristics (Participated Only)")
 col17, col18, col19 = st.columns(3)
 col17.metric("Avg Participation ($)", f"${avg_amount:,.0f}")
 col18.metric("Avg Factor", f"{avg_factor:.2f}")
 col19.metric("Avg Term (mo)", f"{avg_term:.1f}")
 
-# Second row with TIB and FICO
-col20, col21 = st.columns(2)
-col20.metric("Avg TIB", f"${avg_tib:,.0f}" if avg_tib > 0 else "N/A")
-col21.metric("Avg FICO", f"{avg_fico:.0f}" if avg_fico > 0 else "N/A")
-
+# Second row - only show if we have data
+if has_tib_data or has_fico_data:
+    if has_tib_data and has_fico_data:
+        # Both available - show in 2 columns
+        col20, col21 = st.columns(2)
+        col20.metric("Avg TIB", f"${avg_tib:,.0f}")
+        col21.metric("Avg FICO", f"{avg_fico:.0f}")
+    elif has_tib_data:
+        # Only TIB available
+        col20, _ = st.columns(2)
+        col20.metric("Avg TIB", f"${avg_tib:,.0f}")
+    elif has_fico_data:
+        # Only FICO available
+        col21, _ = st.columns(2)
+        col21.metric("Avg FICO", f"{avg_fico:.0f}")
+else:
+    # No data available - show a note
+    st.write("*TIB and FICO data not yet available*")
+    
 # ----------------------------
 # Rolling Deal Flow
 # ----------------------------
