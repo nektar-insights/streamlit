@@ -340,27 +340,8 @@ with col4:
 if has_tib_data and has_fico_data:
     col5, col6 = st.columns(2)
     
-    with col5:
-        st.write("**TIB Distribution**")
-        tib_box = alt.Chart(closed_won.dropna(subset=['tib'])).mark_boxplot(
-            size=60,
-            color=COLOR_PALETTE[1],
-            outliers={"color": COLOR_PALETTE[2], "size": 40}
-        ).encode(
-            y=alt.Y("tib:Q", 
-                    title="TIB",
-                    axis=alt.Axis(format=",.0f")),
-            tooltip=[
-                alt.Tooltip("tib:Q", title="TIB", format=",.0f")
-            ]
-        ).properties(
-            height=300
-        )
-        
-        st.altair_chart(tib_box, use_container_width=True)
-    
 
-    with col6:
+    with col5:
             st.write("**FICO Score Distribution**")
             fico_box = alt.Chart(closed_won.dropna(subset=['fico'])).mark_boxplot(
                 size=60,
