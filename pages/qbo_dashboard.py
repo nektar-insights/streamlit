@@ -35,9 +35,6 @@ st.title("QBO Dashboard")
 # -------------------------
 # Loan Performance by Deal (Updated for new schema)
 # -------------------------
-# -------------------------
-# Loan Performance by Deal (Updated for new schema)
-# -------------------------
 st.subheader("Loan Performance by Deal")
 
 # Debug information
