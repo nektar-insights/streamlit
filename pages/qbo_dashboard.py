@@ -35,37 +35,72 @@ st.title("QBO Dashboard")
 # -------------------------
 # Loan Performance by Deal (Updated for new schema)
 # -------------------------
-filtered_df = df[df["transaction_type"].isin(["Invoice", "Payment"])].copy()
-filtered_df = filtered_df[~filtered_df["customer_name"].isin(["CSL", "VEEM"])]
-filtered_df["total_amount"] = filtered_df["total_amount"].abs()
-
-pivot = filtered_df.pivot_table(
-    index="customer_name",
-    columns="transaction_type",
-    values="total_amount",
-    aggfunc="sum",
-    fill_value=0
-).reset_index()
-
-pivot["outstanding_balance"] = pivot.get("Invoice", 0) - pivot.get("Payment", 0)
-pivot["balance_ratio"] = pivot["outstanding_balance"] / pivot["Invoice"]
-pivot["indicator"] = pivot["balance_ratio"].apply(
-    lambda x: "🔴" if x >= 0.25 else ("🟡" if x >= 0.10 else "🟢")
-)
-
-pivot_display = pivot.copy()
-pivot_display["Invoice"] = pivot_display["Invoice"].map("${:,.2f}".format)
-pivot_display["Payment"] = pivot_display["Payment"].map("${:,.2f}".format)
-pivot_display["outstanding_balance"] = pivot_display["outstanding_balance"].map("${:,.2f}".format)
-pivot_display["Customer Name"] = pivot_display["customer_name"]
-pivot_display["Balance (with Risk)"] = pivot_display["indicator"] + " " + pivot_display["outstanding_balance"]
-
+# -------------------------
+# Loan Performance by Deal (Updated for new schema)
+# -------------------------
 st.subheader("Loan Performance by Deal")
-st.dataframe(
-    pivot_display[["Customer Name", "Invoice", "Payment", "Balance (with Risk)"]]
-    .sort_values("Balance (with Risk)", ascending=False),
-    use_container_width=True
-)
+
+# Debug information
+with st.expander("Debug: Data Overview", expanded=False):
+    st.write(f"Total records in qbo_invoice_payments: {len(df)}")
+    if len(df) > 0:
+        st.write("Transaction types available:")
+        st.write(df['transaction_type'].value_counts())
+        st.write("Sample data:")
+        st.dataframe(df.head(3))
+    else:
+        st.warning("No data available in qbo_invoice_payments table")
+
+if len(df) == 0:
+    st.warning("No data available for loan performance analysis")
+else:
+    filtered_df = df[df["transaction_type"].isin(["Invoice", "Payment"])].copy()
+    filtered_df = filtered_df[~filtered_df["customer_name"].isin(["CSL", "VEEM"])]
+    
+    if len(filtered_df) == 0:
+        st.warning("No Invoice or Payment transactions found after filtering")
+        st.info("Available transaction types: " + ", ".join(df["transaction_type"].unique()) if len(df) > 0 else "None")
+    else:
+        filtered_df["total_amount"] = filtered_df["total_amount"].abs()
+
+        pivot = filtered_df.pivot_table(
+            index="customer_name",
+            columns="transaction_type",
+            values="total_amount",
+            aggfunc="sum",
+            fill_value=0
+        ).reset_index()
+
+        # Ensure Invoice and Payment columns exist even if no data
+        if "Invoice" not in pivot.columns:
+            pivot["Invoice"] = 0
+        if "Payment" not in pivot.columns:
+            pivot["Payment"] = 0
+
+        pivot["outstanding_balance"] = pivot.get("Invoice", 0) - pivot.get("Payment", 0)
+        pivot["balance_ratio"] = pivot["outstanding_balance"] / pivot["Invoice"].where(pivot["Invoice"] > 0, 1)  # Avoid division by zero
+        pivot["indicator"] = pivot["balance_ratio"].apply(
+            lambda x: "🔴" if x >= 0.25 else ("🟡" if x >= 0.10 else "🟢")
+        )
+
+        pivot_display = pivot.copy()
+        # Safely format columns that may or may not exist
+        if "Invoice" in pivot_display.columns:
+            pivot_display["Invoice"] = pivot_display["Invoice"].map("${:,.2f}".format)
+        if "Payment" in pivot_display.columns:
+            pivot_display["Payment"] = pivot_display["Payment"].map("${:,.2f}".format)
+        else:
+            pivot_display["Payment"] = "$0.00"  # Add Payment column with zeros if it doesn't exist
+
+        pivot_display["outstanding_balance"] = pivot_display["outstanding_balance"].map("${:,.2f}".format)
+        pivot_display["Customer Name"] = pivot_display["customer_name"]
+        pivot_display["Balance (with Risk)"] = pivot_display["indicator"] + " " + pivot_display["outstanding_balance"]
+
+        st.dataframe(
+            pivot_display[["Customer Name", "Invoice", "Payment", "Balance (with Risk)"]]
+            .sort_values("Balance (with Risk)", ascending=False),
+            use_container_width=True
+        )
 
 # -------------------------
 # Top Outstanding Balances
@@ -88,119 +123,81 @@ st.altair_chart(bar_chart, use_container_width=True)
 # Problem Loan Ratios
 # -------------------------
 problem_loans = pivot[pivot["Invoice"] > 0].copy()
-problem_loans["percentage"] = (problem_loans["outstanding_balance"] / problem_loans["Invoice"]) * 100
-problem_loans = problem_loans.sort_values("percentage", ascending=False).head(15)
 
-ratio_chart = (
-    alt.Chart(problem_loans)
-    .transform_calculate(
-        risk_color="""
-        datum.percentage >= 25 ? '#e45756' :
-        datum.percentage >= 10 ? '#ffcc00' :
-        '#34a853'
-        """
+if len(problem_loans) > 0:
+    problem_loans["percentage"] = (problem_loans["outstanding_balance"] / problem_loans["Invoice"]) * 100
+    problem_loans = problem_loans.sort_values("percentage", ascending=False).head(15)
+
+    ratio_chart = (
+        alt.Chart(problem_loans)
+        .transform_calculate(
+            risk_color="""
+            datum.percentage >= 25 ? '#e45756' :
+            datum.percentage >= 10 ? '#ffcc00' :
+            '#34a853'
+            """
+        )
+        .mark_bar()
+        .encode(
+            x=alt.X("percentage:Q", title="Balance as % of Invoice", axis=alt.Axis(format=".1f")),
+            y=alt.Y("customer_name:N", title="Customer Name", sort="-x"),
+            tooltip=["customer_name", alt.Tooltip("percentage:Q", format=".2f")],
+            color=alt.Color("risk_color:N", scale=None, legend=None)
+        )
+        .properties(
+            width=800,
+            height=400,
+            title="Problem Loan Ratios (Top 15 by Balance %)"
+        )
     )
-    .mark_bar()
-    .encode(
-        x=alt.X("percentage:Q", title="Balance as % of Invoice", axis=alt.Axis(format=".1f")),
-        y=alt.Y("customer_name:N", title="Customer Name", sort="-x"),
-        tooltip=["customer_name", alt.Tooltip("percentage:Q", format=".2f")],
-        color=alt.Color("risk_color:N", scale=None, legend=None)
-    )
-    .properties(
-        width=800,
-        height=400,
-        title="Problem Loan Ratios (Top 15 by Balance %)"
-    )
-)
 
-st.altair_chart(ratio_chart, use_container_width=True)
-
-# -------------------------
-# Monthly Payment Trends from Invoice/Payment Data
-# -------------------------
-st.subheader("Monthly Payments Received (from Invoice/Payment Data)")
-
-# Filter for payments only
-payments_df = df[df["transaction_type"] == "Payment"].copy()
-
-if not payments_df.empty and "txn_date" in payments_df.columns:
-    payments_df["total_amount"] = payments_df["total_amount"].abs()
-    payments_df["month"] = payments_df["txn_date"].dt.strftime("%Y-%m")
-    payments_df["month_name"] = payments_df["txn_date"].dt.strftime("%b %Y")
-    
-    monthly_payments = payments_df.groupby(["month", "month_name"])["total_amount"].sum().reset_index()
-    monthly_payments = monthly_payments.sort_values("month")
-    
-    payment_trend = alt.Chart(monthly_payments).mark_line(point=True).encode(
-        x=alt.X("month_name:N", title="Month", sort=alt.SortField("month")),
-        y=alt.Y("total_amount:Q", title="Total Payments ($)", axis=alt.Axis(format="$,.0f")),
-        tooltip=["month_name", alt.Tooltip("total_amount", format="$,.2f")]
-    ).properties(width=800, height=300)
-    
-    st.altair_chart(payment_trend, use_container_width=True)
-    
-    # Show summary statistics
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Total Payments", f"${payments_df['total_amount'].sum():,.2f}")
-    with col2:
-        st.metric("Average Monthly Payment", f"${monthly_payments['total_amount'].mean():,.2f}")
-    with col3:
-        st.metric("Payment Transactions Count", len(payments_df))
+    st.altair_chart(ratio_chart, use_container_width=True)
 else:
-    st.warning("No payment data found or missing transaction dates")
+    st.info("No invoices found to calculate problem loan ratios")
 
 # -------------------------
-# Monthly Payment Trends (ENHANCED - Using General Ledger)
+# Monthly Payment Trends (Using General Ledger)
 # -------------------------
-st.subheader("Monthly Payments Received (from General Ledger)")
+st.subheader("Monthly Payments Received")
 
-# Filter GL for payment transactions - using txn_type and amount, excluding voided
-payments_gl = gl_df.copy()
+# Try invoice/payment data first, fall back to GL data
+payments_found = False
+payment_source = ""
 
-# Exclude voided transactions
-payments_gl = payments_gl[~payments_gl["description"].str.contains("Voided", case=False, na=False)]
-
-# Identify payment transactions based on transaction type
-payment_conditions = (
-    (payments_gl["txn_type"].str.contains("Payment", case=False, na=False)) |
-    (payments_gl["txn_type"].str.contains("Deposit", case=False, na=False)) |
-    (payments_gl["txn_type"].str.contains("Receipt", case=False, na=False))
-)
-
-payments_gl_filtered = payments_gl[payment_conditions].copy()
-
-# Use amount column and ensure it's positive for payments
-amount_col = "amount"
-
-if not payments_gl_filtered.empty and "txn_date" in payments_gl_filtered.columns:
-    payments_gl_filtered[amount_col] = payments_gl_filtered[amount_col].abs()
-    payments_gl_filtered["month"] = payments_gl_filtered["txn_date"].dt.strftime("%Y-%m")
-    payments_gl_filtered["month_name"] = payments_gl_filtered["txn_date"].dt.strftime("%b %Y")
+# First try: Invoice/Payment data
+if not df.empty and "txn_date" in df.columns:
+    payments_df = df[df["transaction_type"] == "Payment"].copy()
     
-    monthly_payments_gl = payments_gl_filtered.groupby(["month", "month_name"])[amount_col].sum().reset_index()
-    monthly_payments_gl = monthly_payments_gl.sort_values("month")
-    
-    payment_trend_gl = alt.Chart(monthly_payments_gl).mark_line(point=True).encode(
-        x=alt.X("month_name:N", title="Month", sort=alt.SortField("month")),
-        y=alt.Y(f"{amount_col}:Q", title="Total Payments ($)", axis=alt.Axis(format="$,.0f")),
-        tooltip=["month_name", alt.Tooltip(amount_col, format="$,.2f")]
-    ).properties(width=800, height=300)
-    
-    st.altair_chart(payment_trend_gl, use_container_width=True)
-    
-    # Show summary statistics
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Total Payments (GL)", f"${payments_gl_filtered[amount_col].sum():,.2f}")
-    with col2:
-        st.metric("Average Monthly Payment", f"${monthly_payments_gl[amount_col].mean():,.2f}")
-    with col3:
-        st.metric("Payment Transactions Count", len(payments_gl_filtered))
-else:
-    st.warning("No payment data found in General Ledger or missing transaction dates")
+    if not payments_df.empty:
+        payments_df["total_amount"] = payments_df["total_amount"].abs()
+        payments_df["month"] = payments_df["txn_date"].dt.strftime("%Y-%m")
+        payments_df["month_name"] = payments_df["txn_date"].dt.strftime("%b %Y")
+        
+        monthly_payments = payments_df.groupby(["month", "month_name"])["total_amount"].sum().reset_index()
+        monthly_payments = monthly_payments.sort_values("month")
+        
+        payment_trend = alt.Chart(monthly_payments).mark_line(point=True).encode(
+            x=alt.X("month_name:N", title="Month", sort=alt.SortField("month")),
+            y=alt.Y("total_amount:Q", title="Total Payments ($)", axis=alt.Axis(format="$,.0f")),
+            tooltip=["month_name", alt.Tooltip("total_amount", format="$,.2f")]
+        ).properties(width=800, height=300, title="Monthly Payments (from Invoice/Payment Data)")
+        
+        st.altair_chart(payment_trend, use_container_width=True)
+        
+        # Show summary statistics
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Payments", f"${payments_df['total_amount'].sum():,.2f}")
+        with col2:
+            st.metric("Average Monthly Payment", f"${monthly_payments['total_amount'].mean():,.2f}")
+        with col3:
+            st.metric("Payment Transactions Count", len(payments_df))
+        
+        payments_found = True
+        payment_source = "Invoice/Payment Data"
 
+# Second try: General Ledger data (if no payments found above)
+if not payments_found and not gl_df.empty:
 # -------------------------
 # Outstanding Balance Summary from Invoice/Payment Data
 # -------------------------
@@ -254,12 +251,13 @@ if not df.empty:
             st.subheader("⚠️ Overdue Invoices")
             overdue_display = overdue_invoices[["customer_name", "doc_number", "due_date", "balance"]].copy()
             overdue_display["due_date"] = overdue_display["due_date"].dt.strftime("%Y-%m-%d")
-            overdue_display["balance"] = overdue_display["balance"].map("${:,.2f}".format)
+            overdue_display["balance"] = overdue_display["balance"].apply(lambda x: f"${x:,.2f}")
             overdue_display.columns = ["Customer", "Invoice #", "Due Date", "Outstanding Balance"]
             
             st.dataframe(
                 overdue_display.sort_values("Due Date"),
-                use_container_width=True
+                use_container_width=True,
+                hide_index=True
             )
             
             col1, col2 = st.columns(2)
