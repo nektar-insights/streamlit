@@ -18,7 +18,7 @@ def load_deals():
 
 @st.cache_data(ttl=3600)
 def load_qbo_data():
-    df_txn = pd.DataFrame(supabase.table("qbo_transactions").select("*").execute().data)
+    df_txn = pd.DataFrame(supabase.table("qbo_invoice_payments").select("*").execute().data)
     df_gl = pd.DataFrame(supabase.table("qbo_general_ledger").select("*").execute().data)
     return df_txn, df_gl
 
@@ -37,16 +37,16 @@ def preprocess_data(dataframe):
     """Clean and preprocess dataframe"""
     df_clean = dataframe.copy()
     
-    # Handle numeric columns
-    numeric_cols = ['amount', 'debit', 'credit', 'balance', 'purchase_price', 'receivables_amount', 
+    # Handle numeric columns (updated for new schema)
+    numeric_cols = ['total_amount', 'balance', 'debit', 'credit', 'amount', 'purchase_price', 'receivables_amount', 
                    'current_balance', 'past_due_amount', 'principal_amount', 'rtr_balance', 
                    'amount_hubspot', 'total_funded_amount']
     for col in numeric_cols:
         if col in df_clean.columns:
             df_clean[col] = pd.to_numeric(df_clean[col], errors='coerce')
     
-    # Handle date columns
-    date_cols = ['date', 'txn_date', 'date_created', 'funding_date']
+    # Handle date columns (updated for new schema)
+    date_cols = ['txn_date', 'due_date', 'date', 'date_created', 'funding_date', 'created_time', 'last_updated_time']
     for col in date_cols:
         if col in df_clean.columns:
             df_clean[col] = pd.to_datetime(df_clean[col], errors='coerce')
@@ -85,7 +85,7 @@ with col1:
     st.metric("Won Deals", won_deals_count)
 
 with col2:
-    st.metric("QBO Transactions", len(qbo_txn_df))
+    st.metric("QBO Invoice/Payments", len(qbo_txn_df))
     st.metric("QBO GL Entries", len(qbo_gl_df))
 
 with col3:
@@ -133,8 +133,8 @@ with col3:
     qbo_latest = None
     if len(qbo_gl_df) > 0 and 'txn_date' in qbo_gl_df.columns:
         qbo_latest = qbo_gl_df["txn_date"].max()
-    elif len(qbo_txn_df) > 0 and 'date' in qbo_txn_df.columns:
-        qbo_latest = qbo_txn_df["date"].max()
+    elif len(qbo_txn_df) > 0 and 'txn_date' in qbo_txn_df.columns:
+        qbo_latest = qbo_txn_df["txn_date"].max()
     
     if qbo_latest:
         qbo_days_since = (pd.Timestamp.now() - qbo_latest).days
@@ -788,7 +788,7 @@ if "is_closed_won" in deals_df.columns:
         st.dataframe(critical_df, use_container_width=True, hide_index=True)
 
 # ----------------------------
-# QBO DATA ANALYSIS SECTION
+# QBO DATA ANALYSIS SECTION (Updated for new schema)
 # ----------------------------
 st.header("💰 QBO Financial Data Analysis")
 
@@ -796,15 +796,22 @@ st.header("💰 QBO Financial Data Analysis")
 col1, col2 = st.columns(2)
 
 with col1:
-    st.subheader("Transaction Data Quality")
+    st.subheader("Invoice/Payment Data Quality")
     if len(qbo_txn_df) > 0:
         st.metric("Total Records", len(qbo_txn_df))
-        if 'date' in qbo_txn_df.columns:
-            date_range = f"{qbo_txn_df['date'].min().strftime('%m/%d/%y') if qbo_txn_df['date'].min() else 'N/A'} to {qbo_txn_df['date'].max().strftime('%m/%d/%y') if qbo_txn_df['date'].max() else 'N/A'}"
+        if 'txn_date' in qbo_txn_df.columns:
+            date_range = f"{qbo_txn_df['txn_date'].min().strftime('%m/%d/%y') if qbo_txn_df['txn_date'].min() else 'N/A'} to {qbo_txn_df['txn_date'].max().strftime('%m/%d/%y') if qbo_txn_df['txn_date'].max() else 'N/A'}"
             st.metric("Date Range", date_range)
         st.metric("Null Values", qbo_txn_df.isnull().sum().sum())
+        
+        # Transaction type breakdown
+        if 'transaction_type' in qbo_txn_df.columns:
+            txn_type_counts = qbo_txn_df['transaction_type'].value_counts()
+            st.write("**Transaction Types:**")
+            for txn_type, count in txn_type_counts.items():
+                st.write(f"• {txn_type}: {count}")
     else:
-        st.warning("No QBO transaction data available")
+        st.warning("No QBO invoice/payment data available")
 
 with col2:
     st.subheader("General Ledger Quality")
@@ -818,7 +825,7 @@ with col2:
         st.warning("No QBO general ledger data available")
 
 # QBO Analysis Tabs
-tab1, tab2, tab3, tab4 = st.tabs(["General Ledger Analysis", "Transaction Analysis", "Loan Performance", "Data Quality Issues"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["General Ledger Analysis", "Invoice/Payment Analysis", "Outstanding Balances", "Loan Performance", "Data Quality Issues"])
 
 with tab1:
     st.subheader("General Ledger Breakdown")
@@ -851,12 +858,12 @@ with tab1:
         st.info("No general ledger data available for analysis")
 
 with tab2:
-    st.subheader("Transaction Report Analysis")
+    st.subheader("Invoice/Payment Analysis")
     
     if not qbo_txn_df.empty:
         # Group by transaction type
-        if 'transaction_type' in qbo_txn_df.columns and 'amount' in qbo_txn_df.columns:
-            txn_by_type = qbo_txn_df.groupby('transaction_type')['amount'].agg(['sum', 'count', 'mean']).round(2)
+        if 'transaction_type' in qbo_txn_df.columns and 'total_amount' in qbo_txn_df.columns:
+            txn_by_type = qbo_txn_df.groupby('transaction_type')['total_amount'].agg(['sum', 'count', 'mean']).round(2)
             txn_by_type.columns = ['Total Amount', 'Transaction Count', 'Average Amount']
             txn_by_type = txn_by_type.sort_values('Total Amount', ascending=False)
             
@@ -866,98 +873,172 @@ with tab2:
                 'Average Amount': '${:,.2f}'
             }), use_container_width=True)
         
-        # Group by account
-        if 'account' in qbo_txn_df.columns:
-            txn_by_account = qbo_txn_df.groupby('account')['amount'].agg(['sum', 'count', 'mean']).round(2)
-            txn_by_account.columns = ['Total Amount', 'Transaction Count', 'Average Amount']
-            txn_by_account = txn_by_account.sort_values('Total Amount', ascending=False).head(15)
+        # Group by customer
+        if 'customer_name' in qbo_txn_df.columns:
+            txn_by_customer = qbo_txn_df.groupby('customer_name')['total_amount'].agg(['sum', 'count', 'mean']).round(2)
+            txn_by_customer.columns = ['Total Amount', 'Transaction Count', 'Average Amount']
+            txn_by_customer = txn_by_customer.sort_values('Total Amount', ascending=False).head(15)
             
-            st.write("**Top 15 by Account:**")
-            st.dataframe(txn_by_account.style.format({
+            st.write("**Top 15 by Customer:**")
+            st.dataframe(txn_by_customer.style.format({
                 'Total Amount': '${:,.2f}',
                 'Average Amount': '${:,.2f}'
             }), use_container_width=True)
+        
+        # Payment method analysis
+        if 'payment_method' in qbo_txn_df.columns:
+            payment_methods = qbo_txn_df[qbo_txn_df['transaction_type'] == 'Payment']['payment_method'].value_counts()
+            if len(payment_methods) > 0:
+                st.write("**Payment Methods:**")
+                for method, count in payment_methods.items():
+                    st.write(f"• {method}: {count}")
     else:
-        st.info("No transaction data available for analysis")
+        st.info("No invoice/payment data available for analysis")
 
 with tab3:
-    st.subheader("Enhanced Loan Performance Analysis")
+    st.subheader("Outstanding Balances Analysis")
     
-    # Use General Ledger for more reliable analysis if available
-    analysis_df = qbo_gl_df if not qbo_gl_df.empty else qbo_txn_df
-    
-    if not analysis_df.empty:
-        # Filter for loan-related transactions
-        loan_transactions = analysis_df[
-            (analysis_df.get('txn_type', analysis_df.get('transaction_type', '')).isin(['Invoice', 'Payment', 'Bill', 'Credit Memo'])) |
-            (analysis_df.get('account', '').str.contains('Loan|Receivable|Interest', case=False, na=False))
+    if not qbo_txn_df.empty and 'balance' in qbo_txn_df.columns:
+        # Filter for invoices with outstanding balances
+        outstanding_invoices = qbo_txn_df[
+            (qbo_txn_df['transaction_type'] == 'Invoice') & 
+            (qbo_txn_df['balance'] > 0)
         ].copy()
         
-        if not loan_transactions.empty:
-            # Enhanced pivot analysis
-            amount_col = 'amount' if 'amount' in loan_transactions.columns else 'credit'
-            type_col = 'txn_type' if 'txn_type' in loan_transactions.columns else 'transaction_type'
+        if len(outstanding_invoices) > 0:
+            # Summary statistics
+            col1, col2, col3 = st.columns(3)
             
-            if amount_col in loan_transactions.columns and type_col in loan_transactions.columns:
-                loan_transactions[amount_col] = loan_transactions[amount_col].abs()
+            with col1:
+                total_outstanding = outstanding_invoices['balance'].sum()
+                st.metric("Total Outstanding", f"${total_outstanding:,.2f}")
+            
+            with col2:
+                avg_outstanding = outstanding_invoices['balance'].mean()
+                st.metric("Average Outstanding", f"${avg_outstanding:,.2f}")
+            
+            with col3:
+                st.metric("Outstanding Invoices", len(outstanding_invoices))
+            
+            # Outstanding by customer
+            if 'customer_name' in outstanding_invoices.columns:
+                outstanding_by_customer = outstanding_invoices.groupby('customer_name')['balance'].agg(['sum', 'count']).round(2)
+                outstanding_by_customer.columns = ['Outstanding Balance', 'Invoice Count']
+                outstanding_by_customer = outstanding_by_customer.sort_values('Outstanding Balance', ascending=False).head(15)
                 
-                pivot_enhanced = loan_transactions.pivot_table(
-                    index="name",
-                    columns=type_col,
-                    values=amount_col,
-                    aggfunc="sum",
-                    fill_value=0
-                ).reset_index()
+                st.write("**Top 15 Outstanding Balances by Customer:**")
+                st.dataframe(outstanding_by_customer.style.format({
+                    'Outstanding Balance': '${:,.2f}'
+                }), use_container_width=True)
+            
+            # Overdue analysis
+            if 'due_date' in outstanding_invoices.columns:
+                today = pd.Timestamp.now().date()
+                outstanding_invoices['due_date'] = pd.to_datetime(outstanding_invoices['due_date'], errors='coerce')
                 
-                # Calculate enhanced metrics
-                pivot_enhanced["total_invoiced"] = pivot_enhanced.get("Invoice", 0)
-                pivot_enhanced["total_payments"] = pivot_enhanced.get("Payment", 0)
-                pivot_enhanced["outstanding_balance"] = pivot_enhanced["total_invoiced"] - pivot_enhanced["total_payments"]
-                pivot_enhanced["payment_ratio"] = np.where(
-                    pivot_enhanced["total_invoiced"] > 0,
-                    pivot_enhanced["total_payments"] / pivot_enhanced["total_invoiced"],
-                    0
-                )
-                pivot_enhanced["risk_score"] = np.where(
-                    pivot_enhanced["payment_ratio"] < 0.5, "High Risk",
-                    np.where(pivot_enhanced["payment_ratio"] < 0.8, "Medium Risk", "Low Risk")
-                )
+                overdue_invoices = outstanding_invoices[
+                    (outstanding_invoices['due_date'].notna()) & 
+                    (outstanding_invoices['due_date'].dt.date < today)
+                ]
                 
-                # Display enhanced analysis
-                display_cols = ["name", "total_invoiced", "total_payments", "outstanding_balance", "payment_ratio", "risk_score"]
-                existing_cols = [col for col in display_cols if col in pivot_enhanced.columns]
-                
-                if existing_cols:
-                    pivot_display = pivot_enhanced[existing_cols].copy()
-                    pivot_display = pivot_display.sort_values("outstanding_balance", ascending=False)
+                if len(overdue_invoices) > 0:
+                    st.write("**⚠️ Overdue Invoices Summary:**")
+                    col1, col2, col3 = st.columns(3)
                     
-                    # Format currency columns
-                    currency_cols = ["total_invoiced", "total_payments", "outstanding_balance"]
-                    for col in currency_cols:
-                        if col in pivot_display.columns:
-                            pivot_display[col] = pivot_display[col].apply(lambda x: f"${x:,.2f}")
-                    
-                    if "payment_ratio" in pivot_display.columns:
-                        pivot_display["payment_ratio"] = pivot_display["payment_ratio"].apply(lambda x: f"{x:.1%}")
-                    
-                    st.dataframe(pivot_display, use_container_width=True)
-                else:
-                    st.info("Unable to perform loan performance analysis - missing required columns")
-            else:
-                st.info("Unable to perform loan performance analysis - missing amount or transaction type columns")
+                    with col1:
+                        st.metric("Overdue Count", len(overdue_invoices))
+                    with col2:
+                        total_overdue = overdue_invoices['balance'].sum()
+                        st.metric("Total Overdue", f"${total_overdue:,.2f}")
+                    with col3:
+                        overdue_pct = (total_overdue / total_outstanding * 100) if total_outstanding > 0 else 0
+                        st.metric("% of Outstanding", f"{overdue_pct:.1f}%")
         else:
-            st.info("No loan-related transactions found")
+            st.info("No outstanding invoices found")
+    else:
+        st.info("No balance data available for outstanding analysis")
+
+with tab4:
+    st.subheader("Enhanced Loan Performance Analysis")
+    
+    # Use Invoice/Payment data for loan performance
+    if not qbo_txn_df.empty:
+        # Filter for loan-related transactions
+        loan_transactions = qbo_txn_df[
+            qbo_txn_df['transaction_type'].isin(['Invoice', 'Payment'])
+        ].copy()
+        
+        if not loan_transactions.empty and 'customer_name' in loan_transactions.columns:
+            # Enhanced pivot analysis using new schema
+            loan_transactions['total_amount'] = loan_transactions['total_amount'].abs()
+            
+            pivot_enhanced = loan_transactions.pivot_table(
+                index="customer_name",
+                columns="transaction_type",
+                values="total_amount",
+                aggfunc="sum",
+                fill_value=0
+            ).reset_index()
+            
+            # Calculate enhanced metrics
+            pivot_enhanced["total_invoiced"] = pivot_enhanced.get("Invoice", 0)
+            pivot_enhanced["total_payments"] = pivot_enhanced.get("Payment", 0)
+            pivot_enhanced["outstanding_balance"] = pivot_enhanced["total_invoiced"] - pivot_enhanced["total_payments"]
+            pivot_enhanced["payment_ratio"] = np.where(
+                pivot_enhanced["total_invoiced"] > 0,
+                pivot_enhanced["total_payments"] / pivot_enhanced["total_invoiced"],
+                0
+            )
+            pivot_enhanced["risk_score"] = np.where(
+                pivot_enhanced["payment_ratio"] < 0.5, "High Risk",
+                np.where(pivot_enhanced["payment_ratio"] < 0.8, "Medium Risk", "Low Risk")
+            )
+            
+            # Display enhanced analysis
+            display_cols = ["customer_name", "total_invoiced", "total_payments", "outstanding_balance", "payment_ratio", "risk_score"]
+            pivot_display = pivot_enhanced[display_cols].copy()
+            pivot_display = pivot_display.sort_values("outstanding_balance", ascending=False)
+            
+            # Format currency columns
+            currency_cols = ["total_invoiced", "total_payments", "outstanding_balance"]
+            for col in currency_cols:
+                if col in pivot_display.columns:
+                    pivot_display[col] = pivot_display[col].apply(lambda x: f"${x:,.2f}")
+            
+            if "payment_ratio" in pivot_display.columns:
+                pivot_display["payment_ratio"] = pivot_display["payment_ratio"].apply(lambda x: f"{x:.1%}")
+            
+            # Rename columns
+            pivot_display = pivot_display.rename(columns={
+                'customer_name': 'Customer Name',
+                'total_invoiced': 'Total Invoiced',
+                'total_payments': 'Total Payments',
+                'outstanding_balance': 'Outstanding Balance',
+                'payment_ratio': 'Payment Ratio',
+                'risk_score': 'Risk Score'
+            })
+            
+            st.dataframe(pivot_display, use_container_width=True, hide_index=True)
+            
+            # Risk summary
+            if len(pivot_enhanced) > 0:
+                risk_summary = pivot_enhanced['risk_score'].value_counts()
+                st.write("**Risk Distribution:**")
+                for risk, count in risk_summary.items():
+                    st.write(f"• {risk}: {count}")
+        else:
+            st.info("Unable to perform loan performance analysis - missing required data")
     else:
         st.info("No QBO data available for loan performance analysis")
 
-with tab4:
+with tab5:
     st.subheader("Data Quality Issues")
     
     # NA Count Analysis
     col1, col2 = st.columns(2)
     
     with col1:
-        st.write("**Transaction Report - NA Counts:**")
+        st.write("**Invoice/Payment Data - NA Counts:**")
         if not qbo_txn_df.empty:
             txn_na_counts = qbo_txn_df.isnull().sum().reset_index()
             txn_na_counts.columns = ['Column', 'NA Count']
@@ -969,7 +1050,7 @@ with tab4:
                 'NA Percentage': '{:.2f}%'
             }), use_container_width=True)
         else:
-            st.write("No transaction data available")
+            st.write("No invoice/payment data available")
     
     with col2:
         st.write("**General Ledger - NA Counts:**")
@@ -992,10 +1073,15 @@ with tab4:
     issues = []
     
     # Date issues
-    if 'date' in qbo_txn_df.columns:
-        null_dates_txn = qbo_txn_df['date'].isnull().sum()
+    if 'txn_date' in qbo_txn_df.columns:
+        null_dates_txn = qbo_txn_df['txn_date'].isnull().sum()
         if null_dates_txn > 0:
-            issues.append(f"Transaction Report: {null_dates_txn} records with null dates")
+            issues.append(f"Invoice/Payment Data: {null_dates_txn} records with null transaction dates")
+    
+    if 'due_date' in qbo_txn_df.columns:
+        null_due_dates = qbo_txn_df['due_date'].isnull().sum()
+        if null_due_dates > 0:
+            issues.append(f"Invoice/Payment Data: {null_due_dates} records with null due dates")
     
     if 'txn_date' in qbo_gl_df.columns:
         null_dates_gl = qbo_gl_df['txn_date'].isnull().sum()
@@ -1003,13 +1089,13 @@ with tab4:
             issues.append(f"General Ledger: {null_dates_gl} records with null dates")
     
     # Amount issues
-    if 'amount' in qbo_txn_df.columns:
-        null_amounts_txn = qbo_txn_df['amount'].isnull().sum()
-        zero_amounts_txn = (qbo_txn_df['amount'] == 0).sum()
+    if 'total_amount' in qbo_txn_df.columns:
+        null_amounts_txn = qbo_txn_df['total_amount'].isnull().sum()
+        zero_amounts_txn = (qbo_txn_df['total_amount'] == 0).sum()
         if null_amounts_txn > 0:
-            issues.append(f"Transaction Report: {null_amounts_txn} records with null amounts")
+            issues.append(f"Invoice/Payment Data: {null_amounts_txn} records with null total amounts")
         if zero_amounts_txn > 0:
-            issues.append(f"Transaction Report: {zero_amounts_txn} records with zero amounts")
+            issues.append(f"Invoice/Payment Data: {zero_amounts_txn} records with zero amounts")
     
     if 'amount' in qbo_gl_df.columns:
         null_amounts_gl = qbo_gl_df['amount'].isnull().sum()
@@ -1018,6 +1104,23 @@ with tab4:
             issues.append(f"General Ledger: {null_amounts_gl} records with null amounts")
         if zero_amounts_gl > 0:
             issues.append(f"General Ledger: {zero_amounts_gl} records with zero amounts")
+    
+    # Customer/name issues
+    if 'customer_name' in qbo_txn_df.columns:
+        null_customers = qbo_txn_df['customer_name'].isnull().sum()
+        if null_customers > 0:
+            issues.append(f"Invoice/Payment Data: {null_customers} records with missing customer names")
+    
+    # Balance validation issues
+    if 'balance' in qbo_txn_df.columns and 'total_amount' in qbo_txn_df.columns:
+        # Check for balances greater than total amounts (shouldn't happen)
+        invalid_balances = qbo_txn_df[
+            (qbo_txn_df['balance'] > qbo_txn_df['total_amount']) & 
+            (qbo_txn_df['balance'].notna()) & 
+            (qbo_txn_df['total_amount'].notna())
+        ]
+        if len(invalid_balances) > 0:
+            issues.append(f"Invoice/Payment Data: {len(invalid_balances)} records with balance > total amount")
     
     if issues:
         for issue in issues:
@@ -1106,11 +1209,11 @@ with col1:
             (mca_deals_combined['funding_date'].max() - mca_deals_combined['funding_date'].min()).days if 'funding_date' in mca_deals_combined.columns and mca_deals_combined['funding_date'].notna().any() else 0,
             mca_deals_combined['total_funded_amount'].sum() if 'total_funded_amount' in mca_deals_combined.columns else 0
         ],
-        'QBO Transactions': [
+        'QBO Invoice/Payments': [
             len(qbo_txn_df),
-            qbo_txn_df['name'].nunique() if 'name' in qbo_txn_df.columns else 0,
-            (qbo_txn_df['date'].max() - qbo_txn_df['date'].min()).days if 'date' in qbo_txn_df.columns and qbo_txn_df['date'].notna().any() else 0,
-            qbo_txn_df['amount'].sum() if 'amount' in qbo_txn_df.columns else 0
+            qbo_txn_df['customer_name'].nunique() if 'customer_name' in qbo_txn_df.columns else 0,
+            (qbo_txn_df['txn_date'].max() - qbo_txn_df['txn_date'].min()).days if 'txn_date' in qbo_txn_df.columns and qbo_txn_df['txn_date'].notna().any() else 0,
+            qbo_txn_df['total_amount'].sum() if 'total_amount' in qbo_txn_df.columns else 0
         ]
     }
     comparison_df = pd.DataFrame(comparison_data)
@@ -1118,16 +1221,16 @@ with col1:
 
 with col2:
     # Common names analysis between MCA and QBO data
-    if 'dba' in mca_deals_combined.columns and 'name' in qbo_txn_df.columns:
+    if 'dba' in mca_deals_combined.columns and 'customer_name' in qbo_txn_df.columns:
         mca_names = set(mca_deals_combined['dba'].dropna().unique())
-        qbo_txn_names = set(qbo_txn_df['name'].dropna().unique())
+        qbo_txn_names = set(qbo_txn_df['customer_name'].dropna().unique())
         qbo_gl_names = set(qbo_gl_df['name'].dropna().unique()) if 'name' in qbo_gl_df.columns else set()
         
         common_mca_qbo = mca_names.intersection(qbo_txn_names)
         common_all = mca_names.intersection(qbo_txn_names).intersection(qbo_gl_names)
         
         st.write("**Name Overlap Analysis:**")
-        st.metric("MCA & QBO Transaction Names", len(common_mca_qbo))
+        st.metric("MCA & QBO Invoice/Payment Names", len(common_mca_qbo))
         st.metric("Common Across All Datasets", len(common_all))
         st.metric("MCA Names Only", len(mca_names - qbo_txn_names - qbo_gl_names))
 
@@ -1202,11 +1305,11 @@ if len(mca_deals_combined) > 0 and 'funding_date' in mca_deals_combined.columns:
     if mca_days_since > 7:
         freshness_issues.append(f"MCA Data ({mca_days_since} days old)")
 
-if len(qbo_txn_df) > 0 and 'date' in qbo_txn_df.columns:
-    qbo_txn_latest = qbo_txn_df["date"].max()
+if len(qbo_txn_df) > 0 and 'txn_date' in qbo_txn_df.columns:
+    qbo_txn_latest = qbo_txn_df["txn_date"].max()
     qbo_txn_days_since = (pd.Timestamp.now() - qbo_txn_latest).days
     if qbo_txn_days_since > 7:
-        freshness_issues.append(f"QBO Transactions ({qbo_txn_days_since} days old)")
+        freshness_issues.append(f"QBO Invoice/Payments ({qbo_txn_days_since} days old)")
 
 if len(freshness_issues) == 0:
     health_status.append("✅ Data Freshness: All data appears current")
@@ -1251,7 +1354,7 @@ with col1:
             "Report Generated": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
             "Deal Data Records": len(deals_df),
             "MCA Deals Records": len(mca_deals_combined),
-            "QBO Transaction Records": len(qbo_txn_df),
+            "QBO Invoice/Payment Records": len(qbo_txn_df),
             "QBO GL Records": len(qbo_gl_df),
             "System Health Score": f"{health_score:.0f}%",
             "Health Status": health_status
@@ -1316,4 +1419,4 @@ with col2:
 # Footer with Last Updated
 # ----------------------------
 st.divider()
-st.caption(f"Dashboard last updated: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')} | Data sources: Supabase (deals, mca_deals, qbo_transactions, qbo_general_ledger)")
+st.caption(f"Dashboard last updated: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')} | Data sources: Supabase (deals, mca_deals, qbo_invoice_payments, qbo_general_ledger)")
