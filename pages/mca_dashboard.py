@@ -6,7 +6,7 @@ from scripts.get_naics_sector_risk import get_naics_sector_risk
 # ----------------------------
 # Define risk gradient color scheme (updated colors) https://www.color-hex.com/color-palette/25513
 # ----------------------------
-RISK_GRADIENT = ["#ff0505","#ff5b00", "#ff8f00", "#ffc302","#fff600"]
+RISK_GRADIENT = ["#fff600","#ffc302", "#ff8f00", "#ff5b00","#ff0505"]
 
 # ----------------------------
 # Supabase connection
@@ -276,45 +276,6 @@ col4.metric("Not Current Deals", total_non_current, help="Number of deals that a
 col5.metric("Pct. Outstanding Deals Current", f"{pct_current:.1%}", help="Percentage of active deals (Current + Not Current) that are performing well")
 col6.metric("Pct. Outstanding Deals Not Current", f"{pct_non_current:.1%}", help="Percentage of active deals (Current + Not Current) that are delinquent")
 
-# Not Current Deals Detail Table
-if total_non_current > 0:
-    st.subheader("Not Current Deals - CSL Capital Detail")
-    
-    not_current_deals = df[df["status_category"] == "Not Current"][[
-        "deal_number", "dba", "funding_date", "csl_participation", "csl_past_due", 
-        "csl_principal_at_risk", "current_balance", "past_due_pct"
-    ]].copy()
-    
-    not_current_deals.rename(columns={
-        "deal_number": "Loan ID",
-        "dba": "Deal Name",
-        "funding_date": "Funding Date",
-        "csl_participation": "CSL Participation ($)",
-        "csl_past_due": "CSL Past Due ($)",
-        "csl_principal_at_risk": "CSL Principal at Risk ($)",
-        "current_balance": "Current Balance ($)",
-        "past_due_pct": "Past Due %"
-    }, inplace=True)
-    
-    # Clean up numeric data
-    not_current_deals["Past Due %"] = pd.to_numeric(not_current_deals["Past Due %"], errors="coerce").fillna(0)
-    not_current_deals["CSL Participation ($)"] = pd.to_numeric(not_current_deals["CSL Participation ($)"], errors="coerce").fillna(0)
-    not_current_deals["CSL Past Due ($)"] = pd.to_numeric(not_current_deals["CSL Past Due ($)"], errors="coerce").fillna(0)
-    not_current_deals["CSL Principal at Risk ($)"] = pd.to_numeric(not_current_deals["CSL Principal at Risk ($)"], errors="coerce").fillna(0)
-    not_current_deals["Current Balance ($)"] = pd.to_numeric(not_current_deals["Current Balance ($)"], errors="coerce").fillna(0)
-    
-    st.dataframe(
-        not_current_deals,
-        use_container_width=True,
-        column_config={
-            "CSL Participation ($)": st.column_config.NumberColumn("CSL Participation ($)", format="$%.0f"),
-            "CSL Past Due ($)": st.column_config.NumberColumn("CSL Past Due ($)", format="$%.0f"),
-            "CSL Principal at Risk ($)": st.column_config.NumberColumn("CSL Principal at Risk ($)", format="$%.0f"),
-            "Current Balance ($)": st.column_config.NumberColumn("Current Balance ($)", format="$%.0f"),
-            "Past Due %": st.column_config.NumberColumn("Past Due %", format="%.2%"),
-        }
-    )
-
 # CSL Investment Overview
 st.subheader("CSL Investment Overview")
 col7, col8, col9 = st.columns(3)
@@ -415,47 +376,53 @@ st.dataframe(
 # Top 5 Biggest Loans Outstanding
 # ----------------------------
 
-st.subheader("Top 5 Biggest Loans Outstanding")
+st.subheader("Top 5 Biggest CSL Investments Outstanding")
 
-# Filter to non-matured deals and sort by current balance
-biggest_loans = df[df["status_category"] != "Matured"].copy()
-biggest_loans = biggest_loans.sort_values("current_balance", ascending=False).head(5)
+# Filter to non-matured deals and sort by CSL participation amount
+biggest_csl_loans = df[df["status_category"] != "Matured"].copy()
+biggest_csl_loans = biggest_csl_loans.sort_values("csl_participation", ascending=False).head(5)
 
-biggest_loans_display = biggest_loans[[
-    "deal_number", "dba", "status_category", "principal_amount", "principal_remaining_est", 
-    "current_balance", "rtr_balance", "rtr_pct", "csl_participation", "participation_ratio"
+biggest_csl_loans_display = biggest_csl_loans[[
+    "deal_number", "dba", "status_category", "csl_participation", "csl_principal_at_risk", 
+    "csl_past_due", "principal_amount", "principal_remaining_est", "current_balance", 
+    "rtr_balance", "rtr_pct", "participation_ratio"
 ]].copy()
 
-biggest_loans_display.rename(columns={
+biggest_csl_loans_display.rename(columns={
     "deal_number": "Loan ID",
     "dba": "Deal Name",
     "status_category": "Status",
+    "csl_participation": "CSL Participation ($)",
+    "csl_principal_at_risk": "CSL Principal at Risk ($)",
+    "csl_past_due": "CSL Past Due ($)",
     "principal_amount": "Original Principal ($)",
     "principal_remaining_est": "Principal Outstanding ($)",
     "current_balance": "Total Loan Outstanding ($)",
     "rtr_balance": "RTR ($)",
     "rtr_pct": "RTR %",
-    "csl_participation": "CSL Participation ($)",
     "participation_ratio": "CSL Participation %"
 }, inplace=True)
 
 # Clean up numeric data
-for col in ["Original Principal ($)", "Principal Outstanding ($)", "Total Loan Outstanding ($)", "RTR ($)", "CSL Participation ($)"]:
-    biggest_loans_display[col] = pd.to_numeric(biggest_loans_display[col], errors="coerce").fillna(0)
+for col in ["CSL Participation ($)", "CSL Principal at Risk ($)", "CSL Past Due ($)", 
+            "Original Principal ($)", "Principal Outstanding ($)", "Total Loan Outstanding ($)", "RTR ($)"]:
+    biggest_csl_loans_display[col] = pd.to_numeric(biggest_csl_loans_display[col], errors="coerce").fillna(0)
 
-biggest_loans_display["RTR %"] = pd.to_numeric(biggest_loans_display["RTR %"], errors="coerce").fillna(0)
-biggest_loans_display["CSL Participation %"] = pd.to_numeric(biggest_loans_display["CSL Participation %"], errors="coerce").fillna(0)
+biggest_csl_loans_display["RTR %"] = pd.to_numeric(biggest_csl_loans_display["RTR %"], errors="coerce").fillna(0)
+biggest_csl_loans_display["CSL Participation %"] = pd.to_numeric(biggest_csl_loans_display["CSL Participation %"], errors="coerce").fillna(0)
 
 st.dataframe(
-    biggest_loans_display,
+    biggest_csl_loans_display,
     use_container_width=True,
     column_config={
+        "CSL Participation ($)": st.column_config.NumberColumn("CSL Participation ($)", format="$%.0f"),
+        "CSL Principal at Risk ($)": st.column_config.NumberColumn("CSL Principal at Risk ($)", format="$%.0f"),
+        "CSL Past Due ($)": st.column_config.NumberColumn("CSL Past Due ($)", format="$%.0f"),
         "Original Principal ($)": st.column_config.NumberColumn("Original Principal ($)", format="$%.0f"),
         "Principal Outstanding ($)": st.column_config.NumberColumn("Principal Outstanding ($)", format="$%.0f"),
         "Total Loan Outstanding ($)": st.column_config.NumberColumn("Total Loan Outstanding ($)", format="$%.0f"),
         "RTR ($)": st.column_config.NumberColumn("RTR ($)", format="$%.0f"),
         "RTR %": st.column_config.NumberColumn("RTR %", format="%.1%"),
-        "CSL Participation ($)": st.column_config.NumberColumn("CSL Participation ($)", format="$%.0f"),
         "CSL Participation %": st.column_config.NumberColumn("CSL Participation %", format="%.1%"),
     }
 )
