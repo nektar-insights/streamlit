@@ -95,6 +95,16 @@ df["commission_rate"] = pd.to_numeric(df["commission"], errors="coerce")
 # Used for risk scoring - older deals may have higher risk
 df["days_since_funding"] = (pd.Timestamp.today() - pd.to_datetime(df["funding_date"])).dt.days
 
+# CALCULATION 23: Calculate RTR percentage
+# Formula: (principal_amount - rtr_balance) / principal_amount
+# Logic: Shows percentage of principal that has been recovered
+df["rtr_pct"] = df.apply(
+    lambda row: (row["principal_amount"] - row["rtr_balance"]) / row["principal_amount"]
+    if pd.notna(row["principal_amount"]) and pd.notna(row["rtr_balance"]) and row["principal_amount"] > 0
+    else 0,
+    axis=1
+)
+
 # ----------------------------
 # Industry/NAICS Processing
 # ----------------------------
@@ -266,28 +276,51 @@ col4.metric("Not Current Deals", total_non_current, help="Number of deals that a
 col5.metric("Pct. Outstanding Deals Current", f"{pct_current:.1%}", help="Percentage of active deals (Current + Not Current) that are performing well")
 col6.metric("Pct. Outstanding Deals Not Current", f"{pct_non_current:.1%}", help="Percentage of active deals (Current + Not Current) that are delinquent")
 
+# Not Current Deals Detail Table
+if total_non_current > 0:
+    st.subheader("Not Current Deals - CSL Capital Detail")
+    
+    not_current_deals = df[df["status_category"] == "Not Current"][[
+        "deal_number", "dba", "funding_date", "csl_participation", "csl_past_due", 
+        "csl_principal_at_risk", "current_balance", "past_due_pct"
+    ]].copy()
+    
+    not_current_deals.rename(columns={
+        "deal_number": "Loan ID",
+        "dba": "Deal Name",
+        "funding_date": "Funding Date",
+        "csl_participation": "CSL Participation ($)",
+        "csl_past_due": "CSL Past Due ($)",
+        "csl_principal_at_risk": "CSL Principal at Risk ($)",
+        "current_balance": "Current Balance ($)",
+        "past_due_pct": "Past Due %"
+    }, inplace=True)
+    
+    # Clean up numeric data
+    not_current_deals["Past Due %"] = pd.to_numeric(not_current_deals["Past Due %"], errors="coerce").fillna(0)
+    not_current_deals["CSL Participation ($)"] = pd.to_numeric(not_current_deals["CSL Participation ($)"], errors="coerce").fillna(0)
+    not_current_deals["CSL Past Due ($)"] = pd.to_numeric(not_current_deals["CSL Past Due ($)"], errors="coerce").fillna(0)
+    not_current_deals["CSL Principal at Risk ($)"] = pd.to_numeric(not_current_deals["CSL Principal at Risk ($)"], errors="coerce").fillna(0)
+    not_current_deals["Current Balance ($)"] = pd.to_numeric(not_current_deals["Current Balance ($)"], errors="coerce").fillna(0)
+    
+    st.dataframe(
+        not_current_deals,
+        use_container_width=True,
+        column_config={
+            "CSL Participation ($)": st.column_config.NumberColumn("CSL Participation ($)", format="$%.0f"),
+            "CSL Past Due ($)": st.column_config.NumberColumn("CSL Past Due ($)", format="$%.0f"),
+            "CSL Principal at Risk ($)": st.column_config.NumberColumn("CSL Principal at Risk ($)", format="$%.0f"),
+            "Current Balance ($)": st.column_config.NumberColumn("Current Balance ($)", format="$%.0f"),
+            "Past Due %": st.column_config.NumberColumn("Past Due %", format="%.2%"),
+        }
+    )
+
 # CSL Investment Overview
 st.subheader("CSL Investment Overview")
 col7, col8, col9 = st.columns(3)
 col7.metric("Capital Deployed", f"${csl_capital_deployed:,.0f}", help="Total amount of capital that CSL has invested across all deals (sum of CSL participation amounts)")
 col8.metric("Past Due Exposure", f"${total_csl_past_due:,.0f}", help="CSL's proportional share of all past due amounts based on participation ratio")
 col9.metric("Outstanding CSL Principal", f"${total_csl_at_risk:,.0f}", help="CSL's share of remaining principal on 'Not Current' deals - represents capital that could be at risk if deals default")
-
-# NOTE: Outstanding CSL Principal Calculation Explanation:
-# This metric represents CSL's capital that is currently at risk in "Not Current" deals.
-# 
-# STEP-BY-STEP CALCULATION:
-# 1. Filter to only "Not Current" deals (excludes Current and Matured)
-# 2. For each Not Current deal:
-#    - Calculate participation_ratio = csl_participation / total_funded_amount
-#    - Calculate principal_remaining_est = principal_amount - payments_made (or full principal if no payments data)
-#    - Calculate csl_principal_at_risk = participation_ratio * principal_remaining_est
-# 3. Sum all csl_principal_at_risk amounts for Not Current deals
-#
-# RATIONALE:
-# - Current deals are performing, so principal is not considered "at risk"
-# - Matured deals are closed, so no principal remains outstanding
-# - Only Not Current deals have principal that CSL could potentially lose
 
 # CSL Commission Summary
 st.subheader("CSL Commission Summary")
@@ -297,13 +330,54 @@ col11.metric("Avg. Applied to Participation", f"{average_commission_on_loan:.2%}
 col12.metric("Total Commission Paid", f"${total_commission_paid:,.0f}", help="Total commission payments made by CSL across all deals (sum of participation × commission rate)")
 
 # ----------------------------
-# Tables and visualizations
+# Deal Type Composition Visual
 # ----------------------------
 
-# Loan Tape Display
-st.subheader("Loan Tape")
+# Deal Type Composition
+if 'deal_type' in df.columns:
+    st.subheader("Deal Type Composition")
+    
+    # Calculate deal type percentages
+    deal_type_counts = df["deal_type"].fillna("Unknown").value_counts(normalize=True)
+    deal_type_summary = pd.DataFrame({
+        "deal_type": deal_type_counts.index.astype(str),
+        "percentage": deal_type_counts.values,
+        "count": df["deal_type"].fillna("Unknown").value_counts().values
+    })
+    
+    # Deal type bar chart
+    deal_type_chart = alt.Chart(deal_type_summary).mark_bar().encode(
+        x=alt.X("deal_type:N", title="Deal Type", axis=alt.Axis(labelAngle=-45)),
+        y=alt.Y("percentage:Q", title="% of Total Deals", axis=alt.Axis(format=".0%")),
+        color=alt.Color("deal_type:N", scale=alt.Scale(range=RISK_GRADIENT), legend=None),
+        tooltip=[
+            alt.Tooltip("deal_type:N", title="Deal Type"),
+            alt.Tooltip("count:Q", title="Number of Deals"),
+            alt.Tooltip("percentage:Q", title="% of Total", format=".1%")
+        ]
+    ).properties(
+        width=700,
+        height=350,
+        title="Distribution of Deal Types"
+    )
+    
+    st.altair_chart(deal_type_chart, use_container_width=True)
 
-loan_tape = df[[
+# ----------------------------
+# Loan Tape Filter and Display
+# ----------------------------
+
+# Status Category Filter for Loan Tape
+st.subheader("Loan Tape")
+loan_tape_status_options = ["All"] + list(df["status_category"].dropna().unique())
+loan_tape_status_filter = st.radio("Filter Loan Tape by Status Category", loan_tape_status_options, index=0, key="loan_tape_filter")
+
+# Apply filter to dataframe for loan tape
+loan_tape_df = df.copy()
+if loan_tape_status_filter != "All":
+    loan_tape_df = loan_tape_df[loan_tape_df["status_category"] == loan_tape_status_filter]
+
+loan_tape = loan_tape_df[[
     "deal_number", "dba", "funding_date", "status_category",
     "csl_past_due", "past_due_pct", "performance_ratio",
     "rtr_balance", "performance_details"
@@ -336,6 +410,59 @@ st.dataframe(
         "Performance Ratio": st.column_config.NumberColumn("Performance Ratio", format="%.2f"),
     }
 )
+
+# ----------------------------
+# Top 5 Biggest Loans Outstanding
+# ----------------------------
+
+st.subheader("Top 5 Biggest Loans Outstanding")
+
+# Filter to non-matured deals and sort by current balance
+biggest_loans = df[df["status_category"] != "Matured"].copy()
+biggest_loans = biggest_loans.sort_values("current_balance", ascending=False).head(5)
+
+biggest_loans_display = biggest_loans[[
+    "deal_number", "dba", "status_category", "principal_amount", "principal_remaining_est", 
+    "current_balance", "rtr_balance", "rtr_pct", "csl_participation", "participation_ratio"
+]].copy()
+
+biggest_loans_display.rename(columns={
+    "deal_number": "Loan ID",
+    "dba": "Deal Name",
+    "status_category": "Status",
+    "principal_amount": "Original Principal ($)",
+    "principal_remaining_est": "Principal Outstanding ($)",
+    "current_balance": "Total Loan Outstanding ($)",
+    "rtr_balance": "RTR ($)",
+    "rtr_pct": "RTR %",
+    "csl_participation": "CSL Participation ($)",
+    "participation_ratio": "CSL Participation %"
+}, inplace=True)
+
+# Clean up numeric data
+for col in ["Original Principal ($)", "Principal Outstanding ($)", "Total Loan Outstanding ($)", "RTR ($)", "CSL Participation ($)"]:
+    biggest_loans_display[col] = pd.to_numeric(biggest_loans_display[col], errors="coerce").fillna(0)
+
+biggest_loans_display["RTR %"] = pd.to_numeric(biggest_loans_display["RTR %"], errors="coerce").fillna(0)
+biggest_loans_display["CSL Participation %"] = pd.to_numeric(biggest_loans_display["CSL Participation %"], errors="coerce").fillna(0)
+
+st.dataframe(
+    biggest_loans_display,
+    use_container_width=True,
+    column_config={
+        "Original Principal ($)": st.column_config.NumberColumn("Original Principal ($)", format="$%.0f"),
+        "Principal Outstanding ($)": st.column_config.NumberColumn("Principal Outstanding ($)", format="$%.0f"),
+        "Total Loan Outstanding ($)": st.column_config.NumberColumn("Total Loan Outstanding ($)", format="$%.0f"),
+        "RTR ($)": st.column_config.NumberColumn("RTR ($)", format="$%.0f"),
+        "RTR %": st.column_config.NumberColumn("RTR %", format="%.1%"),
+        "CSL Participation ($)": st.column_config.NumberColumn("CSL Participation ($)", format="$%.0f"),
+        "CSL Participation %": st.column_config.NumberColumn("CSL Participation %", format="%.1%"),
+    }
+)
+
+# ----------------------------
+# Charts and visualizations
+# ----------------------------
 
 # Distribution of Deal Status (Bar Chart)
 status_category_counts = df["status_category"].fillna("Unknown").value_counts(normalize=True)
