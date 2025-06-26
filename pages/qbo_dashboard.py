@@ -49,7 +49,7 @@ def preprocess_financial_data(dataframe):
 df = preprocess_financial_data(df)
 gl_df = preprocess_financial_data(gl_df)
 
-st.title("MCA Dashboard")
+st.title("QBO Dashboard")
 st.markdown("---")
 
 # -------------------------
