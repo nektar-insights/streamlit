@@ -62,6 +62,80 @@ st.markdown("---")
 # -------------------------
 st.header("🎯 Unified Loan & Customer Performance")
 
+# Add diagnostic section
+with st.expander("🔍 Data Diagnostics - Click to investigate the join"):
+    st.subheader("Data Join Analysis")
+    
+    if not df.empty:
+        # QBO Data Overview
+        st.write("**QBO Payment Data Overview:**")
+        total_qbo_amount = df["total_amount"].sum()
+        total_qbo_count = len(df)
+        unique_customers = df["customer_name"].nunique()
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total QBO Payments", f"${total_qbo_amount:,.0f}")
+        with col2:
+            st.metric("Payment Transactions", f"{total_qbo_count:,}")
+        with col3:
+            st.metric("Unique Customers", f"{unique_customers:,}")
+        
+        # Transaction type breakdown
+        st.write("**Transaction Type Distribution:**")
+        txn_type_summary = df.groupby("transaction_type").agg({
+            "total_amount": ["sum", "count"]
+        }).round(0)
+        txn_type_summary.columns = ["Total Amount", "Count"]
+        txn_type_summary["Avg Amount"] = txn_type_summary["Total Amount"] / txn_type_summary["Count"]
+        st.dataframe(txn_type_summary, use_container_width=True)
+        
+        # Loan ID analysis
+        st.write("**Loan ID Analysis:**")
+        qbo_with_loan = df[df["loan_id"].notna() & (df["loan_id"] != "") & (df["loan_id"] != "nan")]
+        qbo_without_loan = df[df["loan_id"].isna() | (df["loan_id"] == "") | (df["loan_id"] == "nan")]
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Payments WITH Loan ID", 
+                     f"${qbo_with_loan['total_amount'].sum():,.0f}",
+                     help=f"{len(qbo_with_loan)} transactions")
+        with col2:
+            st.metric("Payments WITHOUT Loan ID", 
+                     f"${qbo_without_loan['total_amount'].sum():,.0f}",
+                     help=f"{len(qbo_without_loan)} transactions")
+        
+        # Show unique loan IDs in QBO
+        if not qbo_with_loan.empty:
+            unique_qbo_loans = qbo_with_loan["loan_id"].nunique()
+            st.write(f"**Unique Loan IDs in QBO:** {unique_qbo_loans}")
+            
+            # Top customers by payment amount
+            st.write("**Top 10 Customers by Payment Amount:**")
+            top_customers = df.groupby("customer_name")["total_amount"].sum().nlargest(10)
+            st.dataframe(top_customers.reset_index(), use_container_width=True,
+                        column_config={
+                            "customer_name": "Customer",
+                            "total_amount": st.column_config.NumberColumn("Total Payments", format="$%.0f")
+                        })
+    
+    # Deals Data Overview
+    if not deals_df.empty:
+        st.write("**Deals Data Overview:**")
+        closed_won_deals = deals_df[deals_df["is_closed_won"] == True]
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Deals", len(deals_df))
+        with col2:
+            st.metric("Closed Won Deals", len(closed_won_deals))
+        with col3:
+            st.metric("Unique Deal Loan IDs", deals_df["loan_id"].nunique())
+        
+        if not closed_won_deals.empty:
+            total_participation = closed_won_deals["amount"].sum()
+            st.metric("Total Participation Amount", f"${total_participation:,.0f}")
+
 # Add tabs for different views
 tab1, tab2, tab3 = st.tabs(["📊 Unified Analysis", "🏦 Loan Tape Only", "👥 Customer Summary"])
 
