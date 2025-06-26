@@ -79,7 +79,7 @@ if not df.empty:
 
 st.markdown("---")
 
-st.title("MCA Dashboard")
+st.title("QBO Dashboard")
 st.markdown("---")
 
 # -------------------------
@@ -369,10 +369,10 @@ if not df.empty:
     
     st.altair_chart(velocity_chart, use_container_width=True)
 
-# VISUAL 2: Payment Timing Analysis (Critical for MCA risk assessment)
+# VISUAL 2: Payment Timing Analysis (Critical for QBO risk assessment)
 st.subheader("2. Payment Timing Analysis")
 if not df.empty:
-    st.markdown("Purpose: Identifies when customers typically make payments - critical for MCA cash flow predictions")
+    st.markdown("Purpose: Identifies when customers typically make payments - critical for QBO cash flow predictions")
     
     payment_timing = df[df["transaction_type"] == "Payment"].copy()
     if not payment_timing.empty:
