@@ -109,31 +109,10 @@ with tab1:
         # Display unified table
         st.subheader("Unified Loan & Customer Performance Table")
         
-        # Format the unified dataframe for display
+        # Keep numeric values as numbers for sorting - use column_config for formatting
         display_unified_df = unified_data_df.copy()
         
-        # Format currency columns
-        currency_cols = ["Participation Amount", "Expected Return", "RTR Amount", "Total Customer Payments", "Unattributed Amount"]
-        for col in currency_cols:
-            if col in display_unified_df.columns:
-                display_unified_df[col] = display_unified_df[col].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "$0")
-        
-        # Format percentage columns
-        percentage_cols = ["Factor Rate", "RTR %", "Attribution %"]
-        for col in percentage_cols:
-            if col in display_unified_df.columns:
-                if col == "Factor Rate":
-                    display_unified_df[col] = display_unified_df[col].apply(lambda x: f"{x:.3f}" if pd.notnull(x) else "N/A")
-                else:
-                    display_unified_df[col] = display_unified_df[col].apply(lambda x: f"{x:.1f}%" if pd.notnull(x) else "N/A")
-        
-        # Format numeric columns
-        numeric_cols = ["TIB", "FICO", "Days Since Last Payment"]
-        for col in numeric_cols:
-            if col in display_unified_df.columns:
-                display_unified_df[col] = display_unified_df[col].apply(lambda x: f"{x:,.0f}" if pd.notnull(x) else "N/A")
-        
-        # Display the table with better column configuration
+        # Display the table with column configuration for formatting
         st.dataframe(
             display_unified_df,
             use_container_width=True,
@@ -141,13 +120,21 @@ with tab1:
                 "Loan ID": st.column_config.TextColumn("Loan ID", width="small"),
                 "Deal Name": st.column_config.TextColumn("Deal Name", width="medium"),
                 "QBO Customer": st.column_config.TextColumn("QBO Customer", width="medium"),
-                "Factor Rate": st.column_config.TextColumn("Factor Rate", width="small"),
-                "Participation Amount": st.column_config.TextColumn("Participation", width="medium"),
-                "RTR Amount": st.column_config.TextColumn("RTR Amount", width="medium"),
-                "RTR %": st.column_config.TextColumn("RTR %", width="small"),
-                "Total Customer Payments": st.column_config.TextColumn("Customer Total", width="medium"),
-                "Attribution %": st.column_config.TextColumn("Attribution %", width="small"),
-                "Unattributed Amount": st.column_config.TextColumn("Unattributed", width="medium")
+                "Factor Rate": st.column_config.NumberColumn("Factor Rate", width="small", format="%.3f"),
+                "Participation Amount": st.column_config.NumberColumn("Participation", width="medium", format="$%.0f"),
+                "Expected Return": st.column_config.NumberColumn("Expected Return", width="medium", format="$%.0f"),
+                "RTR Amount": st.column_config.NumberColumn("RTR Amount", width="medium", format="$%.0f"),
+                "RTR %": st.column_config.NumberColumn("RTR %", width="small", format="%.1f%%"),
+                "Total Customer Payments": st.column_config.NumberColumn("Customer Total", width="medium", format="$%.0f"),
+                "Attribution %": st.column_config.NumberColumn("Attribution %", width="small", format="%.1f%%"),
+                "Unattributed Amount": st.column_config.NumberColumn("Unattributed", width="medium", format="$%.0f"),
+                "TIB": st.column_config.NumberColumn("TIB", width="small", format="%.0f"),
+                "FICO": st.column_config.NumberColumn("FICO", width="small", format="%.0f"),
+                "Days Since Last Payment": st.column_config.NumberColumn("Days Since Last Payment", width="small", format="%.0f"),
+                "Loan Payment Count": st.column_config.NumberColumn("Loan Payments", width="small"),
+                "Total Customer Payment Count": st.column_config.NumberColumn("Customer Payments", width="small"),
+                "Customer Active Loans": st.column_config.NumberColumn("Active Loans", width="small"),
+                "Unattributed Count": st.column_config.NumberColumn("Unattributed Count", width="small")
             }
         )
         
@@ -189,42 +176,26 @@ with tab2:
         # Display loan tape table
         st.subheader("Loan Performance Details")
         
-        # Format the dataframe for display
+        # Keep numeric values as numbers for sorting - use column_config for formatting
         display_df = loan_tape_df.copy()
         
-        # Format currency columns
-        currency_cols = ["Total Participation", "Total Return", "RTR Amount"]
-        for col in currency_cols:
-            if col in display_df.columns:
-                display_df[col] = display_df[col].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "$0")
-        
-        # Format percentage columns
-        if "Factor Rate" in display_df.columns:
-            display_df["Factor Rate"] = display_df["Factor Rate"].apply(lambda x: f"{x:.3f}" if pd.notnull(x) else "N/A")
-        if "RTR %" in display_df.columns:
-            display_df["RTR %"] = display_df["RTR %"].apply(lambda x: f"{x:.1f}%" if pd.notnull(x) else "N/A")
-        
-        # Format other numeric columns
-        if "TIB" in display_df.columns:
-            display_df["TIB"] = display_df["TIB"].apply(lambda x: f"{x:,.0f}" if pd.notnull(x) else "N/A")
-        if "FICO" in display_df.columns:
-            display_df["FICO"] = display_df["FICO"].apply(lambda x: f"{x:.0f}" if pd.notnull(x) else "N/A")
-        
-        # Display with better formatting
+        # Display with column configuration for formatting
         st.dataframe(
             display_df,
             use_container_width=True,
             column_config={
                 "Loan ID": st.column_config.TextColumn("Loan ID", width="small"),
                 "Customer": st.column_config.TextColumn("Customer", width="medium"),
-                "Factor Rate": st.column_config.TextColumn("Factor Rate", width="small"),
-                "Total Participation": st.column_config.TextColumn("Total Participation", width="medium"),
-                "Total Return": st.column_config.TextColumn("Total Return", width="medium"),
-                "RTR Amount": st.column_config.TextColumn("RTR Amount", width="medium"),
-                "RTR %": st.column_config.TextColumn("RTR %", width="small"),
+                "Factor Rate": st.column_config.NumberColumn("Factor Rate", width="small", format="%.3f"),
+                "Total Participation": st.column_config.NumberColumn("Total Participation", width="medium", format="$%.0f"),
+                "Total Return": st.column_config.NumberColumn("Total Return", width="medium", format="$%.0f"),
+                "RTR Amount": st.column_config.NumberColumn("RTR Amount", width="medium", format="$%.0f"),
+                "RTR %": st.column_config.NumberColumn("RTR %", width="small", format="%.1f%%"),
                 "Payment Count": st.column_config.NumberColumn("Payment Count", width="small"),
-                "TIB": st.column_config.TextColumn("TIB", width="small"),
-                "FICO": st.column_config.TextColumn("FICO", width="small")
+                "TIB": st.column_config.NumberColumn("TIB", width="small", format="%.0f"),
+                "FICO": st.column_config.NumberColumn("FICO", width="small", format="%.0f"),
+                "Partner Source": st.column_config.TextColumn("Partner Source", width="medium"),
+                "Date Created": st.column_config.DateColumn("Date Created", width="medium")
             }
         )
         
@@ -245,20 +216,18 @@ with tab3:
         customer_summary_df = get_customer_payment_summary(df)
         
         if not customer_summary_df.empty:
-            # Format for display
+            # Keep numeric values as numbers for sorting - use column_config for formatting
             display_customer_df = customer_summary_df.copy()
-            display_customer_df["Total Payments"] = display_customer_df["Total Payments"].apply(lambda x: f"${x:,.0f}")
-            display_customer_df["Unattributed Amount"] = display_customer_df["Unattributed Amount"].apply(lambda x: f"${x:,.0f}")
             
             st.dataframe(
                 display_customer_df,
                 use_container_width=True,
                 column_config={
                     "Customer": st.column_config.TextColumn("Customer", width="medium"),
-                    "Total Payments": st.column_config.TextColumn("Total Payments", width="medium"),
+                    "Total Payments": st.column_config.NumberColumn("Total Payments", width="medium", format="$%.0f"),
                     "Payment Count": st.column_config.NumberColumn("Payment Count", width="small"),
                     "Unique Loans": st.column_config.NumberColumn("Unique Loans", width="small"),
-                    "Unattributed Amount": st.column_config.TextColumn("Unattributed Amount", width="medium"),
+                    "Unattributed Amount": st.column_config.NumberColumn("Unattributed Amount", width="medium", format="$%.0f"),
                     "Unattributed Count": st.column_config.NumberColumn("Unattributed Count", width="small")
                 }
             )
