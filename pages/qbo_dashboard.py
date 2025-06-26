@@ -123,15 +123,27 @@ with st.expander("🔍 Data Diagnostics - Click to investigate the join"):
         else:
             st.write("No transaction type data available")
         
+        # Add alert about data limitations
+        if diagnostics.get("raw_qbo_count", 0) == 1000:
+            st.error("⚠️ **DATA LIMITATION ALERT**: Only showing first 1,000 QBO transactions due to Supabase query limits. Total payments may be higher.")
+            st.info("💡 **Solution**: Consider upgrading Supabase plan or implementing proper pagination for complete data view.")
+        
         # Payment Type Filtering Impact
         st.write("**🔽 Impact of Payment Type Filtering:**")
         col1, col2 = st.columns(2)
         with col1:
             st.metric("Before Filtering", f"${diagnostics.get('total_qbo_amount', 0):,.0f}")
         with col2:
+            filtering_loss = diagnostics.get('total_qbo_amount', 0) - diagnostics.get('payment_types_amount', 0)
             st.metric("After Filtering (Payment/Deposit/Receipt)", 
                      f"${diagnostics.get('payment_types_amount', 0):,.0f}",
-                     delta=f"{diagnostics.get('payment_types_amount', 0) - diagnostics.get('total_qbo_amount', 0):,.0f}")
+                     delta=f"-${filtering_loss:,.0f}")
+        
+        # Show what we're missing
+        if filtering_loss > 0:
+            st.warning(f"📉 **Missing ${filtering_loss:,.0f}** due to filtering out non-payment transactions (invoices, bills, etc.)")
+            percentage_lost = (filtering_loss / diagnostics.get('total_qbo_amount', 1)) * 100
+            st.write(f"This represents **{percentage_lost:.1f}%** of your total QBO transaction volume.")
         
         # Loan ID Attribution Analysis
         st.write("**🔗 Loan ID Attribution:**")
