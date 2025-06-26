@@ -84,24 +84,33 @@ with st.expander("🔍 Data Diagnostics - Click to investigate the join"):
         
         # Transaction Type Analysis
         st.write("**💳 Transaction Type Breakdown:**")
-        if "transaction_types" in diagnostics:
-            txn_data = []
-            for txn_type, data in diagnostics["transaction_types"].items():
-                txn_data.append({
-                    "Transaction Type": txn_type,
-                    "Total Amount": data["total_amount"],
-                    "Count": data["count"]
-                })
-            
-            txn_df = pd.DataFrame(txn_data)
-            st.dataframe(
-                txn_df,
-                use_container_width=True,
-                column_config={
-                    "Total Amount": st.column_config.NumberColumn("Total Amount", format="$%.0f"),
-                    "Count": st.column_config.NumberColumn("Count")
-                }
-            )
+        if "transaction_types" in diagnostics and diagnostics["transaction_types"]:
+            try:
+                txn_data = []
+                for txn_type, data in diagnostics["transaction_types"].items():
+                    # Debug: show what's in the data
+                    st.write(f"Debug - Transaction type: {txn_type}, Data: {data}")
+                    
+                    txn_data.append({
+                        "Transaction Type": txn_type,
+                        "Total Amount": data.get("total_amount", 0),
+                        "Count": data.get("count", 0)
+                    })
+                
+                txn_df = pd.DataFrame(txn_data)
+                st.dataframe(
+                    txn_df,
+                    use_container_width=True,
+                    column_config={
+                        "Total Amount": st.column_config.NumberColumn("Total Amount", format="$%.0f"),
+                        "Count": st.column_config.NumberColumn("Count")
+                    }
+                )
+            except Exception as e:
+                st.error(f"Error processing transaction types: {e}")
+                st.write("Raw transaction_types data:", diagnostics.get("transaction_types", {}))
+        else:
+            st.write("No transaction type data available")
         
         # Payment Type Filtering Impact
         st.write("**🔽 Impact of Payment Type Filtering:**")
