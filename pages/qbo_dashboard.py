@@ -1,35 +1,17 @@
 # pages/qbo_dashboard.py
-
 from utils.imports import *
 
+# -------------------------
+# Load and Prepare Data
+# -------------------------
+from utils.data_loader import load_qbo_data, load_deals, load_mca_deals
+
+df, gl_df = load_qbo_data()
 
 # -------------------------
 # Setup: Supabase Connection
 # -------------------------
 supabase = get_supabase_client()
-
-
-# -------------------------
-# Load and Prepare Data
-# -------------------------
-@st.cache_data(ttl=3600)
-def load_qbo_data():
-    df_txn = pd.DataFrame(
-        supabase.table("qbo_invoice_payments")
-        .select("*")
-        .execute()
-        .data
-    )
-    df_gl = pd.DataFrame(
-        supabase.table("qbo_general_ledger")
-        .select("*")
-        .execute()
-        .data
-    )
-    return df_txn, df_gl
-
-
-df, gl_df = load_qbo_data()
 
 
 # -------------------------
