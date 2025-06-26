@@ -19,60 +19,85 @@ def load_loan_tape_data():
     qbo_res = supabase.table("qbo_invoice_payments").select("*").execute()
     qbo_df = pd.DataFrame(qbo_res.data)
     
-    if deals_df.empty:
-        print("Warning: No deals data found")
+    if deals_df.empty or qbo_df.empty:
         return pd.DataFrame()
     
-    if qbo_df.empty:
-        print("Warning: No QBO payment data found")
-        return pd.DataFrame()
-    
-    # DIAGNOSTIC: Print data overview before processing
-    print(f"\n=== LOAN TAPE DIAGNOSTICS ===")
-    print(f"Raw Deals Count: {len(deals_df)}")
-    print(f"Raw QBO Payments Count: {len(qbo_df)}")
-    print(f"Total QBO Payment Amount: ${qbo_df['total_amount'].sum():,.2f}")
-    
-    # Clean and prepare deals data
+    # Clean and prepare data
     deals_df = _prepare_deals_data(deals_df)
-    print(f"Closed Won Deals Count: {len(deals_df)}")
-    
-    # Clean and prepare QBO data  
     qbo_df = _prepare_qbo_data(qbo_df)
-    print(f"Filtered QBO Payments Count: {len(qbo_df)}")
-    print(f"Filtered QBO Payment Amount: ${qbo_df['total_amount'].sum():,.2f}")
-    
-    # DIAGNOSTIC: Check loan_id overlap
-    deals_loan_ids = set(deals_df['loan_id'].unique())
-    qbo_loan_ids = set(qbo_df['loan_id'].unique())
-    
-    print(f"Unique Deal Loan IDs: {len(deals_loan_ids)}")
-    print(f"Unique QBO Loan IDs: {len(qbo_loan_ids)}")
-    print(f"Overlapping Loan IDs: {len(deals_loan_ids.intersection(qbo_loan_ids))}")
-    
-    # Show examples of non-matching loan_ids
-    deals_only = deals_loan_ids - qbo_loan_ids
-    qbo_only = qbo_loan_ids - deals_loan_ids
-    
-    print(f"Loan IDs in Deals but not QBO: {len(deals_only)}")
-    if deals_only:
-        print(f"  Examples: {list(deals_only)[:5]}")
-    
-    print(f"Loan IDs in QBO but not Deals: {len(qbo_only)}")
-    if qbo_only:
-        print(f"  Examples: {list(qbo_only)[:5]}")
-    
-    # DIAGNOSTIC: Check QBO data distribution
-    qbo_with_loan_id = qbo_df[qbo_df['loan_id'].notna() & (qbo_df['loan_id'] != '') & (qbo_df['loan_id'] != 'nan')]
-    qbo_without_loan_id = qbo_df[qbo_df['loan_id'].isna() | (qbo_df['loan_id'] == '') | (qbo_df['loan_id'] == 'nan')]
-    
-    print(f"QBO Payments WITH loan_id: {len(qbo_with_loan_id)} (${qbo_with_loan_id['total_amount'].sum():,.2f})")
-    print(f"QBO Payments WITHOUT loan_id: {len(qbo_without_loan_id)} (${qbo_without_loan_id['total_amount'].sum():,.2f})")
     
     # Create loan tape by joining data
     loan_tape = _create_loan_tape(deals_df, qbo_df)
     
     return loan_tape
+
+def get_data_diagnostics():
+    """
+    Get diagnostic information about the data join process
+    
+    Returns:
+        dict: Diagnostic information for display in dashboard
+    """
+    supabase = get_supabase_client()
+    
+    # Load raw data
+    deals_res = supabase.table("deals").select("*").execute()
+    deals_df = pd.DataFrame(deals_res.data)
+    
+    qbo_res = supabase.table("qbo_invoice_payments").select("*").execute()
+    qbo_df = pd.DataFrame(qbo_res.data)
+    
+    if deals_df.empty or qbo_df.empty:
+        return {}
+    
+    # Convert amounts to numeric for calculations
+    qbo_df["total_amount"] = pd.to_numeric(qbo_df["total_amount"], errors="coerce")
+    deals_df["amount"] = pd.to_numeric(deals_df["amount"], errors="coerce")
+    
+    # Clean loan_ids
+    qbo_df["loan_id"] = qbo_df["loan_id"].astype(str).str.strip()
+    deals_df["loan_id"] = deals_df["loan_id"].astype(str).str.strip()
+    
+    # Basic counts
+    diagnostics = {
+        "raw_deals_count": len(deals_df),
+        "raw_qbo_count": len(qbo_df),
+        "total_qbo_amount": qbo_df["total_amount"].sum(),
+        
+        # Deal analysis
+        "closed_won_deals": len(deals_df[deals_df["is_closed_won"] == True]),
+        "total_participation": deals_df[deals_df["is_closed_won"] == True]["amount"].sum(),
+        
+        # Transaction type breakdown
+        "transaction_types": qbo_df.groupby("transaction_type").agg({
+            "total_amount": "sum",
+            "transaction_id": "count"
+        }).to_dict(),
+        
+        # Payment type filtering
+        "payment_types_amount": qbo_df[qbo_df["transaction_type"].isin(["Payment", "Deposit", "Receipt"])]["total_amount"].sum(),
+        "payment_types_count": len(qbo_df[qbo_df["transaction_type"].isin(["Payment", "Deposit", "Receipt"])]),
+        
+        # Loan ID analysis
+        "qbo_with_loan_id": {
+            "count": len(qbo_df[qbo_df["loan_id"].notna() & (qbo_df["loan_id"] != "") & (qbo_df["loan_id"] != "nan")]),
+            "amount": qbo_df[qbo_df["loan_id"].notna() & (qbo_df["loan_id"] != "") & (qbo_df["loan_id"] != "nan")]["total_amount"].sum()
+        },
+        "qbo_without_loan_id": {
+            "count": len(qbo_df[qbo_df["loan_id"].isna() | (qbo_df["loan_id"] == "") | (qbo_df["loan_id"] == "nan")]),
+            "amount": qbo_df[qbo_df["loan_id"].isna() | (qbo_df["loan_id"] == "") | (qbo_df["loan_id"] == "nan")]["total_amount"].sum()
+        },
+        
+        # Loan ID overlap
+        "unique_deal_loan_ids": deals_df["loan_id"].nunique(),
+        "unique_qbo_loan_ids": qbo_df["loan_id"].nunique(),
+        "overlapping_loan_ids": len(set(deals_df["loan_id"].unique()).intersection(set(qbo_df["loan_id"].unique()))),
+        
+        # Top customers
+        "top_customers": qbo_df.groupby("customer_name")["total_amount"].sum().nlargest(10).to_dict()
+    }
+    
+    return diagnostics
 
 def load_unified_loan_customer_data():
     """
@@ -131,19 +156,12 @@ def _prepare_qbo_data(qbo_df):
     # Ensure loan_id is string and clean
     qbo_df["loan_id"] = qbo_df["loan_id"].astype(str).str.strip()
     
-    # DIAGNOSTIC: Show transaction type distribution before filtering
-    print(f"\nQBO Transaction Types:")
-    print(qbo_df["transaction_type"].value_counts())
-    
     # Filter to only payment transactions (positive cash flow)
     payment_types = ["Payment", "Deposit", "Receipt"]
     qbo_df = qbo_df[qbo_df["transaction_type"].isin(payment_types)].copy()
     
     # Take absolute value to ensure positive amounts
     qbo_df["total_amount"] = qbo_df["total_amount"].abs()
-    
-    # DIAGNOSTIC: Show data after filtering
-    print(f"After filtering to payment types: {len(qbo_df)} transactions, ${qbo_df['total_amount'].sum():,.2f}")
     
     return qbo_df
 
@@ -157,28 +175,8 @@ def _create_loan_tape(deals_df, qbo_df):
     }).reset_index()
     loan_payments.columns = ["loan_id", "rtr_amount", "payment_count"]
     
-    # DIAGNOSTIC: Show payment aggregation results
-    print(f"\nLoan Payment Aggregation:")
-    print(f"Loans with payments: {len(loan_payments)}")
-    print(f"Total aggregated payments: ${loan_payments['rtr_amount'].sum():,.2f}")
-    print(f"Top 5 loans by payment amount:")
-    top_payments = loan_payments.nlargest(5, 'rtr_amount')
-    for _, row in top_payments.iterrows():
-        print(f"  Loan {row['loan_id']}: ${row['rtr_amount']:,.2f} ({row['payment_count']} payments)")
-    
     # Join deals with payment data
     loan_tape = deals_df.merge(loan_payments, on="loan_id", how="left")
-    
-    # DIAGNOSTIC: Show join results
-    matched_deals = loan_tape[loan_tape['rtr_amount'].notna()]
-    unmatched_deals = loan_tape[loan_tape['rtr_amount'].isna()]
-    
-    print(f"\nJoin Results:")
-    print(f"Deals with matching payments: {len(matched_deals)}")
-    print(f"Deals without matching payments: {len(unmatched_deals)}")
-    
-    if len(unmatched_deals) > 0:
-        print(f"Examples of unmatched deal loan_ids: {unmatched_deals['loan_id'].head().tolist()}")
     
     # Fill missing payment data with zeros
     loan_tape["rtr_amount"] = loan_tape["rtr_amount"].fillna(0)
@@ -187,12 +185,6 @@ def _create_loan_tape(deals_df, qbo_df):
     # Calculate RTR percentage
     loan_tape["rtr_percentage"] = (loan_tape["rtr_amount"] / loan_tape["amount"]) * 100
     loan_tape["rtr_percentage"] = loan_tape["rtr_percentage"].fillna(0)
-    
-    # DIAGNOSTIC: Final summary
-    total_rtr = loan_tape["rtr_amount"].sum()
-    print(f"\nFinal Loan Tape Summary:")
-    print(f"Total RTR Amount: ${total_rtr:,.2f}")
-    print(f"Average RTR %: {loan_tape['rtr_percentage'].mean():.2f}%")
     
     # Select and rename columns for final loan tape based on actual table structure
     columns_to_select = []
@@ -219,8 +211,6 @@ def _create_loan_tape(deals_df, qbo_df):
         if col in loan_tape.columns:
             columns_to_select.append(col)
             column_rename_map[col] = display_name
-        else:
-            print(f"Warning: Column '{col}' not found in loan tape data")
     
     # Select available columns
     loan_tape_final = loan_tape[columns_to_select].copy()
