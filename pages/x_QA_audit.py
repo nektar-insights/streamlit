@@ -861,37 +861,84 @@ with tab2:
     st.subheader("Invoice/Payment Analysis")
     
     if not qbo_txn_df.empty:
-        # Group by transaction type
+        # Add debug information to show transaction counts
+        st.write("### Transaction Type Breakdown")
+        if 'transaction_type' in qbo_txn_df.columns:
+            txn_type_counts = qbo_txn_df['transaction_type'].value_counts()
+            
+            # Display transaction counts in columns
+            col1, col2, col3 = st.columns(3)
+            for i, (txn_type, count) in enumerate(txn_type_counts.items()):
+                with [col1, col2, col3][i % 3]:
+                    st.metric(f"{txn_type} Count", count)
+            
+            # Show detailed breakdown
+            st.write("**All Transaction Types:**")
+            txn_breakdown_df = pd.DataFrame({
+                'Transaction Type': txn_type_counts.index,
+                'Count': txn_type_counts.values,
+                'Percentage': (txn_type_counts.values / len(qbo_txn_df) * 100).round(1)
+            })
+            st.dataframe(txn_breakdown_df, use_container_width=True, hide_index=True)
+        
+        # Group by transaction type with amounts
         if 'transaction_type' in qbo_txn_df.columns and 'total_amount' in qbo_txn_df.columns:
             txn_by_type = qbo_txn_df.groupby('transaction_type')['total_amount'].agg(['sum', 'count', 'mean']).round(2)
             txn_by_type.columns = ['Total Amount', 'Transaction Count', 'Average Amount']
             txn_by_type = txn_by_type.sort_values('Total Amount', ascending=False)
             
-            st.write("**By Transaction Type:**")
+            st.write("**By Transaction Type (with Amounts):**")
             st.dataframe(txn_by_type.style.format({
                 'Total Amount': '${:,.2f}',
                 'Average Amount': '${:,.2f}'
             }), use_container_width=True)
+            
+            # Highlight Invoice vs Payment totals
+            if 'Invoice' in txn_by_type.index and 'Payment' in txn_by_type.index:
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    invoice_total = txn_by_type.loc['Invoice', 'Total Amount']
+                    st.metric("Total Invoices", f"${invoice_total:,.2f}")
+                with col2:
+                    payment_total = txn_by_type.loc['Payment', 'Total Amount']
+                    st.metric("Total Payments", f"${payment_total:,.2f}")
+                with col3:
+                    net_amount = invoice_total - payment_total
+                    st.metric("Net Outstanding", f"${net_amount:,.2f}")
         
-        # Group by customer
+        # Group by customer (NO FILTERING - show all customers)
         if 'customer_name' in qbo_txn_df.columns:
+            # Show customer analysis without any filters
+            st.write("**Customer Analysis (All Customers):**")
             txn_by_customer = qbo_txn_df.groupby('customer_name')['total_amount'].agg(['sum', 'count', 'mean']).round(2)
             txn_by_customer.columns = ['Total Amount', 'Transaction Count', 'Average Amount']
             txn_by_customer = txn_by_customer.sort_values('Total Amount', ascending=False).head(15)
             
-            st.write("**Top 15 by Customer:**")
             st.dataframe(txn_by_customer.style.format({
                 'Total Amount': '${:,.2f}',
                 'Average Amount': '${:,.2f}'
             }), use_container_width=True)
+            
+            # Check for filtered customers (CSL, VEEM)
+            filtered_customers = ['CSL', 'VEEM']
+            filtered_data = qbo_txn_df[qbo_txn_df['customer_name'].isin(filtered_customers)]
+            
+            if len(filtered_data) > 0:
+                st.write("**⚠️ Note: Found transactions for typically filtered customers:**")
+                filtered_summary = filtered_data.groupby(['customer_name', 'transaction_type'])['total_amount'].agg(['sum', 'count']).round(2)
+                st.dataframe(filtered_summary, use_container_width=True)
         
         # Payment method analysis
         if 'payment_method' in qbo_txn_df.columns:
-            payment_methods = qbo_txn_df[qbo_txn_df['transaction_type'] == 'Payment']['payment_method'].value_counts()
-            if len(payment_methods) > 0:
-                st.write("**Payment Methods:**")
-                for method, count in payment_methods.items():
-                    st.write(f"• {method}: {count}")
+            payment_transactions = qbo_txn_df[qbo_txn_df['transaction_type'] == 'Payment']
+            if len(payment_transactions) > 0:
+                payment_methods = payment_transactions['payment_method'].value_counts()
+                if len(payment_methods) > 0:
+                    st.write("**Payment Methods:**")
+                    for method, count in payment_methods.items():
+                        st.write(f"• {method}: {count}")
+            else:
+                st.warning("No Payment transactions found for payment method analysis")
     else:
         st.info("No invoice/payment data available for analysis")
 
@@ -963,69 +1010,134 @@ with tab4:
     
     # Use Invoice/Payment data for loan performance
     if not qbo_txn_df.empty:
-        # Filter for loan-related transactions
+        st.write("### Data Filtering Analysis")
+        
+        # Show original transaction counts
+        if 'transaction_type' in qbo_txn_df.columns:
+            original_counts = qbo_txn_df['transaction_type'].value_counts()
+            st.write("**Original Transaction Counts:**")
+            
+            col1, col2, col3 = st.columns(3)
+            invoice_count = original_counts.get('Invoice', 0)
+            payment_count = original_counts.get('Payment', 0)
+            other_count = len(qbo_txn_df) - invoice_count - payment_count
+            
+            with col1:
+                st.metric("Original Invoices", invoice_count)
+            with col2:
+                st.metric("Original Payments", payment_count)
+            with col3:
+                st.metric("Other Transaction Types", other_count)
+        
+        # Filter for loan-related transactions (NO customer filtering initially)
         loan_transactions = qbo_txn_df[
             qbo_txn_df['transaction_type'].isin(['Invoice', 'Payment'])
         ].copy()
         
+        st.write(f"**After filtering for Invoice/Payment types:** {len(loan_transactions)} transactions")
+        
         if not loan_transactions.empty and 'customer_name' in loan_transactions.columns:
-            # Enhanced pivot analysis using new schema
-            loan_transactions['total_amount'] = loan_transactions['total_amount'].abs()
+            # Show filtered transaction counts
+            filtered_counts = loan_transactions['transaction_type'].value_counts()
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Filtered Invoices", filtered_counts.get('Invoice', 0))
+            with col2:
+                st.metric("Filtered Payments", filtered_counts.get('Payment', 0))
             
-            pivot_enhanced = loan_transactions.pivot_table(
-                index="customer_name",
-                columns="transaction_type",
-                values="total_amount",
-                aggfunc="sum",
-                fill_value=0
-            ).reset_index()
+            # Check for CSL/VEEM transactions before filtering them out
+            csl_veem_transactions = loan_transactions[loan_transactions['customer_name'].isin(['CSL', 'VEEM'])]
+            if len(csl_veem_transactions) > 0:
+                st.write("**⚠️ CSL/VEEM Transactions Found (typically filtered):**")
+                csl_veem_summary = csl_veem_transactions.groupby(['customer_name', 'transaction_type'])['total_amount'].agg(['sum', 'count'])
+                st.dataframe(csl_veem_summary, use_container_width=True)
+                
+                # Option to include or exclude CSL/VEEM
+                exclude_csl_veem = st.checkbox("Exclude CSL/VEEM from analysis", value=True, help="Uncheck to include CSL/VEEM in loan performance analysis")
+                
+                if exclude_csl_veem:
+                    loan_transactions = loan_transactions[~loan_transactions['customer_name'].isin(['CSL', 'VEEM'])]
+                    st.write(f"**After excluding CSL/VEEM:** {len(loan_transactions)} transactions")
             
-            # Calculate enhanced metrics
-            pivot_enhanced["total_invoiced"] = pivot_enhanced.get("Invoice", 0)
-            pivot_enhanced["total_payments"] = pivot_enhanced.get("Payment", 0)
-            pivot_enhanced["outstanding_balance"] = pivot_enhanced["total_invoiced"] - pivot_enhanced["total_payments"]
-            pivot_enhanced["payment_ratio"] = np.where(
-                pivot_enhanced["total_invoiced"] > 0,
-                pivot_enhanced["total_payments"] / pivot_enhanced["total_invoiced"],
-                0
-            )
-            pivot_enhanced["risk_score"] = np.where(
-                pivot_enhanced["payment_ratio"] < 0.5, "High Risk",
-                np.where(pivot_enhanced["payment_ratio"] < 0.8, "Medium Risk", "Low Risk")
-            )
-            
-            # Display enhanced analysis
-            display_cols = ["customer_name", "total_invoiced", "total_payments", "outstanding_balance", "payment_ratio", "risk_score"]
-            pivot_display = pivot_enhanced[display_cols].copy()
-            pivot_display = pivot_display.sort_values("outstanding_balance", ascending=False)
-            
-            # Format currency columns
-            currency_cols = ["total_invoiced", "total_payments", "outstanding_balance"]
-            for col in currency_cols:
-                if col in pivot_display.columns:
-                    pivot_display[col] = pivot_display[col].apply(lambda x: f"${x:,.2f}")
-            
-            if "payment_ratio" in pivot_display.columns:
-                pivot_display["payment_ratio"] = pivot_display["payment_ratio"].apply(lambda x: f"{x:.1%}")
-            
-            # Rename columns
-            pivot_display = pivot_display.rename(columns={
-                'customer_name': 'Customer Name',
-                'total_invoiced': 'Total Invoiced',
-                'total_payments': 'Total Payments',
-                'outstanding_balance': 'Outstanding Balance',
-                'payment_ratio': 'Payment Ratio',
-                'risk_score': 'Risk Score'
-            })
-            
-            st.dataframe(pivot_display, use_container_width=True, hide_index=True)
-            
-            # Risk summary
-            if len(pivot_enhanced) > 0:
-                risk_summary = pivot_enhanced['risk_score'].value_counts()
-                st.write("**Risk Distribution:**")
-                for risk, count in risk_summary.items():
-                    st.write(f"• {risk}: {count}")
+            if len(loan_transactions) > 0:
+                # Enhanced pivot analysis using new schema
+                loan_transactions['total_amount'] = loan_transactions['total_amount'].abs()
+                
+                pivot_enhanced = loan_transactions.pivot_table(
+                    index="customer_name",
+                    columns="transaction_type",
+                    values="total_amount",
+                    aggfunc="sum",
+                    fill_value=0
+                ).reset_index()
+                
+                # Ensure both columns exist
+                if "Invoice" not in pivot_enhanced.columns:
+                    pivot_enhanced["Invoice"] = 0
+                if "Payment" not in pivot_enhanced.columns:
+                    pivot_enhanced["Payment"] = 0
+                
+                # Calculate enhanced metrics
+                pivot_enhanced["total_invoiced"] = pivot_enhanced["Invoice"]
+                pivot_enhanced["total_payments"] = pivot_enhanced["Payment"]
+                pivot_enhanced["outstanding_balance"] = pivot_enhanced["total_invoiced"] - pivot_enhanced["total_payments"]
+                pivot_enhanced["payment_ratio"] = np.where(
+                    pivot_enhanced["total_invoiced"] > 0,
+                    pivot_enhanced["total_payments"] / pivot_enhanced["total_invoiced"],
+                    0
+                )
+                pivot_enhanced["risk_score"] = np.where(
+                    pivot_enhanced["payment_ratio"] < 0.5, "High Risk",
+                    np.where(pivot_enhanced["payment_ratio"] < 0.8, "Medium Risk", "Low Risk")
+                )
+                
+                # Summary totals
+                st.write("### Summary Totals")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    total_invoiced = pivot_enhanced["total_invoiced"].sum()
+                    st.metric("Total Invoiced", f"${total_invoiced:,.2f}")
+                with col2:
+                    total_payments = pivot_enhanced["total_payments"].sum()
+                    st.metric("Total Payments", f"${total_payments:,.2f}")
+                with col3:
+                    net_outstanding = total_invoiced - total_payments
+                    st.metric("Net Outstanding", f"${net_outstanding:,.2f}")
+                
+                # Display enhanced analysis
+                display_cols = ["customer_name", "total_invoiced", "total_payments", "outstanding_balance", "payment_ratio", "risk_score"]
+                pivot_display = pivot_enhanced[display_cols].copy()
+                pivot_display = pivot_display.sort_values("outstanding_balance", ascending=False)
+                
+                # Format currency columns
+                currency_cols = ["total_invoiced", "total_payments", "outstanding_balance"]
+                for col in currency_cols:
+                    if col in pivot_display.columns:
+                        pivot_display[col] = pivot_display[col].apply(lambda x: f"${x:,.2f}")
+                
+                if "payment_ratio" in pivot_display.columns:
+                    pivot_display["payment_ratio"] = pivot_display["payment_ratio"].apply(lambda x: f"{x:.1%}")
+                
+                # Rename columns
+                pivot_display = pivot_display.rename(columns={
+                    'customer_name': 'Customer Name',
+                    'total_invoiced': 'Total Invoiced',
+                    'total_payments': 'Total Payments',
+                    'outstanding_balance': 'Outstanding Balance',
+                    'payment_ratio': 'Payment Ratio',
+                    'risk_score': 'Risk Score'
+                })
+                
+                st.dataframe(pivot_display, use_container_width=True, hide_index=True)
+                
+                # Risk summary
+                if len(pivot_enhanced) > 0:
+                    risk_summary = pivot_enhanced['risk_score'].value_counts()
+                    st.write("**Risk Distribution:**")
+                    for risk, count in risk_summary.items():
+                        st.write(f"• {risk}: {count}")
+            else:
+                st.warning("No transactions remaining after filtering")
         else:
             st.info("Unable to perform loan performance analysis - missing required data")
     else:
