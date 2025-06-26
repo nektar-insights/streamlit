@@ -1,6 +1,7 @@
 # pages/qbo_dashboard_enhanced.py
 from utils.imports import *
 from utils.qbo_data_loader import load_qbo_data, load_deals, load_mca_deals
+from utils.loan_tape_loader import load_loan_tape_data, get_customer_payment_summary
 import numpy as np
 from datetime import datetime, timedelta
 import warnings
@@ -15,6 +16,9 @@ supabase = get_supabase_client()
 df, gl_df = load_qbo_data()
 deals_df = load_deals()
 mca_deals_df = load_mca_deals()
+
+# Load loan tape data
+loan_tape_df = load_loan_tape_data()
 
 # -------------------------
 # Enhanced Data Preprocessing
@@ -50,6 +54,135 @@ df = preprocess_financial_data(df)
 gl_df = preprocess_financial_data(gl_df)  # Keep GL data available for future use
 
 st.title("QBO Dashboard")
+st.markdown("---")
+
+# -------------------------
+# LOAN TAPE SECTION
+# -------------------------
+st.header("🎯 Loan Tape Performance")
+
+if loan_tape_df.empty:
+    st.warning("No loan tape data available. This could be due to:")
+    st.markdown("- No closed/won deals in HubSpot")
+    st.markdown("- No matching loan IDs between deals and QBO payments")
+    st.markdown("- No payment data in QBO")
+else:
+    # Loan tape summary metrics
+    total_loans = len(loan_tape_df)
+    total_participation = loan_tape_df["Total Participation"].sum()
+    total_expected_return = loan_tape_df["Total Return"].sum()
+    total_rtr_amount = loan_tape_df["RTR Amount"].sum()
+    avg_rtr_percentage = loan_tape_df["RTR %"].mean()
+    loans_with_payments = (loan_tape_df["RTR Amount"] > 0).sum()
+    
+    # Display summary metrics
+    col1, col2, col3, col4, col5 = st.columns(5)
+    with col1:
+        st.metric("Total Loans", f"{total_loans:,}")
+    with col2:
+        st.metric("Total Participation", f"${total_participation:,.0f}")
+    with col3:
+        st.metric("Expected Return", f"${total_expected_return:,.0f}")
+    with col4:
+        st.metric("Actual RTR", f"${total_rtr_amount:,.0f}")
+    with col5:
+        st.metric("Avg RTR %", f"{avg_rtr_percentage:.1f}%")
+    
+    # Additional metrics
+    col6, col7, col8 = st.columns(3)
+    with col6:
+        st.metric("Loans with Payments", f"{loans_with_payments}/{total_loans}")
+    with col7:
+        portfolio_rtr = (total_rtr_amount / total_participation) * 100 if total_participation > 0 else 0
+        st.metric("Portfolio RTR %", f"{portfolio_rtr:.1f}%")
+    with col8:
+        realized_vs_expected = (total_rtr_amount / total_expected_return) * 100 if total_expected_return > 0 else 0
+        st.metric("Realized vs Expected", f"{realized_vs_expected:.1f}%")
+    
+    # Display loan tape table
+    st.subheader("Loan Performance Details")
+    
+    # Format the dataframe for display
+    display_df = loan_tape_df.copy()
+    
+    # Format currency columns
+    currency_cols = ["Total Participation", "Total Return", "RTR Amount"]
+    for col in currency_cols:
+        display_df[col] = display_df[col].apply(lambda x: f"${x:,.0f}")
+    
+    # Format percentage columns
+    display_df["Factor Rate"] = display_df["Factor Rate"].apply(lambda x: f"{x:.3f}")
+    display_df["RTR %"] = display_df["RTR %"].apply(lambda x: f"{x:.1f}%")
+    
+    # Format other numeric columns
+    display_df["TIB"] = display_df["TIB"].apply(lambda x: f"{x:,.0f}" if pd.notnull(x) else "N/A")
+    display_df["FICO"] = display_df["FICO"].apply(lambda x: f"{x:.0f}" if pd.notnull(x) else "N/A")
+    
+    # Display with better formatting
+    st.dataframe(
+        display_df,
+        use_container_width=True,
+        column_config={
+            "Loan ID": st.column_config.TextColumn("Loan ID", width="small"),
+            "Customer": st.column_config.TextColumn("Customer", width="medium"),
+            "Factor Rate": st.column_config.TextColumn("Factor Rate", width="small"),
+            "Total Participation": st.column_config.TextColumn("Total Participation", width="medium"),
+            "Total Return": st.column_config.TextColumn("Total Return", width="medium"),
+            "RTR Amount": st.column_config.TextColumn("RTR Amount", width="medium"),
+            "RTR %": st.column_config.TextColumn("RTR %", width="small"),
+            "Payment Count": st.column_config.NumberColumn("Payment Count", width="small"),
+            "TIB": st.column_config.TextColumn("TIB", width="small"),
+            "FICO": st.column_config.TextColumn("FICO", width="small")
+        }
+    )
+    
+    # Download loan tape
+    loan_tape_csv = loan_tape_df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="📥 Download Loan Tape (CSV)",
+        data=loan_tape_csv,
+        file_name=f"loan_tape_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
+        mime="text/csv"
+    )
+
+# -------------------------
+# CUSTOMER PAYMENT ANALYSIS
+# -------------------------
+st.subheader("Customer Payment Summary")
+
+if not df.empty:
+    customer_summary_df = get_customer_payment_summary(df)
+    
+    if not customer_summary_df.empty:
+        # Format for display
+        display_customer_df = customer_summary_df.copy()
+        display_customer_df["Total Payments"] = display_customer_df["Total Payments"].apply(lambda x: f"${x:,.0f}")
+        display_customer_df["Unattributed Amount"] = display_customer_df["Unattributed Amount"].apply(lambda x: f"${x:,.0f}")
+        
+        st.dataframe(
+            display_customer_df,
+            use_container_width=True,
+            column_config={
+                "Customer": st.column_config.TextColumn("Customer", width="medium"),
+                "Total Payments": st.column_config.TextColumn("Total Payments", width="medium"),
+                "Payment Count": st.column_config.NumberColumn("Payment Count", width="small"),
+                "Unique Loans": st.column_config.NumberColumn("Unique Loans", width="small"),
+                "Unattributed Amount": st.column_config.TextColumn("Unattributed Amount", width="medium"),
+                "Unattributed Count": st.column_config.NumberColumn("Unattributed Count", width="small")
+            }
+        )
+        
+        # Summary of unattributed payments
+        total_unattributed = customer_summary_df["Unattributed Amount"].sum()
+        customers_with_unattributed = (customer_summary_df["Unattributed Amount"] > 0).sum()
+        
+        if total_unattributed > 0:
+            st.warning(f"⚠️ ${total_unattributed:,.0f} in unattributed payments across {customers_with_unattributed} customers")
+    else:
+        st.info("No customer payment data available")
+else:
+    st.warning("No QBO payment data available for customer analysis")
+
 st.markdown("---")
 
 # -------------------------
