@@ -340,46 +340,44 @@ with tab2:
 with tab3:
     st.subheader("Customer Payment Summary")
     
-    if not df.empty:
-        customer_summary_df = get_customer_payment_summary(df)
+    # Load customer summary using the updated function that handles all data
+    customer_summary_df = get_customer_payment_summary()
+    
+    if not customer_summary_df.empty:
+        # Keep numeric values as numbers for sorting - use column_config for formatting
+        display_customer_df = customer_summary_df.copy()
         
-        if not customer_summary_df.empty:
-            # Keep numeric values as numbers for sorting - use column_config for formatting
-            display_customer_df = customer_summary_df.copy()
-            
-            st.dataframe(
-                display_customer_df,
-                use_container_width=True,
-                column_config={
-                    "Customer": st.column_config.TextColumn("Customer", width="medium"),
-                    "Total Payments": st.column_config.NumberColumn("Total Payments", width="medium", format="$%.0f"),
-                    "Payment Count": st.column_config.NumberColumn("Payment Count", width="small"),
-                    "Unique Loans": st.column_config.NumberColumn("Unique Loans", width="small"),
-                    "Unattributed Amount": st.column_config.NumberColumn("Unattributed Amount", width="medium", format="$%.0f"),
-                    "Unattributed Count": st.column_config.NumberColumn("Unattributed Count", width="small")
-                }
-            )
-            
-            # Summary of unattributed payments
-            total_unattributed = customer_summary_df["Unattributed Amount"].sum()
-            customers_with_unattributed = (customer_summary_df["Unattributed Amount"] > 0).sum()
-            
-            if total_unattributed > 0:
-                st.warning(f"⚠️ ${total_unattributed:,.0f} in unattributed payments across {customers_with_unattributed} customers")
-            
-            # Download customer summary
-            customer_csv = customer_summary_df.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                label="📥 Download Customer Summary (CSV)",
-                data=customer_csv,
-                file_name=f"customer_payment_summary_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv",
-                key="download_customer_summary"
-            )
-        else:
-            st.info("No customer payment data available")
+        st.dataframe(
+            display_customer_df,
+            use_container_width=True,
+            column_config={
+                "Customer": st.column_config.TextColumn("Customer", width="medium"),
+                "Total Payments": st.column_config.NumberColumn("Total Payments", width="medium", format="$%.0f"),
+                "Payment Count": st.column_config.NumberColumn("Payment Count", width="small"),
+                "Unique Loans": st.column_config.NumberColumn("Unique Loans", width="small"),
+                "Unattributed Amount": st.column_config.NumberColumn("Unattributed Amount", width="medium", format="$%.0f"),
+                "Unattributed Count": st.column_config.NumberColumn("Unattributed Count", width="small")
+            }
+        )
+        
+        # Summary of unattributed payments
+        total_unattributed = customer_summary_df["Unattributed Amount"].sum()
+        customers_with_unattributed = (customer_summary_df["Unattributed Amount"] > 0).sum()
+        
+        if total_unattributed > 0:
+            st.warning(f"⚠️ ${total_unattributed:,.0f} in unattributed payments across {customers_with_unattributed} customers")
+        
+        # Download customer summary
+        customer_csv = customer_summary_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="📥 Download Customer Summary (CSV)",
+            data=customer_csv,
+            file_name=f"customer_payment_summary_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv",
+            key="download_customer_summary"
+        )
     else:
-        st.warning("No QBO payment data available for customer analysis")
+        st.info("No customer payment data available")
 
 st.markdown("---")
 
