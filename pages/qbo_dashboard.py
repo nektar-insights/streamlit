@@ -90,7 +90,7 @@ with st.expander("🔍 Data Diagnostics - Click to investigate the join"):
                 txn_data.append({
                     "Transaction Type": txn_type,
                     "Total Amount": data["total_amount"],
-                    "Count": data["transaction_id"]
+                    "Count": data["count"]
                 })
             
             txn_df = pd.DataFrame(txn_data)
