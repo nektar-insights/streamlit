@@ -11,22 +11,40 @@ supabase = get_supabase_client()
 # ----------------------------
 # Load and prepare data
 # ----------------------------
+def fetch_all_rows(table_name: str, chunk_size: int = 1000) -> pd.DataFrame:
+    """Fetch all rows from a Supabase table using pagination to avoid limits"""
+    rows = []
+    start = 0
+    while True:
+        end = start + chunk_size - 1
+        response = (
+            supabase.table(table_name)
+            .select("*")
+            .range(start, end)
+            .execute()
+        )
+        batch = response.data
+        if not batch:
+            break  # no more rows
+        rows.extend(batch)
+        start += chunk_size
+    return pd.DataFrame(rows)
+
 @st.cache_data(ttl=3600)
 def load_deals():
-    res = supabase.table("deals").select("*").execute()
-    return pd.DataFrame(res.data)
+    return fetch_all_rows("deals")
 
 @st.cache_data(ttl=3600)
 def load_qbo_data():
-    df_txn = pd.DataFrame(supabase.table("qbo_invoice_payments").select("*").execute().data)
-    df_gl = pd.DataFrame(supabase.table("qbo_general_ledger").select("*").execute().data)
+    """Load QBO data using pagination to get all records"""
+    df_txn = fetch_all_rows("qbo_invoice_payments")
+    df_gl = fetch_all_rows("qbo_general_ledger")
     return df_txn, df_gl
 
 @st.cache_data(ttl=3600)
 def load_mca_deals():
-    """Load MCA deals from Supabase"""
-    res = supabase.table("mca_deals").select("*").execute()
-    return pd.DataFrame(res.data)
+    """Load MCA deals from Supabase using pagination"""
+    return fetch_all_rows("mca_deals")
 
 @st.cache_data(ttl=3600)
 def load_combined_mca_deals():
@@ -791,6 +809,95 @@ if "is_closed_won" in deals_df.columns:
 # QBO DATA ANALYSIS SECTION (Updated for new schema)
 # ----------------------------
 st.header("💰 QBO Financial Data Analysis")
+
+# Add data loading debug section
+with st.expander("🔍 Data Loading Debug Info", expanded=True):
+    st.write("### QBO Data Loading Analysis (Using Pagination)")
+    
+    # Show basic counts
+    col1, col2 = st.columns(2)
+    with col1:
+        st.write("**Invoice/Payment Data:**")
+        st.write(f"• Rows loaded: {len(qbo_txn_df)}")
+        st.write(f"• Columns: {len(qbo_txn_df.columns) if len(qbo_txn_df) > 0 else 0}")
+        
+        if len(qbo_txn_df) > 0:
+            # Check if we now have the expected number of rows
+            if len(qbo_txn_df) >= 1548:
+                st.success(f"✅ Row count ({len(qbo_txn_df)}) matches or exceeds expected count (1548)")
+            elif len(qbo_txn_df) == 1000:
+                st.warning("⚠️ Still exactly 1000 rows - pagination may not be working")
+            else:
+                st.info(f"📊 Loaded {len(qbo_txn_df)} rows (compare with your export count)")
+            
+            # Show date range to check for missing recent data
+            if 'txn_date' in qbo_txn_df.columns:
+                min_date = qbo_txn_df['txn_date'].min()
+                max_date = qbo_txn_df['txn_date'].max()
+                st.write(f"• Date range: {min_date.strftime('%Y-%m-%d') if pd.notna(min_date) else 'N/A'} to {max_date.strftime('%Y-%m-%d') if pd.notna(max_date) else 'N/A'}")
+                
+                # Check for gaps in recent data
+                recent_cutoff = pd.Timestamp.now() - pd.Timedelta(days=30)
+                recent_records = qbo_txn_df[qbo_txn_df['txn_date'] >= recent_cutoff]
+                st.write(f"• Recent records (30 days): {len(recent_records)}")
+            
+            # Show transaction types breakdown
+            if 'transaction_type' in qbo_txn_df.columns:
+                txn_types = qbo_txn_df['transaction_type'].value_counts()
+                st.write("• Transaction types:")
+                for txn_type, count in txn_types.items():
+                    st.write(f"  - {txn_type}: {count}")
+    
+    with col2:
+        st.write("**General Ledger Data:**")
+        st.write(f"• Rows loaded: {len(qbo_gl_df)}")
+        st.write(f"• Columns: {len(qbo_gl_df.columns) if len(qbo_gl_df) > 0 else 0}")
+        
+        if len(qbo_gl_df) > 0 and 'txn_date' in qbo_gl_df.columns:
+            min_date = qbo_gl_df['txn_date'].min()
+            max_date = qbo_gl_df['txn_date'].max()
+            st.write(f"• Date range: {min_date.strftime('%Y-%m-%d') if pd.notna(min_date) else 'N/A'} to {max_date.strftime('%Y-%m-%d') if pd.notna(max_date) else 'N/A'}")
+    
+    # Data completeness check
+    st.write("### 📊 Data Completeness Check")
+    
+    if len(qbo_txn_df) > 0 and 'total_amount' in qbo_txn_df.columns and 'transaction_type' in qbo_txn_df.columns:
+        # Calculate totals for comparison with export
+        invoice_total = qbo_txn_df[qbo_txn_df['transaction_type'] == 'Invoice']['total_amount'].sum()
+        payment_total = qbo_txn_df[qbo_txn_df['transaction_type'] == 'Payment']['total_amount'].sum()
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Invoices", f"${invoice_total:,.2f}")
+        with col2:
+            st.metric("Total Payments", f"${payment_total:,.2f}")
+        with col3:
+            net_amount = invoice_total - payment_total
+            st.metric("Net Amount", f"${net_amount:,.2f}")
+        
+        st.info("💡 Compare these totals with your database export to verify completeness")
+    
+    # Success indicators
+    success_indicators = []
+    warning_indicators = []
+    
+    if len(qbo_txn_df) != 1000:
+        success_indicators.append("Row count is not exactly 1000 (pagination working)")
+    else:
+        warning_indicators.append("Row count is still exactly 1000")
+    
+    if len(qbo_txn_df) >= 1500:
+        success_indicators.append("Row count exceeds 1500 (likely getting all data)")
+    
+    if len(success_indicators) > 0:
+        st.success("**Pagination Success Indicators:**")
+        for indicator in success_indicators:
+            st.write(f"✅ {indicator}")
+    
+    if len(warning_indicators) > 0:
+        st.warning("**Potential Issues:**")
+        for indicator in warning_indicators:
+            st.write(f"⚠️ {indicator}")
 
 # QBO Data Quality Overview
 col1, col2 = st.columns(2)
