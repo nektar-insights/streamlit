@@ -157,7 +157,8 @@ with tab1:
             label="📥 Download Unified Analysis (CSV)",
             data=unified_csv,
             file_name=f"unified_loan_customer_analysis_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
-            mime="text/csv"
+            mime="text/csv",
+            key="download_unified_analysis"
         )
 
 with tab2:
@@ -233,7 +234,8 @@ with tab2:
             label="📥 Download Loan Tape (CSV)",
             data=loan_tape_csv,
             file_name=f"loan_tape_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
-            mime="text/csv"
+            mime="text/csv",
+            key="download_loan_tape"
         )
 
 with tab3:
@@ -274,7 +276,8 @@ with tab3:
                 label="📥 Download Customer Summary (CSV)",
                 data=customer_csv,
                 file_name=f"customer_payment_summary_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
-                mime="text/csv"
+                mime="text/csv",
+                key="download_customer_summary"
             )
         else:
             st.info("No customer payment data available")
