@@ -1,6 +1,449 @@
 # pages/qbo_dashboard_enhanced.py
 from utils.imports import *
 from utils.qbo_data_loader import load_qbo_data, load_deals, load_mca_deals
+from utils.loan_tape_loader import load_loan_tape_data, load_unified_loan_customer_data, get_customer_payment_summary
+import numpy as np
+from datetime import datetime, timedelta
+import warnings
+warnings.filterwarnings('ignore')
+
+# -------------------------
+# Setup: Supabase Connection & Load Data
+# -------------------------
+supabase = get_supabase_client()
+
+# Load data using centralized functions
+df, gl_df = load_qbo_data()
+deals_df = load_deals()
+mca_deals_df = load_mca_deals()
+
+# Load loan tape data - both individual and unified
+loan_tape_df = load_loan_tape_data()
+unified_data_df = load_unified_loan_customer_data()
+
+# -------------------------
+# Enhanced Data Preprocessing
+# -------------------------
+def preprocess_financial_data(dataframe):
+    """Enhanced preprocessing for financial transaction data"""
+    if dataframe.empty:
+        return dataframe
+    
+    # Convert numeric columns
+    numeric_cols = ["total_amount", "balance", "amount"]
+    for col in numeric_cols:
+        if col in dataframe.columns:
+            dataframe[col] = pd.to_numeric(dataframe[col], errors="coerce")
+    
+    # Convert date columns
+    date_cols = ["date", "txn_date", "due_date", "created_date"]
+    for col in date_cols:
+        if col in dataframe.columns:
+            dataframe[col] = pd.to_datetime(dataframe[col], errors="coerce")
+    
+    # Create derived columns for analysis
+    if "txn_date" in dataframe.columns:
+        dataframe["year_month"] = dataframe["txn_date"].dt.to_period("M")
+        dataframe["week"] = dataframe["txn_date"].dt.isocalendar().week
+        dataframe["day_of_week"] = dataframe["txn_date"].dt.day_name()
+        dataframe["days_since_txn"] = (pd.Timestamp.now() - dataframe["txn_date"]).dt.days
+    
+    return dataframe
+
+# Apply enhanced preprocessing
+df = preprocess_financial_data(df)
+gl_df = preprocess_financial_data(gl_df)  # Keep GL data available for future use
+
+st.title("QBO Dashboard")
+st.markdown("---")
+
+# -------------------------
+# UNIFIED LOAN & CUSTOMER ANALYSIS
+# -------------------------
+st.header("🎯 Unified Loan & Customer Performance")
+
+# Add tabs for different views
+tab1, tab2, tab3 = st.tabs(["📊 Unified Analysis", "🏦 Loan Tape Only", "👥 Customer Summary"])
+
+with tab1:
+    st.subheader("Comprehensive Loan & Customer Analysis")
+    
+    if unified_data_df.empty:
+        st.warning("No unified data available. This could be due to:")
+        st.markdown("- No closed/won deals in HubSpot")
+        st.markdown("- No matching data between deals and QBO payments")
+        st.markdown("- Data inconsistency between deal names and customer names")
+    else:
+        # Unified summary metrics
+        total_unified_loans = len(unified_data_df)
+        total_participation = unified_data_df.get("Participation Amount", pd.Series([0])).sum()
+        total_expected_return = unified_data_df.get("Expected Return", pd.Series([0])).sum()
+        total_rtr_amount = unified_data_df.get("RTR Amount", pd.Series([0])).sum()
+        avg_rtr_percentage = unified_data_df.get("RTR %", pd.Series([0])).mean()
+        
+        # Display unified summary metrics
+        col1, col2, col3, col4, col5 = st.columns(5)
+        with col1:
+            st.metric("Total Loans", f"{total_unified_loans:,}")
+        with col2:
+            st.metric("Total Participation", f"${total_participation:,.0f}")
+        with col3:
+            st.metric("Expected Return", f"${total_expected_return:,.0f}")
+        with col4:
+            st.metric("Actual RTR", f"${total_rtr_amount:,.0f}")
+        with col5:
+            st.metric("Avg RTR %", f"{avg_rtr_percentage:.1f}%")
+        
+        # Additional unified metrics
+        col6, col7, col8 = st.columns(3)
+        with col6:
+            loans_with_payments = (unified_data_df.get("RTR Amount", pd.Series([0])) > 0).sum()
+            st.metric("Loans with Payments", f"{loans_with_payments}/{total_unified_loans}")
+        with col7:
+            portfolio_rtr = (total_rtr_amount / total_participation) * 100 if total_participation > 0 else 0
+            st.metric("Portfolio RTR %", f"{portfolio_rtr:.1f}%")
+        with col8:
+            total_unattributed = unified_data_df.get("Unattributed Amount", pd.Series([0])).sum()
+            st.metric("Unattributed Payments", f"${total_unattributed:,.0f}")
+        
+        # Display unified table
+        st.subheader("Unified Loan & Customer Performance Table")
+        
+        # Format the unified dataframe for display
+        display_unified_df = unified_data_df.copy()
+        
+        # Format currency columns
+        currency_cols = ["Participation Amount", "Expected Return", "RTR Amount", "Total Customer Payments", "Unattributed Amount"]
+        for col in currency_cols:
+            if col in display_unified_df.columns:
+                display_unified_df[col] = display_unified_df[col].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "$0")
+        
+        # Format percentage columns
+        percentage_cols = ["Factor Rate", "RTR %", "Attribution %"]
+        for col in percentage_cols:
+            if col in display_unified_df.columns:
+                if col == "Factor Rate":
+                    display_unified_df[col] = display_unified_df[col].apply(lambda x: f"{x:.3f}" if pd.notnull(x) else "N/A")
+                else:
+                    display_unified_df[col] = display_unified_df[col].apply(lambda x: f"{x:.1f}%" if pd.notnull(x) else "N/A")
+        
+        # Format numeric columns
+        numeric_cols = ["TIB", "FICO", "Days Since Last Payment"]
+        for col in numeric_cols:
+            if col in display_unified_df.columns:
+                display_unified_df[col] = display_unified_df[col].apply(lambda x: f"{x:,.0f}" if pd.notnull(x) else "N/A")
+        
+        # Display the table with better column configuration
+        st.dataframe(
+            display_unified_df,
+            use_container_width=True,
+            column_config={
+                "Loan ID": st.column_config.TextColumn("Loan ID", width="small"),
+                "Deal Name": st.column_config.TextColumn("Deal Name", width="medium"),
+                "QBO Customer": st.column_config.TextColumn("QBO Customer", width="medium"),
+                "Factor Rate": st.column_config.TextColumn("Factor Rate", width="small"),
+                "Participation Amount": st.column_config.TextColumn("Participation", width="medium"),
+                "RTR Amount": st.column_config.TextColumn("RTR Amount", width="medium"),
+                "RTR %": st.column_config.TextColumn("RTR %", width="small"),
+                "Total Customer Payments": st.column_config.TextColumn("Customer Total", width="medium"),
+                "Attribution %": st.column_config.TextColumn("Attribution %", width="small"),
+                "Unattributed Amount": st.column_config.TextColumn("Unattributed", width="medium")
+            }
+        )
+        
+        # Download unified data
+        unified_csv = unified_data_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="📥 Download Unified Analysis (CSV)",
+            data=unified_csv,
+            file_name=f"unified_loan_customer_analysis_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv"
+        )
+
+with tab2:
+    st.subheader("Traditional Loan Tape")
+    
+    if loan_tape_df.empty:
+        st.warning("No loan tape data available.")
+    else:
+        # Loan tape summary metrics
+        total_loans = len(loan_tape_df)
+        total_participation = loan_tape_df.get("Total Participation", pd.Series([0])).sum()
+        total_expected_return = loan_tape_df.get("Total Return", pd.Series([0])).sum()
+        total_rtr_amount = loan_tape_df.get("RTR Amount", pd.Series([0])).sum()
+        avg_rtr_percentage = loan_tape_df.get("RTR %", pd.Series([0])).mean()
+        loans_with_payments = (loan_tape_df.get("RTR Amount", pd.Series([0])) > 0).sum()
+        
+        # Display summary metrics
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Loans", f"{total_loans:,}")
+        with col2:
+            st.metric("Total Participation", f"${total_participation:,.0f}")
+        with col3:
+            st.metric("Actual RTR", f"${total_rtr_amount:,.0f}")
+        with col4:
+            st.metric("Loans with Payments", f"{loans_with_payments}/{total_loans}")
+        
+        # Display loan tape table
+        st.subheader("Loan Performance Details")
+        
+        # Format the dataframe for display
+        display_df = loan_tape_df.copy()
+        
+        # Format currency columns
+        currency_cols = ["Total Participation", "Total Return", "RTR Amount"]
+        for col in currency_cols:
+            if col in display_df.columns:
+                display_df[col] = display_df[col].apply(lambda x: f"${x:,.0f}" if pd.notnull(x) else "$0")
+        
+        # Format percentage columns
+        if "Factor Rate" in display_df.columns:
+            display_df["Factor Rate"] = display_df["Factor Rate"].apply(lambda x: f"{x:.3f}" if pd.notnull(x) else "N/A")
+        if "RTR %" in display_df.columns:
+            display_df["RTR %"] = display_df["RTR %"].apply(lambda x: f"{x:.1f}%" if pd.notnull(x) else "N/A")
+        
+        # Format other numeric columns
+        if "TIB" in display_df.columns:
+            display_df["TIB"] = display_df["TIB"].apply(lambda x: f"{x:,.0f}" if pd.notnull(x) else "N/A")
+        if "FICO" in display_df.columns:
+            display_df["FICO"] = display_df["FICO"].apply(lambda x: f"{x:.0f}" if pd.notnull(x) else "N/A")
+        
+        # Display with better formatting
+        st.dataframe(
+            display_df,
+            use_container_width=True,
+            column_config={
+                "Loan ID": st.column_config.TextColumn("Loan ID", width="small"),
+                "Customer": st.column_config.TextColumn("Customer", width="medium"),
+                "Factor Rate": st.column_config.TextColumn("Factor Rate", width="small"),
+                "Total Participation": st.column_config.TextColumn("Total Participation", width="medium"),
+                "Total Return": st.column_config.TextColumn("Total Return", width="medium"),
+                "RTR Amount": st.column_config.TextColumn("RTR Amount", width="medium"),
+                "RTR %": st.column_config.TextColumn("RTR %", width="small"),
+                "Payment Count": st.column_config.NumberColumn("Payment Count", width="small"),
+                "TIB": st.column_config.TextColumn("TIB", width="small"),
+                "FICO": st.column_config.TextColumn("FICO", width="small")
+            }
+        )
+        
+        # Download loan tape
+        loan_tape_csv = loan_tape_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="📥 Download Loan Tape (CSV)",
+            data=loan_tape_csv,
+            file_name=f"loan_tape_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv"
+        )
+
+with tab3:
+    st.subheader("Customer Payment Summary")
+    
+    if not df.empty:
+        customer_summary_df = get_customer_payment_summary(df)
+        
+        if not customer_summary_df.empty:
+            # Format for display
+            display_customer_df = customer_summary_df.copy()
+            display_customer_df["Total Payments"] = display_customer_df["Total Payments"].apply(lambda x: f"${x:,.0f}")
+            display_customer_df["Unattributed Amount"] = display_customer_df["Unattributed Amount"].apply(lambda x: f"${x:,.0f}")
+            
+            st.dataframe(
+                display_customer_df,
+                use_container_width=True,
+                column_config={
+                    "Customer": st.column_config.TextColumn("Customer", width="medium"),
+                    "Total Payments": st.column_config.TextColumn("Total Payments", width="medium"),
+                    "Payment Count": st.column_config.NumberColumn("Payment Count", width="small"),
+                    "Unique Loans": st.column_config.NumberColumn("Unique Loans", width="small"),
+                    "Unattributed Amount": st.column_config.TextColumn("Unattributed Amount", width="medium"),
+                    "Unattributed Count": st.column_config.NumberColumn("Unattributed Count", width="small")
+                }
+            )
+            
+            # Summary of unattributed payments
+            total_unattributed = customer_summary_df["Unattributed Amount"].sum()
+            customers_with_unattributed = (customer_summary_df["Unattributed Amount"] > 0).sum()
+            
+            if total_unattributed > 0:
+                st.warning(f"⚠️ ${total_unattributed:,.0f} in unattributed payments across {customers_with_unattributed} customers")
+            
+            # Download customer summary
+            customer_csv = customer_summary_df.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="📥 Download Customer Summary (CSV)",
+                data=customer_csv,
+                file_name=f"customer_payment_summary_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
+        else:
+            st.info("No customer payment data available")
+    else:
+        st.warning("No QBO payment data available for customer analysis")
+
+st.markdown("---")
+
+# -------------------------
+# EXECUTIVE SUMMARY
+# -------------------------
+st.header("Executive Summary")
+
+if not df.empty:
+    # Data source indicator
+    st.info("Data Source: Transaction Data (qbo_invoice_payments table) | GL Data available for future analysis")
+    
+    # Data range indicator
+    if "txn_date" in df.columns:
+        date_range = f"{df['txn_date'].min().strftime('%Y-%m-%d')} to {df['txn_date'].max().strftime('%Y-%m-%d')}"
+        st.info(f"Date Range: {date_range}")
+    
+    # Key metrics summary
+    total_customers = df["customer_name"].nunique()
+    total_transactions = len(df)
+    total_volume = df["total_amount"].sum()
+    avg_transaction_size = df["total_amount"].mean()
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Customers", f"{total_customers:,}")
+    with col2:
+        st.metric("Total Transactions", f"{total_transactions:,}")
+    with col3:
+        st.metric("Total Volume", f"${total_volume:,.0f}")
+    with col4:
+        st.metric("Avg Transaction", f"${avg_transaction_size:,.0f}")
+
+st.markdown("---")
+
+st.title("MCA Dashboard")
+st.markdown("---")
+
+# -------------------------
+# 1. RISK ANALYSIS SECTION
+# -------------------------
+st.header("Risk Analysis")
+
+# Transaction-based risk metrics
+if df.empty:
+    st.warning("No transaction data available for risk analysis")
+else:
+    # Focus on transaction data for risk analysis
+    risk_df = df[df["transaction_type"].isin(["Invoice", "Payment"])].copy()
+    risk_df = risk_df[~risk_df["customer_name"].isin(["CSL", "VEEM"])]
+    
+    if not risk_df.empty:
+        # Calculate comprehensive risk metrics
+        risk_df["total_amount"] = risk_df["total_amount"].abs()
+        
+        # Customer-level risk analysis
+        customer_risk = risk_df.groupby("customer_name").agg({
+            "total_amount": ["sum", "count", "std"],
+            "txn_date": ["min", "max"]
+        }).reset_index()
+        
+        customer_risk.columns = ["customer_name", "total_volume", "txn_count", "amount_volatility", "first_txn", "last_txn"]
+        customer_risk["days_active"] = (customer_risk["last_txn"] - customer_risk["first_txn"]).dt.days
+        customer_risk["avg_txn_size"] = customer_risk["total_volume"] / customer_risk["txn_count"]
+        customer_risk["volatility_ratio"] = customer_risk["amount_volatility"] / customer_risk["avg_txn_size"]
+        
+        # Calculate payment behavior
+        payment_behavior = risk_df.pivot_table(
+            index="customer_name",
+            columns="transaction_type", 
+            values="total_amount",
+            aggfunc="sum",
+            fill_value=0
+        ).reset_index()
+        
+        if "Invoice" in payment_behavior.columns and "Payment" in payment_behavior.columns:
+            payment_behavior["payment_ratio"] = np.where(
+                payment_behavior["Invoice"] > 0,
+                payment_behavior["Payment"] / payment_behavior["Invoice"],
+                0
+            )
+            payment_behavior["outstanding_balance"] = payment_behavior["Invoice"] - payment_behavior["Payment"]
+            
+            # Risk scoring
+            payment_behavior["risk_score"] = (
+                (1 - payment_behavior["payment_ratio"]) * 0.4 +  # 40% weight on payment ratio
+                (payment_behavior["outstanding_balance"] / payment_behavior["Invoice"].max()) * 0.3 +  # 30% weight on relative balance
+                np.where(payment_behavior["payment_ratio"] < 0.5, 0.3, 0)  # 30% penalty for low payment ratio
+            )
+            
+            # Risk categories
+            payment_behavior["risk_category"] = pd.cut(
+                payment_behavior["risk_score"],
+                bins=[0, 0.2, 0.5, 1.0],
+                labels=["Low Risk", "Medium Risk", "High Risk"]
+            )
+            
+            # Display risk dashboard with explanations
+            st.markdown("Risk Scoring Methodology: Risk Score = 40% Payment Ratio + 30% Relative Balance + 30% Low Payment Penalty")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                high_risk_count = (payment_behavior["risk_category"] == "High Risk").sum()
+                st.metric("High Risk Customers", high_risk_count, 
+                         help="Customers with risk score > 0.5 (poor payment behavior)")
+            with col2:
+                avg_payment_ratio = payment_behavior["payment_ratio"].mean()
+                st.metric("Avg Payment Ratio", f"{avg_payment_ratio:.1%}",
+                         help="Average of (Total Payments / Total Invoices) across all customers")
+            with col3:
+                total_outstanding = payment_behavior["outstanding_balance"].sum()
+                st.metric("Total Outstanding", f"${total_outstanding:,.0f}",
+                         help="Sum of all unpaid invoice amounts across customers")
+            with col4:
+                avg_risk_score = payment_behavior["risk_score"].mean()
+                st.metric("Avg Risk Score", f"{avg_risk_score:.2f}",
+                         help="Average risk score (0=lowest risk, 1=highest risk)")
+            
+            # Risk visualization with light colors
+            risk_chart = alt.Chart(payment_behavior.head(20)).mark_circle(size=100, stroke='black', strokeWidth=1).encode(
+                x=alt.X("payment_ratio:Q", title="Payment Ratio", axis=alt.Axis(format=".1%")),
+                y=alt.Y("outstanding_balance:Q", title="Outstanding Balance ($)", axis=alt.Axis(format="$,.0f")),
+                color=alt.Color("risk_category:N", title="Risk Category", 
+                              scale=alt.Scale(range=["lightgreen", "orange", "lightcoral"])),
+                size=alt.Size("Invoice:Q", title="Invoice Volume", scale=alt.Scale(range=[50, 400])),
+                tooltip=["customer_name", "payment_ratio:Q", "outstanding_balance:Q", "risk_category"]
+            ).properties(
+                width=700, height=400,
+                title="Customer Risk Profile: Payment Ratio vs Outstanding Balance"
+            )
+            
+            st.altair_chart(risk_chart, use_container_width=True)
+
+# Continue with rest of dashboard sections...
+# [The rest of the code remains the same - cash flow analysis, forecasting, advanced analytics, etc.]
+
+# -------------------------
+# SUMMARY & ALERTS
+# -------------------------
+st.header("Summary & Alerts")
+
+if df.empty:
+    st.error("No transaction data available for analysis")
+else:
+    # Risk summary
+    if 'payment_behavior' in locals():
+        high_risk_pct = (payment_behavior["risk_category"] == "High Risk").mean() * 100
+        st.warning(f"WARNING: {high_risk_pct:.1f}% of customers are classified as High Risk")
+    
+    # Unified data alerts
+    if not unified_data_df.empty:
+        total_unattributed = unified_data_df.get("Unattributed Amount", pd.Series([0])).sum()
+        if total_unattributed > 0:
+            st.warning(f"ATTENTION: ${total_unattributed:,.0f} in unattributed payments require loan ID assignment")
+        
+        avg_attribution = unified_data_df.get("Attribution %", pd.Series([100])).mean()
+        if avg_attribution < 90:
+            st.warning(f"ATTRIBUTION: Average attribution rate is {avg_attribution:.1f}% - consider improving loan ID tracking")
+
+st.markdown("---")
+st.markdown("*Dashboard last updated: " + pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S") + "*")
+st.markdown("*GL Data loaded and available for future analysis modules*")# pages/qbo_dashboard_enhanced.py
+from utils.imports import *
+from utils.qbo_data_loader import load_qbo_data, load_deals, load_mca_deals
 from utils.loan_tape_loader import load_loan_tape_data, get_customer_payment_summary
 import numpy as np
 from datetime import datetime, timedelta
