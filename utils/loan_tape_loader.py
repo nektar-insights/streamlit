@@ -38,6 +38,36 @@ def load_loan_tape_data():
     
     return loan_tape
 
+def load_unified_loan_customer_data():
+    """
+    Load unified loan and customer payment data in a single comprehensive table
+    
+    Returns:
+        pd.DataFrame: Combined loan performance and customer payment analysis
+    """
+    supabase = get_supabase_client()
+    
+    # Load deals data
+    deals_res = supabase.table("deals").select("*").execute()
+    deals_df = pd.DataFrame(deals_res.data)
+    
+    # Load QBO payment data
+    qbo_res = supabase.table("qbo_invoice_payments").select("*").execute()
+    qbo_df = pd.DataFrame(qbo_res.data)
+    
+    if deals_df.empty or qbo_df.empty:
+        print("Warning: Missing deals or QBO data for unified analysis")
+        return pd.DataFrame()
+    
+    # Clean and prepare data
+    deals_df = _prepare_deals_data(deals_df)
+    qbo_df = _prepare_qbo_data(qbo_df)
+    
+    # Create unified loan-customer analysis
+    unified_data = _create_unified_loan_customer_table(deals_df, qbo_df)
+    
+    return unified_data
+
 def _prepare_deals_data(deals_df):
     """Prepare and clean deals data"""
     # Convert numeric columns
@@ -134,6 +164,140 @@ def _create_loan_tape(deals_df, qbo_df):
         loan_tape_final = loan_tape_final.sort_values("RTR %", ascending=False)
     
     return loan_tape_final
+
+def _create_unified_loan_customer_table(deals_df, qbo_df):
+    """
+    Create a unified table combining loan performance with customer payment analysis
+    """
+    
+    # Step 1: Create customer-level aggregations from QBO data
+    customer_summary = qbo_df.groupby("customer_name").agg({
+        "total_amount": ["sum", "count", "mean"],
+        "loan_id": lambda x: x.nunique(),  # Unique loans per customer
+        "txn_date": ["min", "max"]
+    }).reset_index()
+    
+    # Flatten column names
+    customer_summary.columns = [
+        "customer_name", "total_customer_payments", "total_payment_count", 
+        "avg_payment_size", "unique_loans_with_payments", "first_payment", "last_payment"
+    ]
+    
+    # Step 2: Calculate unattributed payments per customer
+    unattributed = qbo_df[
+        qbo_df["loan_id"].isin(["", "nan", "None", "NULL"]) | 
+        qbo_df["loan_id"].isna()
+    ].groupby("customer_name").agg({
+        "total_amount": ["sum", "count"]
+    }).reset_index()
+    
+    if not unattributed.empty:
+        unattributed.columns = ["customer_name", "unattributed_amount", "unattributed_count"]
+        customer_summary = customer_summary.merge(unattributed, on="customer_name", how="left")
+    else:
+        customer_summary["unattributed_amount"] = 0
+        customer_summary["unattributed_count"] = 0
+    
+    customer_summary["unattributed_amount"] = customer_summary["unattributed_amount"].fillna(0)
+    customer_summary["unattributed_count"] = customer_summary["unattributed_count"].fillna(0)
+    
+    # Step 3: Create loan-level data with payments
+    loan_payments = qbo_df.groupby("loan_id").agg({
+        "total_amount": "sum",
+        "txn_date": ["count", "min", "max"],
+        "customer_name": "first"  # Get customer name for each loan
+    }).reset_index()
+    
+    # Flatten columns
+    loan_payments.columns = ["loan_id", "rtr_amount", "payment_count", "first_payment_date", "last_payment_date", "qbo_customer_name"]
+    
+    # Step 4: Join deals with loan payments
+    unified = deals_df.merge(loan_payments, on="loan_id", how="left")
+    
+    # Fill missing payment data
+    unified["rtr_amount"] = unified["rtr_amount"].fillna(0)
+    unified["payment_count"] = unified["payment_count"].fillna(0)
+    
+    # Calculate loan-level metrics
+    unified["rtr_percentage"] = (unified["rtr_amount"] / unified["amount"]) * 100
+    unified["rtr_percentage"] = unified["rtr_percentage"].fillna(0)
+    
+    # Step 5: Add customer-level summary data
+    # First, try to match on deal_name to customer_name
+    unified_with_customer = unified.merge(
+        customer_summary, 
+        left_on="deal_name", 
+        right_on="customer_name", 
+        how="left"
+    )
+    
+    # If that doesn't work well, try matching on qbo_customer_name
+    missing_customer_data = unified_with_customer["customer_name"].isna()
+    if missing_customer_data.any():
+        # For rows missing customer data, try matching on qbo_customer_name
+        customer_backup = unified_with_customer[missing_customer_data].merge(
+            customer_summary,
+            left_on="qbo_customer_name",
+            right_on="customer_name",
+            how="left",
+            suffixes=("", "_backup")
+        )
+        
+        # Fill in missing customer data
+        for col in customer_summary.columns:
+            if col != "customer_name" and col in customer_backup.columns:
+                unified_with_customer.loc[missing_customer_data, col] = customer_backup[col].values
+    
+    # Step 6: Calculate additional metrics
+    unified_with_customer["customer_attributed_percentage"] = (
+        (unified_with_customer["total_customer_payments"] - unified_with_customer["unattributed_amount"]) /
+        unified_with_customer["total_customer_payments"] * 100
+    ).fillna(0)
+    
+    unified_with_customer["days_since_last_payment"] = (
+        pd.Timestamp.now() - pd.to_datetime(unified_with_customer["last_payment"])
+    ).dt.days
+    
+    # Step 7: Select and format final columns
+    final_columns = {
+        "loan_id": "Loan ID",
+        "deal_name": "Deal Name",
+        "customer_name": "QBO Customer",
+        "factor_rate": "Factor Rate",
+        "amount": "Participation Amount",
+        "total_return": "Expected Return",
+        "rtr_amount": "RTR Amount",
+        "rtr_percentage": "RTR %",
+        "payment_count": "Loan Payment Count",
+        "first_payment_date": "First Payment",
+        "last_payment_date": "Last Payment",
+        "total_customer_payments": "Total Customer Payments",
+        "total_payment_count": "Total Customer Payment Count",
+        "unique_loans_with_payments": "Customer Active Loans",
+        "unattributed_amount": "Unattributed Amount",
+        "unattributed_count": "Unattributed Count",
+        "customer_attributed_percentage": "Attribution %",
+        "days_since_last_payment": "Days Since Last Payment",
+        "tib": "TIB",
+        "fico": "FICO",
+        "partner_source": "Partner Source",
+        "date_created": "Deal Date"
+    }
+    
+    # Select available columns
+    available_columns = [col for col in final_columns.keys() if col in unified_with_customer.columns]
+    unified_final = unified_with_customer[available_columns].copy()
+    
+    # Rename columns
+    unified_final = unified_final.rename(columns={
+        col: final_columns[col] for col in available_columns
+    })
+    
+    # Sort by RTR percentage descending
+    if "RTR %" in unified_final.columns:
+        unified_final = unified_final.sort_values("RTR %", ascending=False)
+    
+    return unified_final
 
 def get_customer_payment_summary(qbo_df):
     """
