@@ -1,6 +1,6 @@
 # pages/qbo_dashboard.py
 from utils.imports import *
-from utils.data_loader import load_qbo_data, load_deals, load_mca_deals
+from utils.qbo_data_loader import load_qbo_data, load_deals, load_mca_deals
 
 # -------------------------
 # Setup: Supabase Connection & Load Data
@@ -11,8 +11,6 @@ supabase = get_supabase_client()
 df, gl_df = load_qbo_data()
 deals_df = load_deals()
 mca_deals_df = load_mca_deals()
-
-
 
 # -------------------------
 # Preprocess Transactions
