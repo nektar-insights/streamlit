@@ -49,13 +49,43 @@ def preprocess_financial_data(dataframe):
 df = preprocess_financial_data(df)
 gl_df = preprocess_financial_data(gl_df)
 
-st.title("🏦 Enhanced MCA Dashboard - Risk, Cash Flow & Forecasting")
+st.title("MCA Dashboard")
+st.markdown("---")
+
+# -------------------------
+# EXECUTIVE SUMMARY
+# -------------------------
+st.header("Executive Summary")
+
+if not df.empty:
+    # Data source indicator
+    st.info("Data Source: Primary analysis uses Transaction Data (qbo_invoice_payments table)")
+    
+    # Key metrics summary
+    total_customers = df["customer_name"].nunique()
+    total_transactions = len(df)
+    total_volume = df["total_amount"].sum()
+    avg_transaction_size = df["total_amount"].mean()
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Customers", f"{total_customers:,}")
+    with col2:
+        st.metric("Total Transactions", f"{total_transactions:,}")
+    with col3:
+        st.metric("Total Volume", f"${total_volume:,.0f}")
+    with col4:
+        st.metric("Avg Transaction", f"${avg_transaction_size:,.0f}")
+
+st.markdown("---")
+
+st.title("MCA Dashboard")
 st.markdown("---")
 
 # -------------------------
 # 1. RISK ANALYSIS SECTION
 # -------------------------
-st.header("🚨 Risk Analysis")
+st.header("Risk Analysis")
 
 # Transaction-based risk metrics
 if not df.empty:
@@ -106,30 +136,37 @@ if not df.empty:
             payment_behavior["risk_category"] = pd.cut(
                 payment_behavior["risk_score"],
                 bins=[0, 0.2, 0.5, 1.0],
-                labels=["🟢 Low Risk", "🟡 Medium Risk", "🔴 High Risk"]
+                labels=["Low Risk", "Medium Risk", "High Risk"]
             )
             
-            # Display risk dashboard
+            # Display risk dashboard with explanations
+            st.markdown("Risk Scoring Methodology: Risk Score = 40% Payment Ratio + 30% Relative Balance + 30% Low Payment Penalty")
+            
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                high_risk_count = (payment_behavior["risk_category"] == "🔴 High Risk").sum()
-                st.metric("High Risk Customers", high_risk_count)
+                high_risk_count = (payment_behavior["risk_category"] == "High Risk").sum()
+                st.metric("High Risk Customers", high_risk_count, 
+                         help="Customers with risk score > 0.5 (poor payment behavior)")
             with col2:
                 avg_payment_ratio = payment_behavior["payment_ratio"].mean()
-                st.metric("Avg Payment Ratio", f"{avg_payment_ratio:.1%}")
+                st.metric("Avg Payment Ratio", f"{avg_payment_ratio:.1%}",
+                         help="Average of (Total Payments / Total Invoices) across all customers")
             with col3:
                 total_outstanding = payment_behavior["outstanding_balance"].sum()
-                st.metric("Total Outstanding", f"${total_outstanding:,.0f}")
+                st.metric("Total Outstanding", f"${total_outstanding:,.0f}",
+                         help="Sum of all unpaid invoice amounts across customers")
             with col4:
                 avg_risk_score = payment_behavior["risk_score"].mean()
-                st.metric("Avg Risk Score", f"{avg_risk_score:.2f}")
+                st.metric("Avg Risk Score", f"{avg_risk_score:.2f}",
+                         help="Average risk score (0=lowest risk, 1=highest risk)")
             
-            # Risk visualization
-            risk_chart = alt.Chart(payment_behavior.head(20)).mark_circle(size=100).encode(
+            # Risk visualization with light colors
+            risk_chart = alt.Chart(payment_behavior.head(20)).mark_circle(size=100, stroke='black', strokeWidth=1).encode(
                 x=alt.X("payment_ratio:Q", title="Payment Ratio", axis=alt.Axis(format=".1%")),
                 y=alt.Y("outstanding_balance:Q", title="Outstanding Balance ($)", axis=alt.Axis(format="$,.0f")),
-                color=alt.Color("risk_category:N", title="Risk Category"),
-                size=alt.Size("Invoice:Q", title="Invoice Volume"),
+                color=alt.Color("risk_category:N", title="Risk Category", 
+                              scale=alt.Scale(range=["lightgreen", "orange", "lightcoral"])),
+                size=alt.Size("Invoice:Q", title="Invoice Volume", scale=alt.Scale(range=[50, 400])),
                 tooltip=["customer_name", "payment_ratio:Q", "outstanding_balance:Q", "risk_category"]
             ).properties(
                 width=700, height=400,
@@ -141,9 +178,11 @@ if not df.empty:
 # -------------------------
 # 2. ENHANCED CASH FLOW ANALYSIS
 # -------------------------
-st.header("💰 Cash Flow Analysis")
+st.header("Cash Flow Analysis")
 
 if not df.empty and "txn_date" in df.columns:
+    st.info("Data Source: Using Transaction Data for cash flow analysis")
+    
     # Transaction-based cash flow analysis
     cash_flow_df = df.copy()
     
@@ -198,24 +237,30 @@ if not df.empty and "txn_date" in df.columns:
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         avg_daily_flow = daily_cash_flow["net_cash_flow"].mean()
-        st.metric("Avg Daily Cash Flow", f"${avg_daily_flow:,.0f}")
+        st.metric("Avg Daily Cash Flow", f"${avg_daily_flow:,.0f}",
+                 help="Average daily net cash flow (inflows minus outflows)")
     with col2:
         cash_flow_volatility = daily_cash_flow["net_cash_flow"].std()
-        st.metric("Cash Flow Volatility", f"${cash_flow_volatility:,.0f}")
+        st.metric("Cash Flow Volatility", f"${cash_flow_volatility:,.0f}",
+                 help="Standard deviation of daily cash flows - higher values indicate more unpredictable cash flow")
     with col3:
         positive_days = (daily_cash_flow["net_cash_flow"] > 0).sum()
         total_days = len(daily_cash_flow)
-        st.metric("Positive Cash Flow Days", f"{positive_days}/{total_days}")
+        st.metric("Positive Cash Flow Days", f"{positive_days}/{total_days}",
+                 help="Number of days with positive net cash flow out of total days")
     with col4:
         current_position = daily_cash_flow["cumulative_cash_flow"].iloc[-1]
-        st.metric("Current Cash Position", f"${current_position:,.0f}")
+        st.metric("Current Cash Position", f"${current_position:,.0f}",
+                 help="Cumulative cash flow from all transactions in the period")
 
 # -------------------------
 # 3. ADVANCED FORECASTING
 # -------------------------
-st.header("🔮 Cash Flow Forecasting")
+st.header("Cash Flow Forecasting")
 
 if not df.empty and len(daily_cash_flow) >= 30:
+    st.info("Forecasting Method: 30-day moving average with seasonal adjustments based on day-of-week patterns")
+    
     # Prepare data for forecasting
     forecast_data = daily_cash_flow.copy()
     forecast_data["date"] = pd.to_datetime(forecast_data["date"])
@@ -280,22 +325,27 @@ if not df.empty and len(daily_cash_flow) >= 30:
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("30-Day Forecast Total", f"${forecast_sum:,.0f}")
+        st.metric("30-Day Forecast Total", f"${forecast_sum:,.0f}",
+                 help="Sum of projected daily cash flows for the next 30 days")
     with col2:
-        st.metric("Avg Daily Forecast", f"${forecast_avg:,.0f}")
+        st.metric("Avg Daily Forecast", f"${forecast_avg:,.0f}",
+                 help="Average projected daily cash flow over the next 30 days")
     with col3:
         confidence_interval = np.std(forecast_data["net_cash_flow"].tail(30)) * 1.96
-        st.metric("Forecast Confidence (±)", f"${confidence_interval:,.0f}")
+        st.metric("Forecast Confidence (±)", f"${confidence_interval:,.0f}",
+                 help="95% confidence interval - actual values likely within ± this amount of forecast")
 
 # -------------------------
 # 4. THREE ADDITIONAL ADVANCED VISUALS
 # -------------------------
 
-st.header("📊 Advanced Analytics")
+st.header("Advanced Analytics")
 
 # VISUAL 1: Transaction Velocity and Frequency Analysis
 st.subheader("1. Transaction Velocity & Frequency Analysis")
 if not df.empty:
+    st.markdown("Velocity Score: Transaction Count × Average Transaction Size - measures customer engagement intensity")
+    
     # Calculate transaction velocity (transactions per customer per time period)
     velocity_df = df.groupby(["customer_name", df["txn_date"].dt.to_period("M")]).agg({
         "total_amount": ["sum", "count"],
@@ -308,10 +358,9 @@ if not df.empty:
     # Top customers by transaction velocity
     top_velocity = velocity_df.groupby("customer_name")["velocity_score"].mean().sort_values(ascending=False).head(15)
     
-    velocity_chart = alt.Chart(top_velocity.reset_index()).mark_bar().encode(
+    velocity_chart = alt.Chart(top_velocity.reset_index()).mark_bar(color='lightblue', stroke='darkblue', strokeWidth=1).encode(
         x=alt.X("velocity_score:Q", title="Velocity Score"),
         y=alt.Y("customer_name:N", sort="-x", title="Customer"),
-        color=alt.Color("velocity_score:Q", scale=alt.Scale(scheme="viridis"), legend=None),
         tooltip=["customer_name", "velocity_score:Q"]
     ).properties(
         width=700, height=400,
@@ -323,6 +372,8 @@ if not df.empty:
 # VISUAL 2: Payment Timing Analysis (Critical for MCA risk assessment)
 st.subheader("2. Payment Timing Analysis")
 if not df.empty:
+    st.markdown("Purpose: Identifies when customers typically make payments - critical for MCA cash flow predictions")
+    
     payment_timing = df[df["transaction_type"] == "Payment"].copy()
     if not payment_timing.empty:
         payment_timing["hour"] = payment_timing["txn_date"].dt.hour
@@ -331,11 +382,11 @@ if not df.empty:
         # Heatmap data
         timing_heatmap = payment_timing.groupby(["day_of_week", "hour"]).size().reset_index(name="payment_count")
         
-        # Create heatmap
-        heatmap = alt.Chart(timing_heatmap).mark_rect().encode(
+        # Create heatmap with light colors
+        heatmap = alt.Chart(timing_heatmap).mark_rect(stroke='white', strokeWidth=2).encode(
             x=alt.X("hour:O", title="Hour of Day"),
             y=alt.Y("day_of_week:O", title="Day of Week", sort=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]),
-            color=alt.Color("payment_count:Q", scale=alt.Scale(scheme="blues"), title="Payment Count"),
+            color=alt.Color("payment_count:Q", scale=alt.Scale(scheme="lightgreyteal"), title="Payment Count"),
             tooltip=["day_of_week", "hour:O", "payment_count"]
         ).properties(
             width=700, height=300,
@@ -347,6 +398,8 @@ if not df.empty:
 # VISUAL 3: Customer Lifecycle and Cohort Analysis
 st.subheader("3. Customer Lifecycle & Cohort Analysis")
 if not df.empty:
+    st.markdown("Customer Lifespan: Days between first and last transaction. Value per Month: Total customer value divided by months active")
+    
     # Calculate customer lifecycle metrics
     lifecycle_df = df.groupby("customer_name").agg({
         "txn_date": ["min", "max", "count"],
@@ -365,12 +418,12 @@ if not df.empty:
         lifecycle_df["total_value"]
     )
     
-    # Scatter plot: Customer Age vs Value
-    lifecycle_scatter = alt.Chart(lifecycle_df).mark_circle(size=60).encode(
+    # Scatter plot: Customer Age vs Value with light colors and borders
+    lifecycle_scatter = alt.Chart(lifecycle_df).mark_circle(stroke='black', strokeWidth=1).encode(
         x=alt.X("customer_age_months:Q", title="Customer Age (Months)"),
         y=alt.Y("total_value:Q", title="Total Customer Value ($)", axis=alt.Axis(format="$,.0f")),
-        size=alt.Size("total_transactions:Q", title="Transaction Count"),
-        color=alt.Color("value_per_month:Q", scale=alt.Scale(scheme="viridis"), title="Value/Month"),
+        size=alt.Size("total_transactions:Q", title="Transaction Count", scale=alt.Scale(range=[50, 400])),
+        color=alt.Color("value_per_month:Q", scale=alt.Scale(scheme="lightgreyteal"), title="Value/Month"),
         tooltip=["customer_name", "customer_age_months:Q", "total_value:Q", "total_transactions:Q"]
     ).properties(
         width=700, height=400,
@@ -393,37 +446,21 @@ if not df.empty:
 # -------------------------
 # EXECUTIVE SUMMARY
 # -------------------------
-st.header("📋 Executive Summary")
+st.header("Summary & Alerts")
 
 if not df.empty:
-    # Key metrics summary
-    total_customers = df["customer_name"].nunique()
-    total_transactions = len(df)
-    total_volume = df["total_amount"].sum()
-    avg_transaction_size = df["total_amount"].mean()
-    
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Total Customers", f"{total_customers:,}")
-    with col2:
-        st.metric("Total Transactions", f"{total_transactions:,}")
-    with col3:
-        st.metric("Total Volume", f"${total_volume:,.0f}")
-    with col4:
-        st.metric("Avg Transaction", f"${avg_transaction_size:,.0f}")
-    
     # Risk summary
     if 'payment_behavior' in locals():
-        high_risk_pct = (payment_behavior["risk_category"] == "🔴 High Risk").mean() * 100
-        st.warning(f"⚠️ {high_risk_pct:.1f}% of customers are classified as High Risk")
+        high_risk_pct = (payment_behavior["risk_category"] == "High Risk").mean() * 100
+        st.warning(f"WARNING: {high_risk_pct:.1f}% of customers are classified as High Risk")
     
     # Cash flow summary
     if 'daily_cash_flow' in locals():
         recent_trend = daily_cash_flow["net_cash_flow"].tail(7).mean()
         if recent_trend > 0:
-            st.success(f"✅ Positive 7-day average cash flow: ${recent_trend:,.0f}")
+            st.success(f"POSITIVE: Positive 7-day average cash flow: ${recent_trend:,.0f}")
         else:
-            st.error(f"❌ Negative 7-day average cash flow: ${recent_trend:,.0f}")
+            st.error(f"NEGATIVE: Negative 7-day average cash flow: ${recent_trend:,.0f}")
 
 st.markdown("---")
 st.markdown("*Dashboard last updated: " + pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S") + "*")
