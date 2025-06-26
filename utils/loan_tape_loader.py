@@ -163,13 +163,19 @@ def get_customer_payment_summary(qbo_df):
     Get summary of payments by customer, including unattributed payments
     
     Args:
-        qbo_df: QBO payment dataframe
+        qbo_df: QBO payment dataframe (pass the raw df from main script)
         
     Returns:
         pd.DataFrame: Customer payment summary
     """
+    if qbo_df.empty:
+        return pd.DataFrame()
+    
     # Prepare QBO data
     qbo_clean = _prepare_qbo_data(qbo_df)
+    
+    if qbo_clean.empty:
+        return pd.DataFrame()
     
     # Customer level summary
     customer_summary = qbo_clean.groupby("customer_name").agg({
@@ -181,7 +187,7 @@ def get_customer_payment_summary(qbo_df):
     customer_summary.columns = ["Customer", "Total Payments", "Payment Count", "Unique Loans"]
     
     # Add unattributed payments (where loan_id is null or empty)
-    unattributed = qbo_clean[qbo_clean["loan_id"].isin(["", "nan", "None"])].groupby("customer_name").agg({
+    unattributed = qbo_clean[qbo_clean["loan_id"].isin(["", "nan", "None", "NULL"]) | qbo_clean["loan_id"].isna()].groupby("customer_name").agg({
         "total_amount": "sum",
         "txn_date": "count"
     }).reset_index()
