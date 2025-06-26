@@ -27,6 +27,10 @@ def load_loan_tape_data():
         print("Warning: No QBO payment data found")
         return pd.DataFrame()
     
+    # Debug: Print column names
+    print("Deals columns:", deals_df.columns.tolist())
+    print("QBO columns:", qbo_df.columns.tolist())
+    
     # Clean and prepare deals data
     deals_df = _prepare_deals_data(deals_df)
     
@@ -77,6 +81,10 @@ def _prepare_qbo_data(qbo_df):
 def _create_loan_tape(deals_df, qbo_df):
     """Create the loan tape by joining deals and payment data"""
     
+    # Debug: Print available columns
+    print("Available deals columns:", deals_df.columns.tolist())
+    print("Available QBO columns:", qbo_df.columns.tolist())
+    
     # Aggregate QBO payments by loan_id
     loan_payments = qbo_df.groupby("loan_id").agg({
         "total_amount": "sum",
@@ -95,40 +103,58 @@ def _create_loan_tape(deals_df, qbo_df):
     loan_tape["rtr_percentage"] = (loan_tape["rtr_amount"] / loan_tape["amount"]) * 100
     loan_tape["rtr_percentage"] = loan_tape["rtr_percentage"].fillna(0)
     
-    # Select and rename columns for final loan tape
-    loan_tape_final = loan_tape[[
-        "loan_id",
-        "customer_name",
-        "factor_rate", 
-        "amount",  # Total Participation
-        "total_return",
-        "rtr_amount",
-        "rtr_percentage", 
-        "payment_count",
-        "tib",
-        "fico",
-        "partner_source",
-        "date_created"
-    ]].copy()
+    # Debug: Print loan_tape columns after join
+    print("Loan tape columns after join:", loan_tape.columns.tolist())
+    
+    # Check what columns are actually available and build the selection dynamically
+    available_cols = loan_tape.columns.tolist()
+    
+    # Define column mapping - map desired name to possible actual column names
+    column_mapping = {
+        "loan_id": ["loan_id"],
+        "customer_name": ["customer_name", "dealname", "deal_name", "company", "account_name"],
+        "factor_rate": ["factor_rate"],
+        "amount": ["amount"],
+        "total_return": ["total_return"],
+        "rtr_amount": ["rtr_amount"],
+        "rtr_percentage": ["rtr_percentage"],
+        "payment_count": ["payment_count"],
+        "tib": ["tib"],
+        "fico": ["fico"],
+        "partner_source": ["partner_source", "source", "lead_source"],
+        "date_created": ["date_created", "createdate", "created_date"]
+    }
+    
+    # Build final column selection
+    final_columns = {}
+    for desired_col, possible_cols in column_mapping.items():
+        found_col = None
+        for possible_col in possible_cols:
+            if possible_col in available_cols:
+                found_col = possible_col
+                break
+        if found_col:
+            final_columns[found_col] = desired_col
+        else:
+            print(f"Warning: Could not find column for {desired_col}. Tried: {possible_cols}")
+    
+    # Select available columns
+    loan_tape_final = loan_tape[list(final_columns.keys())].copy()
     
     # Rename columns for display
     loan_tape_final = loan_tape_final.rename(columns={
-        "loan_id": "Loan ID",
-        "customer_name": "Customer",
-        "factor_rate": "Factor Rate",
-        "amount": "Total Participation",
-        "total_return": "Total Return",
-        "rtr_amount": "RTR Amount", 
-        "rtr_percentage": "RTR %",
-        "payment_count": "Payment Count",
-        "tib": "TIB",
-        "fico": "FICO",
-        "partner_source": "Partner Source",
-        "date_created": "Date Created"
+        old_name: new_name.replace("_", " ").title() for old_name, new_name in final_columns.items()
     })
     
+    # Ensure we have the core required columns, if not, create empty ones
+    required_display_cols = ["Loan Id", "Factor Rate", "Amount", "Total Return", "Rtr Amount", "Rtr Percentage", "Payment Count"]
+    for col in required_display_cols:
+        if col not in loan_tape_final.columns:
+            loan_tape_final[col] = 0
+    
     # Sort by RTR percentage descending to show best performing loans first
-    loan_tape_final = loan_tape_final.sort_values("RTR %", ascending=False)
+    if "Rtr Percentage" in loan_tape_final.columns:
+        loan_tape_final = loan_tape_final.sort_values("Rtr Percentage", ascending=False)
     
     return loan_tape_final
 
