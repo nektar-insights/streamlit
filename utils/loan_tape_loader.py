@@ -358,16 +358,21 @@ def _create_unified_loan_customer_table(deals_df, qbo_df):
     
     return unified_final
 
-def get_customer_payment_summary(qbo_df):
+def get_customer_payment_summary(qbo_df=None):
     """
     Get summary of payments by customer, including unattributed payments
     
     Args:
-        qbo_df: QBO payment dataframe (pass the raw df from main script)
+        qbo_df: QBO payment dataframe (optional - will load if not provided)
         
     Returns:
         pd.DataFrame: Customer payment summary
     """
+    if qbo_df is None or qbo_df.empty:
+        # Load all QBO data if not provided
+        supabase = get_supabase_client()
+        qbo_df = _load_all_data(supabase, "qbo_invoice_payments")
+    
     if qbo_df.empty:
         return pd.DataFrame()
     
