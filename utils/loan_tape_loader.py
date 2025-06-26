@@ -371,7 +371,7 @@ def get_customer_payment_summary(qbo_df=None):
     if qbo_df is None or qbo_df.empty:
         # Load all QBO data if not provided
         supabase = get_supabase_client()
-        qbo_df = _load_all_data(supabase, "qbo_invoice_payments")
+        qbo_df = _load_all_data_with_fallback(supabase, "qbo_invoice_payments")
     
     if qbo_df.empty:
         return pd.DataFrame()
