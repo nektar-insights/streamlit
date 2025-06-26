@@ -1,7 +1,7 @@
 # pages/qbo_dashboard_enhanced.py
 from utils.imports import *
 from utils.qbo_data_loader import load_qbo_data, load_deals, load_mca_deals
-from utils.loan_tape_loader import load_loan_tape_data, load_unified_loan_customer_data, get_customer_payment_summary
+from utils.loan_tape_loader import load_loan_tape_data, load_unified_loan_customer_data, get_customer_payment_summary, get_data_diagnostics
 import numpy as np
 from datetime import datetime, timedelta
 import warnings
@@ -20,6 +20,9 @@ mca_deals_df = load_mca_deals()
 # Load loan tape data - both individual and unified
 loan_tape_df = load_loan_tape_data()
 unified_data_df = load_unified_loan_customer_data()
+
+# Load diagnostics data
+diagnostics = get_data_diagnostics()
 
 # -------------------------
 # Enhanced Data Preprocessing
@@ -66,71 +69,122 @@ st.header("🎯 Unified Loan & Customer Performance")
 with st.expander("🔍 Data Diagnostics - Click to investigate the join"):
     st.subheader("Data Join Analysis")
     
-    if not df.empty:
-        # QBO Data Overview
-        st.write("**QBO Payment Data Overview:**")
-        total_qbo_amount = df["total_amount"].sum()
-        total_qbo_count = len(df)
-        unique_customers = df["customer_name"].nunique()
-        
-        col1, col2, col3 = st.columns(3)
+    if diagnostics:
+        # Overall Data Summary
+        st.write("**📊 Overall Data Summary:**")
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("Total QBO Payments", f"${total_qbo_amount:,.0f}")
+            st.metric("Total QBO Payments", f"${diagnostics.get('total_qbo_amount', 0):,.0f}")
         with col2:
-            st.metric("Payment Transactions", f"{total_qbo_count:,}")
+            st.metric("QBO Transactions", f"{diagnostics.get('raw_qbo_count', 0):,}")
         with col3:
-            st.metric("Unique Customers", f"{unique_customers:,}")
+            st.metric("Total Deals", f"{diagnostics.get('raw_deals_count', 0):,}")
+        with col4:
+            st.metric("Closed Won Deals", f"{diagnostics.get('closed_won_deals', 0):,}")
         
-        # Transaction type breakdown
-        st.write("**Transaction Type Distribution:**")
-        txn_type_summary = df.groupby("transaction_type").agg({
-            "total_amount": ["sum", "count"]
-        }).round(0)
-        txn_type_summary.columns = ["Total Amount", "Count"]
-        txn_type_summary["Avg Amount"] = txn_type_summary["Total Amount"] / txn_type_summary["Count"]
-        st.dataframe(txn_type_summary, use_container_width=True)
+        # Transaction Type Analysis
+        st.write("**💳 Transaction Type Breakdown:**")
+        if "transaction_types" in diagnostics:
+            txn_data = []
+            for txn_type, data in diagnostics["transaction_types"].items():
+                txn_data.append({
+                    "Transaction Type": txn_type,
+                    "Total Amount": data["total_amount"],
+                    "Count": data["transaction_id"]
+                })
+            
+            txn_df = pd.DataFrame(txn_data)
+            st.dataframe(
+                txn_df,
+                use_container_width=True,
+                column_config={
+                    "Total Amount": st.column_config.NumberColumn("Total Amount", format="$%.0f"),
+                    "Count": st.column_config.NumberColumn("Count")
+                }
+            )
         
-        # Loan ID analysis
-        st.write("**Loan ID Analysis:**")
-        qbo_with_loan = df[df["loan_id"].notna() & (df["loan_id"] != "") & (df["loan_id"] != "nan")]
-        qbo_without_loan = df[df["loan_id"].isna() | (df["loan_id"] == "") | (df["loan_id"] == "nan")]
-        
+        # Payment Type Filtering Impact
+        st.write("**🔽 Impact of Payment Type Filtering:**")
         col1, col2 = st.columns(2)
         with col1:
-            st.metric("Payments WITH Loan ID", 
-                     f"${qbo_with_loan['total_amount'].sum():,.0f}",
-                     help=f"{len(qbo_with_loan)} transactions")
+            st.metric("Before Filtering", f"${diagnostics.get('total_qbo_amount', 0):,.0f}")
         with col2:
+            st.metric("After Filtering (Payment/Deposit/Receipt)", 
+                     f"${diagnostics.get('payment_types_amount', 0):,.0f}",
+                     delta=f"{diagnostics.get('payment_types_amount', 0) - diagnostics.get('total_qbo_amount', 0):,.0f}")
+        
+        # Loan ID Attribution Analysis
+        st.write("**🔗 Loan ID Attribution:**")
+        col1, col2 = st.columns(2)
+        with col1:
+            with_loan_id = diagnostics.get('qbo_with_loan_id', {})
+            st.metric("Payments WITH Loan ID", 
+                     f"${with_loan_id.get('amount', 0):,.0f}",
+                     help=f"{with_loan_id.get('count', 0)} transactions")
+        with col2:
+            without_loan_id = diagnostics.get('qbo_without_loan_id', {})
             st.metric("Payments WITHOUT Loan ID", 
-                     f"${qbo_without_loan['total_amount'].sum():,.0f}",
-                     help=f"{len(qbo_without_loan)} transactions")
+                     f"${without_loan_id.get('amount', 0):,.0f}",
+                     help=f"{without_loan_id.get('count', 0)} transactions")
         
-        # Show unique loan IDs in QBO
-        if not qbo_with_loan.empty:
-            unique_qbo_loans = qbo_with_loan["loan_id"].nunique()
-            st.write(f"**Unique Loan IDs in QBO:** {unique_qbo_loans}")
-            
-            # Top customers by payment amount
-            st.write("**Top 10 Customers by Payment Amount:**")
-            top_customers = df.groupby("customer_name")["total_amount"].sum().nlargest(10)
-            st.dataframe(top_customers.reset_index(), use_container_width=True,
-                        column_config={
-                            "customer_name": "Customer",
-                            "total_amount": st.column_config.NumberColumn("Total Payments", format="$%.0f")
-                        })
-    
-    # Deals Data Overview
-    if not deals_df.empty:
-        st.write("**Deals Data Overview:**")
-        closed_won_deals = deals_df[deals_df["is_closed_won"] == True]
-        
+        # Loan ID Matching Analysis
+        st.write("**🎯 Loan ID Matching:**")
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("Total Deals", len(deals_df))
+            st.metric("Unique Deal Loan IDs", diagnostics.get('unique_deal_loan_ids', 0))
         with col2:
-            st.metric("Closed Won Deals", len(closed_won_deals))
+            st.metric("Unique QBO Loan IDs", diagnostics.get('unique_qbo_loan_ids', 0))
         with col3:
-            st.metric("Unique Deal Loan IDs", deals_df["loan_id"].nunique())
+            st.metric("Overlapping Loan IDs", diagnostics.get('overlapping_loan_ids', 0))
+        
+        # Calculate join success rate
+        overlap_rate = 0
+        if diagnostics.get('unique_deal_loan_ids', 0) > 0:
+            overlap_rate = (diagnostics.get('overlapping_loan_ids', 0) / diagnostics.get('unique_deal_loan_ids', 0)) * 100
+        
+        if overlap_rate < 80:
+            st.warning(f"⚠️ Only {overlap_rate:.1f}% of deal loan IDs have matching QBO payments")
+        else:
+            st.success(f"✅ {overlap_rate:.1f}% of deal loan IDs have matching QBO payments")
+        
+        # Top Customers Analysis
+        st.write("**🔝 Top 10 Customers by Payment Amount:**")
+        if "top_customers" in diagnostics:
+            top_customers_data = [
+                {"Customer": customer, "Total Payments": amount}
+                for customer, amount in diagnostics["top_customers"].items()
+            ]
+            top_customers_df = pd.DataFrame(top_customers_data)
+            st.dataframe(
+                top_customers_df,
+                use_container_width=True,
+                column_config={
+                    "Total Payments": st.column_config.NumberColumn("Total Payments", format="$%.0f")
+                }
+            )
+        
+        # Summary Analysis
+        st.write("**📋 Key Findings:**")
+        findings = []
+        
+        # Check filtering impact
+        filtering_loss = diagnostics.get('total_qbo_amount', 0) - diagnostics.get('payment_types_amount', 0)
+        if filtering_loss > 0:
+            findings.append(f"💡 ${filtering_loss:,.0f} lost due to transaction type filtering (invoices, bills, etc.)")
+        
+        # Check loan ID attribution
+        unattributed_amount = diagnostics.get('qbo_without_loan_id', {}).get('amount', 0)
+        if unattributed_amount > 0:
+            findings.append(f"💡 ${unattributed_amount:,.0f} in payments without loan IDs")
+        
+        # Check join success
+        if overlap_rate < 50:
+            findings.append(f"🚨 Poor loan ID matching rate ({overlap_rate:.1f}%) - check loan ID formats")
+        
+        for finding in findings:
+            st.write(finding)
+    else:
+        st.error("Unable to load diagnostic data")
         
         if not closed_won_deals.empty:
             total_participation = closed_won_deals["amount"].sum()
