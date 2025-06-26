@@ -88,13 +88,19 @@ with st.expander("🔍 Data Diagnostics - Click to investigate the join"):
             try:
                 txn_data = []
                 for txn_type, data in diagnostics["transaction_types"].items():
-                    # Debug: show what's in the data
-                    st.write(f"Debug - Transaction type: {txn_type}, Data: {data}")
+                    # Handle both old and new data structures
+                    if isinstance(data, dict):
+                        total_amount = data.get("total_amount", 0)
+                        count = data.get("count", data.get("transaction_id", 0))
+                    else:
+                        # Fallback for unexpected structure
+                        total_amount = 0
+                        count = 0
                     
                     txn_data.append({
                         "Transaction Type": txn_type,
-                        "Total Amount": data.get("total_amount", 0),
-                        "Count": data.get("count", 0)
+                        "Total Amount": total_amount,
+                        "Count": count
                     })
                 
                 txn_df = pd.DataFrame(txn_data)
@@ -108,7 +114,12 @@ with st.expander("🔍 Data Diagnostics - Click to investigate the join"):
                 )
             except Exception as e:
                 st.error(f"Error processing transaction types: {e}")
-                st.write("Raw transaction_types data:", diagnostics.get("transaction_types", {}))
+                st.write("Debug - Available diagnostics keys:", list(diagnostics.keys()))
+                if "transaction_types" in diagnostics:
+                    st.write("Debug - Transaction types structure:", type(diagnostics["transaction_types"]))
+                    if diagnostics["transaction_types"]:
+                        first_key = list(diagnostics["transaction_types"].keys())[0]
+                        st.write(f"Debug - First item structure: {first_key} -> {diagnostics['transaction_types'][first_key]}")
         else:
             st.write("No transaction type data available")
         
