@@ -79,9 +79,6 @@ if not df.empty:
 
 st.markdown("---")
 
-st.title("QBO Dashboard")
-st.markdown("---")
-
 # -------------------------
 # 1. RISK ANALYSIS SECTION
 # -------------------------
