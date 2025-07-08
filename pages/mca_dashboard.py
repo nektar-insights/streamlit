@@ -73,7 +73,7 @@ df.loc[df["status_category"] == "Matured", "past_due_amount"] = 0
 
 # NOTE: We keep amount_hubspot as the original field name, no renaming needed
 
-# CALCULATION 3: Calculate past due percentage
+# CALCULATION 2: Calculate past due percentage
 # Formula: past_due_amount / current_balance
 # Logic: Shows what percentage of the current outstanding balance is past due
 df["past_due_pct"] = df.apply(
@@ -83,34 +83,22 @@ df["past_due_pct"] = df.apply(
     axis=1
 )
 
-# CALCULATION 4: Calculate CSL participation ratio using amount_hubspot
+# CALCULATION 3: Calculate CSL participation ratio using amount_hubspot
 # Formula: amount_hubspot / total_funded_amount
 # Logic: CSL's percentage ownership/participation in each deal
-
-# DEBUG: Double-check before calculation
-if 'amount_hubspot' not in df.columns:
-    st.error("❌ CRITICAL: amount_hubspot missing before participation_ratio calculation!")
-    st.write("Available columns:", df.columns.tolist())
-    st.stop()
-
-if 'total_funded_amount' not in df.columns:
-    st.error("❌ CRITICAL: total_funded_amount missing before participation_ratio calculation!")
-    st.write("Available columns:", df.columns.tolist())
-    st.stop()
-
 df["participation_ratio"] = df["amount_hubspot"] / df["total_funded_amount"].replace(0, pd.NA)
 
-# CALCULATION 5: Calculate CSL's portion of past due amount
+# CALCULATION 4: Calculate CSL's portion of past due amount
 # Formula: participation_ratio * past_due_amount
 # Logic: CSL's proportional share of any past due amounts based on participation percentage
 df["csl_past_due"] = df["participation_ratio"] * df["past_due_amount"]
 
-# CALCULATION 6: Calculate remaining principal balance using logical approach
+# CALCULATION 5: Calculate remaining principal balance using logical approach
 # Formula: principal_amount - total_paid (what's actually been paid back)
 # Logic: Principal outstanding = original principal minus payments received
 df["principal_remaining_actual"] = (df["principal_amount"] - df["total_paid"].fillna(0)).clip(lower=0)
 
-# CALCULATION 6a: Calculate CSL's principal outstanding 
+# CALCULATION 6: Calculate CSL's principal outstanding 
 # Formula: amount_hubspot - (amount_hubspot/principal_amount * total_paid)
 # Logic: CSL's share of principal minus CSL's proportional share of payments received
 df["csl_principal_outstanding"] = df.apply(
