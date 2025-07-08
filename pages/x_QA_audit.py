@@ -96,6 +96,12 @@ st.title("🔍 Sample Combined Deals")
 with st.spinner("Loading combined deals..."):
     df = combine_deals()
 
+print("Columns in df_combined:")
+print(df.columns.tolist())
+print(f"Dataset shape: {df.shape}")
+print("Sample data:")
+print(df.head())
+
 # Show row count
 st.write(f"Total combined deals: {len(df):,}")
 
