@@ -1,28 +1,3 @@
-# CALCULATION 1: Set past_due_amount to 0 for Matured deals
-# Logic: Matured deals have been closed out, so no amount should be past due
-df.loc[df["status_category"] == "Matured", "past_due_amount"] = 0# pages/mca_dashboard.py
-from utils.imports import *
-from scripts.combine_hubspot_mca import combine_deals
-from scripts.get_naics_sector_risk import get_naics_sector_risk
-from utils.loan_tape_loader import load_unified_loan_customer_data
-# ----------------------------
-# Define risk gradient color scheme (updated colors) https://www.color-hex.com/color-palette/25513
-# ----------------------------
-RISK_GRADIENT = ["#fff600","#ffc302", "#ff8f00", "#ff5b00","#ff0505"]
-
-# ----------------------------
-# Supabase connection
-# ----------------------------
-supabase = get_supabase_client()
-
-# ----------------------------
-# Load and prepare single dataframe
-# ----------------------------
-@st.cache_data(ttl=3600)
-def load_mca_deals():
-    res = supabase.table("mca_deals").select("*").execute()
-    return pd.DataFrame(res.data)
-
 # pages/mca_dashboard.py
 from utils.imports import *
 from scripts.combine_hubspot_mca import combine_deals
@@ -59,28 +34,15 @@ df = df[df["status_category"] != "Canceled"]
 df["funding_date"] = pd.to_datetime(df["funding_date"], errors="coerce").dt.date
 
 # Convert all financial columns to numeric, handling any non-numeric values
-financial_columns = ["purchase_price", "receivables_amount", "current_balance", "past_due_amount", 
-                     "principal_amount", "rtr_balance", "amount_hubspot", "total_funded_amount", 
-                     "total_paid", "outstanding_balance"]
-
-# DEBUG: Check which financial columns actually exist
-existing_financial_cols = [col for col in financial_columns if col in df.columns]
-missing_financial_cols = [col for col in financial_columns if col not in df.columns]
-
-st.write("🔍 **DEBUG: Financial columns check:**")
-st.write("Existing financial columns:", existing_financial_cols)
-if missing_financial_cols:
-    st.warning(f"Missing financial columns: {missing_financial_cols}")
-
-# Only convert columns that actually exist
-for col in existing_financial_cols:
-    df[col] = pd.to_numeric(df[col], errors="coerce")
+for col in ["purchase_price", "receivables_amount", "current_balance", "past_due_amount", 
+            "principal_amount", "rtr_balance", "amount_hubspot", "total_funded_amount", 
+            "total_paid", "outstanding_balance"]:
+    if col in df.columns:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
 
 # CALCULATION 1: Set past_due_amount to 0 for Matured deals
 # Logic: Matured deals have been closed out, so no amount should be past due
 df.loc[df["status_category"] == "Matured", "past_due_amount"] = 0
-
-# NOTE: We keep amount_hubspot as the original field name, no renaming needed
 
 # CALCULATION 2: Calculate past due percentage
 # Formula: past_due_amount / current_balance
@@ -154,12 +116,12 @@ for col in ["loan_term", "factor_rate", "total_paid"]:
     if col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-# CALCULATION 24: Calculate Total Repayment Amount
+# CALCULATION 12: Calculate Total Repayment Amount
 # Formula: principal_amount * factor_rate
 # Logic: Total amount merchant should pay back over the life of the deal
 df["total_repayment"] = df["principal_amount"] * df["factor_rate"]
 
-# CALCULATION 25: Calculate Expected Daily Payment
+# CALCULATION 13: Calculate Expected Daily Payment
 # Formula: total_repayment / loan_term (in days)
 # Logic: Daily payment amount based on linear amortization schedule
 df["expected_daily_payment"] = df.apply(
@@ -169,7 +131,7 @@ df["expected_daily_payment"] = df.apply(
     axis=1
 )
 
-# CALCULATION 26: Calculate Expected Payments to Date
+# CALCULATION 14: Calculate Expected Payments to Date
 # Formula: expected_daily_payment * days_since_funding
 # Logic: Total payments we should have received by today based on schedule
 # Constraint: Cannot exceed total_repayment amount
@@ -182,7 +144,7 @@ df["expected_payments_to_date"] = df.apply(
     axis=1
 )
 
-# CALCULATION 27: Calculate Payment Delta using combined dataset
+# CALCULATION 15: Calculate Payment Delta using combined dataset
 # Formula: total_paid - expected_payments_to_date
 # Logic: Positive = merchant ahead of schedule, Negative = merchant behind schedule
 df["payment_delta"] = df.apply(
@@ -192,7 +154,7 @@ df["payment_delta"] = df.apply(
     axis=1
 )
 
-# CALCULATION 28: Calculate Projected Status
+# CALCULATION 16: Calculate Projected Status
 # Logic: Simplified status - Current, Not Current, or Matured
 def calculate_projected_status(payment_delta, expected_payments_to_date, status_category):
     # If deal is already marked as Matured, keep that status
@@ -219,11 +181,7 @@ df["projected_status"] = df.apply(
     axis=1
 )
 
-# ----------------------------
-# Continue with existing calculations
-# ----------------------------
-
-# CALCULATION 23: Calculate RTR percentage
+# CALCULATION 17: Calculate RTR percentage
 # Formula: (principal_amount - rtr_balance) / principal_amount
 # Logic: Shows percentage of principal that has been recovered
 df["rtr_pct"] = df.apply(
@@ -310,41 +268,34 @@ pct_current = total_current / outstanding_total if outstanding_total > 0 else 0
 pct_non_current = total_non_current / outstanding_total if outstanding_total > 0 else 0
 
 # CSL INVESTMENT METRICS using combined dataset
-# CALCULATION 12: Total CSL capital deployed across all deals
+# CALCULATION 18: Total CSL capital deployed across all deals
 # Sum of all CSL participation amounts from amount_hubspot
 csl_capital_deployed = df["amount_hubspot"].sum()
 
-# CALCULATION 13: Total CSL past due exposure
+# CALCULATION 19: Total CSL past due exposure
 # Sum of CSL's proportional share of all past due amounts
 total_csl_past_due = df["csl_past_due"].sum()
 
-# CALCULATION 14: Outstanding CSL Principal (Capital at Risk)
+# CALCULATION 20: Outstanding CSL Principal (Capital at Risk)
 # This represents CSL's actual principal outstanding on deals that are "Not Current"
 # Formula: Sum of csl_principal_outstanding for Not Current deals only
 at_risk = df[df["status_category"] == "Not Current"]
 total_csl_at_risk = at_risk["csl_principal_outstanding"].sum()
 
-# ALTERNATIVE CALCULATION for Outstanding CSL Principal (commented out - choose one approach):
-# Option A: Include all non-matured deals (Current + Not Current)
-# total_csl_at_risk = df[df["status_category"] != "Matured"]["csl_principal_at_risk"].sum()
-# 
-# Option B: Only Not Current deals (current implementation)
-# total_csl_at_risk = df[df["status_category"] == "Not Current"]["csl_principal_at_risk"].sum()
-
 # COMMISSION METRICS
-# CALCULATION 15: Average commission rate across all deals
+# CALCULATION 21: Average commission rate across all deals
 average_commission_pct = df["commission_rate"].mean()
 
-# CALCULATION 16: Total commission paid by CSL using combined dataset
+# CALCULATION 22: Total commission paid by CSL using combined dataset
 # Formula: Sum of (amount_hubspot * commission_rate) for all deals
 total_commission_paid = (df["amount_hubspot"] * df["commission_rate"]).sum()
 
-# CALCULATION 17: Average commission rate weighted by CSL participation using combined dataset
+# CALCULATION 23: Average commission rate weighted by CSL participation using combined dataset
 # Formula: total_commission_paid / total_csl_participation
 average_commission_on_loan = total_commission_paid / df["amount_hubspot"].sum() if df["amount_hubspot"].sum() > 0 else 0
 
 # RISK ANALYSIS DATAFRAMES
-# CALCULATION 18: Create dataframe for non-current, non-matured deals with risk metrics
+# CALCULATION 24: Create dataframe for non-current, non-matured deals with risk metrics
 not_current_df = df[(df["status_category"] != "Current") & (df["status_category"] != "Matured")].copy()
 
 # Calculate at-risk percentage for visualization
@@ -354,7 +305,7 @@ not_current_df["at_risk_pct"] = not_current_df["past_due_amount"] / not_current_
 # Filter to only deals with actual risk (past due amount > 0)
 not_current_df = not_current_df[not_current_df["at_risk_pct"] > 0]
 
-# CALCULATION 19: Risk scoring for top 10 highest risk deals
+# CALCULATION 25: Risk scoring for top 10 highest risk deals
 # Create dataframe for deals meeting risk criteria:
 # - More than 30 days old (seasoned deals)
 # - Past due amount > 1% of current balance (meaningful delinquency)
@@ -367,7 +318,7 @@ risk_df = df[
 ].copy()
 
 if len(risk_df) > 0:
-    # CALCULATION 20: Calculate risk score components
+    # CALCULATION 26: Calculate risk score components
     # Component 1: Past due percentage (70% weight)
     # Formula: past_due_amount / current_balance (minimum 1 to avoid division by zero)
     risk_df["past_due_pct_calc"] = risk_df["past_due_amount"] / risk_df["current_balance"].clip(lower=1)
@@ -380,7 +331,7 @@ if len(risk_df) > 0:
     else:
         risk_df["age_weight"] = 0
     
-    # CALCULATION 21: Final risk score
+    # CALCULATION 27: Final risk score
     # Formula: (past_due_percentage * 0.7) + (age_weight * 0.3)
     # Range: 0.0 to 1.0 (higher = more risk)
     risk_df["risk_score"] = risk_df["past_due_pct_calc"] * 0.7 + risk_df["age_weight"] * 0.3
@@ -777,13 +728,13 @@ New deals (< 30 days old), those with low delinquency (<1%), or with status 'Cur
 """)
 
 # ----------------------------
-# NEW INDUSTRY & PORTFOLIO INSIGHTS
+# INDUSTRY & PORTFOLIO INSIGHTS
 # ----------------------------
 
 st.markdown("---")
 st.header("Portfolio Composition & Risk Insights")
 
-# Industry Analysis - Modified to group by risk_score
+# Industry Analysis
 if 'sector_name' in df.columns and not df['sector_name'].isna().all():
     st.subheader("Deal Distribution by Industry Sector")
     st.caption("*Risk scores are based on industry sector risk profiles from NAICS data. Risk Score 5 represents the highest industry risk (darkest red).*")
@@ -792,12 +743,12 @@ if 'sector_name' in df.columns and not df['sector_name'].isna().all():
     industry_summary = df.groupby(['risk_score']).agg({
         'deal_number': 'count',
         'amount_hubspot': 'sum',
-        'csl_principal_at_risk': 'sum',
+        'csl_principal_outstanding': 'sum',
         'risk_profile': 'first',
         'sector_name': lambda x: ', '.join(x.unique()[:3])  # Show up to 3 sector names per risk score
     }).reset_index()
     
-    industry_summary.columns = ['Risk Score', 'Deal Count', 'CSL Capital Deployed', 'CSL Capital at Risk', 'Risk Profile', 'Sectors']
+    industry_summary.columns = ['Risk Score', 'Deal Count', 'CSL Capital Deployed', 'CSL Principal Outstanding', 'Risk Profile', 'Sectors']
     industry_summary = industry_summary.sort_values('Deal Count', ascending=False)
     
     # Industry deals chart grouped by risk score
@@ -811,7 +762,7 @@ if 'sector_name' in df.columns and not df['sector_name'].isna().all():
             alt.Tooltip('Risk Score:O', title='Risk Score'),
             alt.Tooltip('Deal Count:Q', title='Number of Deals'),
             alt.Tooltip('CSL Capital Deployed:Q', title='Capital Deployed', format='$,.0f'),
-            alt.Tooltip('CSL Capital at Risk:Q', title='Principal Outstanding', format='$,.0f'),
+            alt.Tooltip('CSL Principal Outstanding:Q', title='Principal Outstanding', format='$,.0f'),
             alt.Tooltip('Risk Profile:N', title='Risk Profile'),
             alt.Tooltip('Sectors:N', title='Primary Sectors')
         ]
@@ -829,14 +780,14 @@ if 'sector_name' in df.columns and not df['sector_name'].isna().all():
     
     capital_chart = alt.Chart(industry_summary).mark_bar().encode(
         x=alt.X('Risk Score:O', title='Risk Score', axis=alt.Axis(labelAngle=0)),
-        y=alt.Y('CSL Capital at Risk:Q', title='CSL Capital at Risk ($)', axis=alt.Axis(format='$,.0f')),
+        y=alt.Y('CSL Principal Outstanding:Q', title='CSL Principal Outstanding ($)', axis=alt.Axis(format='$,.0f')),
         color=alt.Color('Risk Score:O',
                        scale=alt.Scale(range=RISK_GRADIENT),
                        title='Industry Risk Score'),
         tooltip=[
             alt.Tooltip('Risk Score:O', title='Risk Score'),
             alt.Tooltip('CSL Capital Deployed:Q', title='Total Capital Deployed', format='$,.0f'),
-            alt.Tooltip('CSL Capital at Risk:Q', title='Capital at Risk', format='$,.0f'),
+            alt.Tooltip('CSL Principal Outstanding:Q', title='Principal Outstanding', format='$,.0f'),
             alt.Tooltip('Deal Count:Q', title='Number of Deals'),
             alt.Tooltip('Risk Profile:N', title='Risk Profile'),
             alt.Tooltip('Sectors:N', title='Primary Sectors')
@@ -844,7 +795,7 @@ if 'sector_name' in df.columns and not df['sector_name'].isna().all():
     ).properties(
         width=800,
         height=400,
-        title='CSL Capital at Risk by Risk Score'
+        title='CSL Principal Outstanding by Risk Score'
     )
     
     st.altair_chart(capital_chart, use_container_width=True)
@@ -855,7 +806,7 @@ if 'sector_name' in df.columns and not df['sector_name'].isna().all():
         use_container_width=True,
         column_config={
             "CSL Capital Deployed": st.column_config.NumberColumn("CSL Capital Deployed", format="$%.0f"),
-            "CSL Capital at Risk": st.column_config.NumberColumn("CSL Capital at Risk", format="$%.0f"),
+            "CSL Principal Outstanding": st.column_config.NumberColumn("CSL Principal Outstanding", format="$%.0f"),
         }
     )
 
@@ -867,14 +818,14 @@ if 'sector_name' in df.columns and not df['sector_name'].isna().all():
         sector_portfolio_summary = df.groupby(['sector_code', 'sector_name']).agg({
             'deal_number': 'count',
             'amount_hubspot': 'sum',
-            'csl_principal_at_risk': 'sum',
+            'csl_principal_outstanding': 'sum',
             'risk_score': 'first'
         }).reset_index()
         
         # Calculate percentage of total deals
         sector_portfolio_summary['pct_of_total'] = (sector_portfolio_summary['deal_number'] / sector_portfolio_summary['deal_number'].sum()) * 100
         
-        sector_portfolio_summary.columns = ['Sector Number', 'Industry Name', 'Count of Deals', 'Total Deployed', 'Capital Exposed', 'Risk Score', '% of Total']
+        sector_portfolio_summary.columns = ['Sector Number', 'Industry Name', 'Count of Deals', 'Total Deployed', 'Principal Outstanding', 'Risk Score', '% of Total']
         
         # Sort by capital deployed descending
         sector_portfolio_summary = sector_portfolio_summary.sort_values('Total Deployed', ascending=False)
@@ -885,7 +836,7 @@ if 'sector_name' in df.columns and not df['sector_name'].isna().all():
             'Industry Name': ['ALL SECTORS'],
             'Count of Deals': [sector_portfolio_summary['Count of Deals'].sum()],
             'Total Deployed': [sector_portfolio_summary['Total Deployed'].sum()],
-            'Capital Exposed': [sector_portfolio_summary['Capital Exposed'].sum()],
+            'Principal Outstanding': [sector_portfolio_summary['Principal Outstanding'].sum()],
             'Risk Score': [''],
             '% of Total': [100.0]
         })
@@ -896,7 +847,7 @@ if 'sector_name' in df.columns and not df['sector_name'].isna().all():
             use_container_width=True,
             column_config={
                 "Total Deployed": st.column_config.NumberColumn("Total Deployed", format="$%.0f"),
-                "Capital Exposed": st.column_config.NumberColumn("Capital Exposed", format="$%.0f"),
+                "Principal Outstanding": st.column_config.NumberColumn("Principal Outstanding", format="$%.0f"),
                 "% of Total": st.column_config.NumberColumn("% of Total", format="%.1f%%"),
             }
         )
@@ -911,16 +862,14 @@ if 'fico' in df.columns:
                             labels=['<580', '580-619', '620-659', '660-699', '700-739', '740+'],
                             include_lowest=True)
     
-    # CALCULATION 22: FICO analysis with percentage of total deals
-    # NOTE: % of Total represents percentage of total DEALS, not capital amounts
+    # FICO analysis using combined dataset
     fico_summary = df.groupby('fico_band').agg({
         'deal_number': 'count',
-        'csl_participation': 'sum',
-        'csl_principal_at_risk': 'sum'
+        'amount_hubspot': 'sum',
+        'csl_principal_outstanding': 'sum'
     }).reset_index()
     
     # Calculate percentage of total deals (not capital)
-    # Formula: (deal_count_in_band / total_deals) * 100
     fico_summary['pct_of_total'] = (fico_summary['deal_number'] / fico_summary['deal_number'].sum()) * 100
     
     fico_summary.columns = ['FICO Band', 'Deal Count', 'CSL Capital Deployed', 'CSL Principal Outstanding', 'Pct of Total']
@@ -937,7 +886,7 @@ if 'fico' in df.columns:
             alt.Tooltip('Deal Count:Q', title='Number of Deals'),
             alt.Tooltip('Pct of Total:Q', title='% of Total Deals', format='.1f'),
             alt.Tooltip('CSL Capital Deployed:Q', title='Capital Deployed', format='$,.0f'),
-            alt.Tooltip('CSL Capital at Risk:Q', title='Capital at Risk', format='$,.0f')
+            alt.Tooltip('CSL Principal Outstanding:Q', title='Principal Outstanding', format='$,.0f')
         ]
     ).properties(
         width=600,
@@ -948,21 +897,21 @@ if 'fico' in df.columns:
     # FICO capital exposure chart
     fico_capital_chart = alt.Chart(fico_summary).mark_bar().encode(
         x=alt.X('FICO Band:N', title='FICO Score Band'),
-        y=alt.Y('CSL Capital at Risk:Q', title='CSL Capital at Risk ($)', axis=alt.Axis(format='$,.0f')),
+        y=alt.Y('CSL Principal Outstanding:Q', title='CSL Principal Outstanding ($)', axis=alt.Axis(format='$,.0f')),
         color=alt.Color('FICO Band:N',
                        scale=alt.Scale(range=['#d62728', '#ff7f0e', '#ffbb78', '#2ca02c', '#98df8a', '#1f77b4']),
                        legend=None),
         tooltip=[
             alt.Tooltip('FICO Band:N', title='FICO Band'),
             alt.Tooltip('CSL Capital Deployed:Q', title='Total Capital Deployed', format='$,.0f'),
-            alt.Tooltip('CSL Capital at Risk:Q', title='Capital at Risk', format='$,.0f'),
+            alt.Tooltip('CSL Principal Outstanding:Q', title='Principal Outstanding', format='$,.0f'),
             alt.Tooltip('Deal Count:Q', title='Number of Deals'),
             alt.Tooltip('Pct of Total:Q', title='% of Total Deals', format='.1f')
         ]
     ).properties(
         width=600,
         height=400,
-        title='CSL Capital at Risk by FICO Score Band'
+        title='CSL Principal Outstanding by FICO Score Band'
     )
     
     col1, col2 = st.columns(2)
@@ -977,7 +926,7 @@ if 'fico' in df.columns:
         'FICO Band': ['TOTAL'],
         'Deal Count': [fico_summary['Deal Count'].sum()],
         'CSL Capital Deployed': [fico_summary['CSL Capital Deployed'].sum()],
-        'CSL Capital at Risk': [fico_summary['CSL Capital at Risk'].sum()],
+        'CSL Principal Outstanding': [fico_summary['CSL Principal Outstanding'].sum()],
         'Pct of Total': [100.0]
     })
     fico_summary_with_total = pd.concat([fico_summary_with_total, total_row], ignore_index=True)
@@ -987,16 +936,16 @@ if 'fico' in df.columns:
         use_container_width=True,
         column_config={
             "CSL Capital Deployed": st.column_config.NumberColumn("CSL Capital Deployed", format="$%.0f"),
-            "CSL Capital at Risk": st.column_config.NumberColumn("CSL Capital at Risk", format="$%.0f"),
+            "CSL Principal Outstanding": st.column_config.NumberColumn("CSL Principal Outstanding", format="$%.0f"),
             "Pct of Total": st.column_config.NumberColumn("% of Total", format="%.1f%%"),
         }
     )
 
-# Term Analysis - Modified to use years as requested (TIB is already in years)
+# Term Analysis
 if 'tib' in df.columns:
     st.subheader("Capital Exposure by Time in Business")
     
-    # Create TIB bands using years (≤5, 5-10, 10-15, 15-20, 20-25, 25+) - TIB is already in years
+    # Create TIB bands using years
     df['tib_band'] = pd.cut(df['tib'], 
                            bins=[0, 5, 10, 15, 20, 25, 1000], 
                            labels=['≤5', '5-10', '10-15', '15-20', '20-25', '25+'],
@@ -1006,17 +955,17 @@ if 'tib' in df.columns:
     tib_summary = df.groupby('tib_band').agg({
         'deal_number': 'count',
         'amount_hubspot': 'sum',
-        'csl_principal_at_risk': 'sum'
+        'csl_principal_outstanding': 'sum'
     }).reset_index()
     
-    tib_summary.columns = ['TIB Band', 'Deal Count', 'CSL Capital Deployed', 'CSL Capital at Risk']
+    tib_summary.columns = ['TIB Band', 'Deal Count', 'CSL Capital Deployed', 'CSL Principal Outstanding']
     
     # TIB capital exposure chart with forced x-axis order
     tib_chart = alt.Chart(tib_summary).mark_bar().encode(
         x=alt.X('TIB Band:N', 
                 title='Time in Business (Years)',
                 sort=['≤5', '5-10', '10-15', '15-20', '20-25', '25+']),
-        y=alt.Y('CSL Capital at Risk:Q', title='CSL Capital at Risk ($)', axis=alt.Axis(format='$,.0f')),
+        y=alt.Y('CSL Principal Outstanding:Q', title='CSL Principal Outstanding ($)', axis=alt.Axis(format='$,.0f')),
         color=alt.Color('TIB Band:N',
                        scale=alt.Scale(range=RISK_GRADIENT),
                        legend=None),
@@ -1024,12 +973,12 @@ if 'tib' in df.columns:
             alt.Tooltip('TIB Band:N', title='TIB Band'),
             alt.Tooltip('Deal Count:Q', title='Number of Deals'),
             alt.Tooltip('CSL Capital Deployed:Q', title='Total Capital Deployed', format='$,.0f'),
-            alt.Tooltip('CSL Capital at Risk:Q', title='Capital at Risk', format='$,.0f')
+            alt.Tooltip('CSL Principal Outstanding:Q', title='Principal Outstanding', format='$,.0f')
         ]
     ).properties(
         width=700,
         height=400,
-        title='CSL Capital at Risk by Time in Business'
+        title='CSL Principal Outstanding by Time in Business'
     )
     
     st.altair_chart(tib_chart, use_container_width=True)
@@ -1040,7 +989,7 @@ if 'tib' in df.columns:
         'TIB Band': ['TOTAL'],
         'Deal Count': [tib_summary['Deal Count'].sum()],
         'CSL Capital Deployed': [tib_summary['CSL Capital Deployed'].sum()],
-        'CSL Capital at Risk': [tib_summary['CSL Capital at Risk'].sum()]
+        'CSL Principal Outstanding': [tib_summary['CSL Principal Outstanding'].sum()]
     })
     tib_summary_with_total = pd.concat([tib_summary_with_total, total_row_tib], ignore_index=True)
     
@@ -1049,13 +998,9 @@ if 'tib' in df.columns:
         use_container_width=True,
         column_config={
             "CSL Capital Deployed": st.column_config.NumberColumn("CSL Capital Deployed", format="$%.0f"),
-            "CSL Capital at Risk": st.column_config.NumberColumn("CSL Capital at Risk", format="$%.0f"),
+            "CSL Principal Outstanding": st.column_config.NumberColumn("CSL Principal Outstanding", format="$%.0f"),
         }
     )
-
-total_unattributed = 0  # No unattributed amounts in combined dataset
-if total_unattributed > 0:
-    st.warning(f"⚠️ ${total_unattributed:,.0f} in payments are unattributed to any deal")
 
 # Download buttons
 csv = loan_tape.to_csv(index=False).encode("utf-8")
