@@ -114,7 +114,7 @@ df["days_since_funding"] = (pd.Timestamp.today() - pd.to_datetime(df["funding_da
 # ----------------------------
 
 # Convert necessary columns to numeric for payment projections
-for col in ["term", "factor_rate", "payments_made"]:
+for col in ["loan_term", "factor_rate", "payments_made"]:
     if col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
@@ -127,8 +127,8 @@ df["total_repayment"] = df["principal_amount"] * df["factor_rate"]
 # Formula: total_repayment / term (in days)
 # Logic: Daily payment amount based on linear amortization schedule
 df["expected_daily_payment"] = df.apply(
-    lambda row: row["total_repayment"] / row["term"]
-    if pd.notna(row["total_repayment"]) and pd.notna(row["term"]) and row["term"] > 0
+    lambda row: row["total_repayment"] / row["loan_term"]
+    if pd.notna(row["total_repayment"]) and pd.notna(row["loan_term"]) and row["loan_term"] > 0
     else 0,
     axis=1
 )
