@@ -109,6 +109,84 @@ df["commission_rate"] = pd.to_numeric(df["commission"], errors="coerce")
 # Used for risk scoring - older deals may have higher risk
 df["days_since_funding"] = (pd.Timestamp.today() - pd.to_datetime(df["funding_date"])).dt.days
 
+# ----------------------------
+# NEW PROJECTED PAYMENT ANALYSIS CALCULATIONS
+# ----------------------------
+
+# Convert necessary columns to numeric for payment projections
+for col in ["term", "factor_rate", "payments_made"]:
+    if col in df.columns:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+# CALCULATION 24: Calculate Total Repayment Amount
+# Formula: principal_amount * factor_rate
+# Logic: Total amount merchant should pay back over the life of the deal
+df["total_repayment"] = df["principal_amount"] * df["factor_rate"]
+
+# CALCULATION 25: Calculate Expected Daily Payment
+# Formula: total_repayment / term (in days)
+# Logic: Daily payment amount based on linear amortization schedule
+df["expected_daily_payment"] = df.apply(
+    lambda row: row["total_repayment"] / row["term"]
+    if pd.notna(row["total_repayment"]) and pd.notna(row["term"]) and row["term"] > 0
+    else 0,
+    axis=1
+)
+
+# CALCULATION 26: Calculate Expected Payments to Date
+# Formula: expected_daily_payment * days_since_funding
+# Logic: Total payments we should have received by today based on schedule
+# Constraint: Cannot exceed total_repayment amount
+df["expected_payments_to_date"] = df.apply(
+    lambda row: min(
+        row["expected_daily_payment"] * row["days_since_funding"],
+        row["total_repayment"]
+    ) if pd.notna(row["expected_daily_payment"]) and pd.notna(row["days_since_funding"]) and pd.notna(row["total_repayment"])
+    else 0,
+    axis=1
+)
+
+# CALCULATION 27: Calculate Payment Delta
+# Formula: payments_made - expected_payments_to_date
+# Logic: Positive = merchant ahead of schedule, Negative = merchant behind schedule
+df["payment_delta"] = df.apply(
+    lambda row: row["payments_made"] - row["expected_payments_to_date"]
+    if pd.notna(row["payments_made"]) and pd.notna(row["expected_payments_to_date"])
+    else 0,
+    axis=1
+)
+
+# CALCULATION 28: Calculate Projected Status
+# Logic: Simplified status - Current, Not Current, or Matured
+def calculate_projected_status(payment_delta, expected_payments_to_date, status_category):
+    # If deal is already marked as Matured, keep that status
+    if status_category == "Matured":
+        return "Matured"
+    
+    if pd.isna(payment_delta) or pd.isna(expected_payments_to_date):
+        return "Current"  # Default to Current if data is missing
+    
+    if expected_payments_to_date == 0:
+        return "Current"  # New deals default to Current
+    
+    # Calculate percentage variance
+    variance_pct = payment_delta / expected_payments_to_date if expected_payments_to_date > 0 else 0
+    
+    # Simplified logic: if 10% or more behind, mark as Not Current
+    if variance_pct <= -0.10:  # 10% or more behind
+        return "Not Current"
+    else:
+        return "Current"
+
+df["projected_status"] = df.apply(
+    lambda row: calculate_projected_status(row["payment_delta"], row["expected_payments_to_date"], row["status_category"]),
+    axis=1
+)
+
+# ----------------------------
+# Continue with existing calculations
+# ----------------------------
+
 # CALCULATION 23: Calculate RTR percentage
 # Formula: (principal_amount - rtr_balance) / principal_amount
 # Logic: Shows percentage of principal that has been recovered
@@ -339,7 +417,7 @@ if 'deal_type' in df.columns:
     st.altair_chart(deal_type_chart, use_container_width=True)
 
 # ----------------------------
-# Loan Tape Filter and Display
+# Loan Tape Filter and Display (ENHANCED WITH NEW FIELDS)
 # ----------------------------
 
 # Status Category Filter for Loan Tape
@@ -352,10 +430,12 @@ loan_tape_df = df.copy()
 if loan_tape_status_filter != "All":
     loan_tape_df = loan_tape_df[loan_tape_df["status_category"] == loan_tape_status_filter]
 
+# Enhanced loan tape with new projected payment fields
 loan_tape = loan_tape_df[[
     "deal_number", "dba", "funding_date", "status_category",
     "csl_past_due", "past_due_pct", "performance_ratio",
-    "rtr_balance", "performance_details"
+    "rtr_balance", "performance_details",
+    "expected_payments_to_date", "payment_delta", "projected_status"
 ]].copy()
 
 loan_tape.rename(columns={
@@ -367,13 +447,18 @@ loan_tape.rename(columns={
     "past_due_pct": "Past Due %",
     "performance_ratio": "Performance Ratio",
     "rtr_balance": "Remaining to Recover ($)",
-    "performance_details": "Performance Notes"
+    "performance_details": "Performance Notes",
+    "expected_payments_to_date": "Expected Payments to Date ($)",
+    "payment_delta": "Payment Delta ($)",
+    "projected_status": "Projected Status"
 }, inplace=True)
 
 loan_tape["Past Due %"] = pd.to_numeric(loan_tape["Past Due %"], errors="coerce").fillna(0)*100
 loan_tape["CSL Past Due ($)"] = pd.to_numeric(loan_tape["CSL Past Due ($)"], errors="coerce").fillna(0)
 loan_tape["Remaining to Recover ($)"] = pd.to_numeric(loan_tape["Remaining to Recover ($)"], errors="coerce").fillna(0)
 loan_tape["Performance Ratio"] = pd.to_numeric(loan_tape["Performance Ratio"], errors="coerce").fillna(0)
+loan_tape["Expected Payments to Date ($)"] = pd.to_numeric(loan_tape["Expected Payments to Date ($)"], errors="coerce").fillna(0)
+loan_tape["Payment Delta ($)"] = pd.to_numeric(loan_tape["Payment Delta ($)"], errors="coerce").fillna(0)
 
 st.dataframe(
     loan_tape,
@@ -383,6 +468,9 @@ st.dataframe(
         "CSL Past Due ($)": st.column_config.NumberColumn("CSL Past Due ($)", format="$%.0f"),
         "Remaining to Recover ($)": st.column_config.NumberColumn("Remaining to Recover ($)", format="$%.0f"),
         "Performance Ratio": st.column_config.NumberColumn("Performance Ratio", format="%.2f"),
+        "Expected Payments to Date ($)": st.column_config.NumberColumn("Expected Payments to Date ($)", format="$%.0f", help="Total payments expected by today based on repayment schedule"),
+        "Payment Delta ($)": st.column_config.NumberColumn("Payment Delta ($)", format="$%.0f", help="Variance between actual and expected payments. Positive = ahead, negative = behind"),
+        "Projected Status": st.column_config.TextColumn("Projected Status", help="Current, Not Current, or Matured based on payment performance vs. expected schedule")
     }
 )
 
@@ -931,6 +1019,7 @@ if 'tib' in df.columns:
 total_unattributed = unified_data_df["Unattributed Amount"].sum()
 if total_unattributed > 0:
     st.warning(f"⚠️ ${total_unattributed:,.0f} in payments are unattributed to any deal")
+
 # Download buttons
 csv = loan_tape.to_csv(index=False).encode("utf-8")
 st.download_button(
