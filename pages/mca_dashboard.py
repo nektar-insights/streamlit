@@ -29,23 +29,6 @@ df = combine_deals()
 # Filter out Canceled deals completely
 df = df[df["status_category"] != "Canceled"]
 
-# DEBUG: Check what columns we have after loading and filtering
-st.write("🔍 **DEBUG: Columns after loading data:**")
-st.write(f"Total columns: {len(df.columns)}")
-st.write("Column names:", df.columns.tolist())
-
-# Check if amount_hubspot exists
-if 'amount_hubspot' in df.columns:
-    st.success("✅ amount_hubspot column found!")
-    st.write(f"amount_hubspot data type: {df['amount_hubspot'].dtype}")
-    st.write(f"amount_hubspot non-null count: {df['amount_hubspot'].count()}")
-    st.write(f"amount_hubspot sample values: {df['amount_hubspot'].head().tolist()}")
-else:
-    st.error("❌ amount_hubspot column NOT found!")
-    # Look for similar columns
-    similar_cols = [col for col in df.columns if 'amount' in col.lower() or 'hubspot' in col.lower()]
-    st.write("Similar columns found:", similar_cols)
-
 # ----------------------------
 # Data type conversions and basic calculations
 # ----------------------------
