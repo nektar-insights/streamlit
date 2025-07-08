@@ -23,6 +23,30 @@ def load_mca_deals():
     res = supabase.table("mca_deals").select("*").execute()
     return pd.DataFrame(res.data)
 
+# pages/mca_dashboard.py
+from utils.imports import *
+from scripts.combine_hubspot_mca import combine_deals
+from scripts.get_naics_sector_risk import get_naics_sector_risk
+from utils.loan_tape_loader import load_unified_loan_customer_data
+
+# ----------------------------
+# Define risk gradient color scheme (updated colors) https://www.color-hex.com/color-palette/25513
+# ----------------------------
+RISK_GRADIENT = ["#fff600","#ffc302", "#ff8f00", "#ff5b00","#ff0505"]
+
+# ----------------------------
+# Supabase connection
+# ----------------------------
+supabase = get_supabase_client()
+
+# ----------------------------
+# Load and prepare single dataframe
+# ----------------------------
+@st.cache_data(ttl=3600)
+def load_mca_deals():
+    res = supabase.table("mca_deals").select("*").execute()
+    return pd.DataFrame(res.data)
+
 # Use combined dataframe as the single source of truth
 df = combine_deals()
 
