@@ -57,9 +57,9 @@ df["past_due_pct"] = df.apply(
 )
 
 # CALCULATION 4: Calculate CSL participation ratio using amount_hubspot
-# Formula: amount_hubspot / total_funded_amount
+# Formula: csl_participation / total_funded_amount
 # Logic: CSL's percentage ownership/participation in each deal
-df["participation_ratio"] = df["amount_hubspot"] / df["total_funded_amount"].replace(0, pd.NA)
+df["participation_ratio"] = df["csl_participation"] / df["total_funded_amount"].replace(0, pd.NA)
 
 # CALCULATION 5: Calculate CSL's portion of past due amount
 # Formula: participation_ratio * past_due_amount
