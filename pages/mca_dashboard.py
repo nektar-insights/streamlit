@@ -75,10 +75,10 @@ df["principal_remaining_actual"] = (df["principal_amount"] - df["total_paid"].fi
 df["csl_principal_outstanding"] = df.apply(
     lambda row: max(
         row["amount_hubspot"] -
-        (row["amount_hubspot"] / row["principal_amount"] * row["total_principal_paid"]
+        (row["amount_hubspot"] / row["principal_amount"] * row["total_paid"]
          if row["principal_amount"] > 0 else 0),
         0
-    ) if pd.notna(row["amount_hubspot"]) and pd.notna(row["principal_amount"]) and pd.notna(row["total_principal_paid"])
+    ) if pd.notna(row["amount_hubspot"]) and pd.notna(row["principal_amount"]) and pd.notna(row["total_paid"])
     else row["amount_hubspot"] if pd.notna(row["amount_hubspot"]) else 0,
     axis=1
 )
