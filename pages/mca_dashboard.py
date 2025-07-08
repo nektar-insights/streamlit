@@ -101,6 +101,14 @@ df.loc[df["status_category"] == "Matured", "csl_principal_outstanding"] = 0
 # Logic: Current deals by definition have no past due amounts
 df.loc[df["status_category"] == "Current", "csl_past_due"] = 0
 
+# CALCULATION 9a: Calculate CSL % of balance at risk
+df["csl_at_risk_pct"] = df.apply(
+    lambda row: row["csl_past_due"] / row["csl_principal_outstanding"]
+    if pd.notna(row["csl_past_due"]) and pd.notna(row["csl_principal_outstanding"]) and row["csl_principal_outstanding"] > 0
+    else 0,
+    axis=1
+)
+
 # CALCULATION 10: Commission rate conversion
 # Convert commission field to numeric percentage
 df["commission_rate"] = pd.to_numeric(df["commission"], errors="coerce")
@@ -108,6 +116,8 @@ df["commission_rate"] = pd.to_numeric(df["commission"], errors="coerce")
 # CALCULATION 11: Calculate days since funding
 # Used for risk scoring - older deals may have higher risk
 df["days_since_funding"] = (pd.Timestamp.today() - pd.to_datetime(df["funding_date"])).dt.days
+
+
 
 # ----------------------------
 # NEW PROJECTED PAYMENT ANALYSIS CALCULATIONS
@@ -570,24 +580,17 @@ if len(not_current_df) > 0:
             sort="-y",
             axis=alt.Axis(labelAngle=-90)
         ),
-        y=alt.Y("at_risk_pct:Q", title="Pct. of Balance at Risk", axis=alt.Axis(format=".0%")),
-        color=alt.Color(
-            "at_risk_pct:Q",
-            scale=alt.Scale(range=RISK_GRADIENT),
-            legend=alt.Legend(title="Risk Level")
-        ),
+               y=alt.Y("csl_at_risk_pct:Q", title="Pct. of CSL Balance at Risk"),
         tooltip=[
-            alt.Tooltip("deal_number:N", title="Loan ID"),
-            alt.Tooltip("dba:N", title="Deal Name"),
-            alt.Tooltip("past_due_amount:Q", title="Past Due ($)", format="$,.0f"),
-            alt.Tooltip("current_balance:Q", title="Current Balance ($)", format="$,.0f"),
-            alt.Tooltip("at_risk_pct:Q", title="% at Risk", format=".2%")
+            alt.Tooltip("csl_past_due:Q", title="CSL Past Due ($)", format="$,.0f"),
+            alt.Tooltip("csl_principal_outstanding:Q", title="CSL Outstanding ($)", format="$,.0f"),
+            alt.Tooltip("csl_at_risk_pct:Q", title="% CSL at Risk", format=".2%")
         ]
-    ).properties(
-        width=850,
-        height=400,
-        title="Percentage of Balance at Risk (Non-Current, Non-Matured Deals)"
-    )
+            ).properties(
+                width=850,
+                height=400,
+                title="Percentage of Balance at Risk (Non-Current, Non-Matured Deals)"
+            )
 
     st.altair_chart(risk_chart, use_container_width=True)
 else:
