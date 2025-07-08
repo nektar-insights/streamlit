@@ -72,14 +72,14 @@ df["csl_past_due"] = df["participation_ratio"] * df["past_due_amount"]
 df["principal_remaining_actual"] = (df["principal_amount"] - df["total_paid"].fillna(0)).clip(lower=0)
 
 # CALCULATION 6a: Calculate CSL's principal outstanding 
-# Formula: amount_hubspot - (amount_hubspot/principal_amount * total_paid)
+# Formula: csl_participation - (csl_participation/principal_amount * total_paid)
 # Logic: CSL's share of principal minus CSL's proportional share of payments received
 df["csl_principal_outstanding"] = df.apply(
-    lambda row: (row["amount_hubspot"] - 
-                (row["amount_hubspot"] / row["principal_amount"] * row["total_paid"].fillna(0) 
+    lambda row: (row["csl_participation"] - 
+                (row["csl_participation"] / row["principal_amount"] * row["total_paid"].fillna(0) 
                  if row["principal_amount"] > 0 else 0)).clip(lower=0)
-    if pd.notna(row["amount_hubspot"]) and pd.notna(row["principal_amount"])
-    else row["amount_hubspot"] if pd.notna(row["amount_hubspot"]) else 0,
+    if pd.notna(row["csl_participation"]) and pd.notna(row["principal_amount"])
+    else row["csl_participation"] if pd.notna(row["csl_participation"]) else 0,
     axis=1
 )
 
