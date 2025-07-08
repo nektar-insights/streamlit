@@ -34,7 +34,7 @@ df["funding_date"] = pd.to_datetime(df["funding_date"], errors="coerce").dt.date
 
 # Convert all financial columns to numeric, handling any non-numeric values
 for col in ["purchase_price", "receivables_amount", "current_balance", "past_due_amount", 
-            "principal_amount", "rtr_balance", "amount_hubspot", "total_funded_amount", 
+            "principal_amount", "rtr_balance", "csl_participation", "total_funded_amount", 
             "total_paid", "outstanding_balance"]:
     df[col] = pd.to_numeric(df[col], errors="coerce")
 
@@ -260,8 +260,8 @@ pct_non_current = total_non_current / outstanding_total if outstanding_total > 0
 
 # CSL INVESTMENT METRICS using combined dataset
 # CALCULATION 12: Total CSL capital deployed across all deals
-# Sum of all CSL participation amounts from amount_hubspot
-csl_capital_deployed = df["amount_hubspot"].sum()
+# Sum of all CSL participation amounts from csl_participation
+csl_capital_deployed = df["csl_participation"].sum()
 
 # CALCULATION 13: Total CSL past due exposure
 # Sum of CSL's proportional share of all past due amounts
@@ -285,12 +285,12 @@ total_csl_at_risk = at_risk["csl_principal_at_risk"].sum()
 average_commission_pct = df["commission_rate"].mean()
 
 # CALCULATION 16: Total commission paid by CSL using combined dataset
-# Formula: Sum of (amount_hubspot * commission_rate) for all deals
-total_commission_paid = (df["amount_hubspot"] * df["commission_rate"]).sum()
+# Formula: Sum of (csl_participation * commission_rate) for all deals
+total_commission_paid = (df["csl_participation"] * df["commission_rate"]).sum()
 
 # CALCULATION 17: Average commission rate weighted by CSL participation using combined dataset
 # Formula: total_commission_paid / total_csl_participation
-average_commission_on_loan = total_commission_paid / df["amount_hubspot"].sum() if df["amount_hubspot"].sum() > 0 else 0
+average_commission_on_loan = total_commission_paid / df["csl_participation"].sum() if df["csl_participation"].sum() > 0 else 0
 
 # RISK ANALYSIS DATAFRAMES
 # CALCULATION 18: Create dataframe for non-current, non-matured deals with risk metrics
@@ -467,10 +467,10 @@ st.subheader("Top 5 Biggest CSL Investments Outstanding")
 
 # Filter to non-matured deals and sort by CSL participation amount using combined dataset
 biggest_csl_loans = df[df["status_category"] != "Matured"].copy()
-biggest_csl_loans = biggest_csl_loans.sort_values("amount_hubspot", ascending=False).head(5)
+biggest_csl_loans = biggest_csl_loans.sort_values("csl_participation", ascending=False).head(5)
 
 biggest_csl_loans_display = biggest_csl_loans[[
-    "deal_number", "dba", "status_category", "amount_hubspot", "csl_principal_at_risk", 
+    "deal_number", "dba", "status_category", "csl_participation", "csl_principal_at_risk", 
     "csl_past_due", "principal_amount", "principal_remaining_actual", "current_balance", 
     "outstanding_balance", "total_paid", "participation_ratio"
 ]].copy()
@@ -479,7 +479,7 @@ biggest_csl_loans_display.rename(columns={
     "deal_number": "Loan ID",
     "dba": "Deal Name",
     "status_category": "Status",
-    "amount_hubspot": "CSL Participation ($)",
+    "csl_participation": "CSL Participation ($)",
     "csl_principal_at_risk": "CSL Principal at Risk ($)",
     "csl_past_due": "CSL Past Due ($)",
     "principal_amount": "Original Principal ($)",
@@ -739,7 +739,7 @@ if 'sector_name' in df.columns and not df['sector_name'].isna().all():
     # Group by risk_score from naics_sector_risk_profile table using combined dataset
     industry_summary = df.groupby(['risk_score']).agg({
         'deal_number': 'count',
-        'amount_hubspot': 'sum',
+        'csl_participation': 'sum',
         'csl_principal_at_risk': 'sum',
         'risk_profile': 'first',
         'sector_name': lambda x: ', '.join(x.unique()[:3])  # Show up to 3 sector names per risk score
@@ -814,7 +814,7 @@ if 'sector_name' in df.columns and not df['sector_name'].isna().all():
         # Create comprehensive sector summary using combined dataset
         sector_portfolio_summary = df.groupby(['sector_code', 'sector_name']).agg({
             'deal_number': 'count',
-            'amount_hubspot': 'sum',
+            'csl_participation': 'sum',
             'csl_principal_at_risk': 'sum',
             'risk_score': 'first'
         }).reset_index()
@@ -953,7 +953,7 @@ if 'tib' in df.columns:
     # TIB analysis using combined dataset
     tib_summary = df.groupby('tib_band').agg({
         'deal_number': 'count',
-        'amount_hubspot': 'sum',
+        'csl_participation': 'sum',
         'csl_principal_at_risk': 'sum'
     }).reset_index()
     
