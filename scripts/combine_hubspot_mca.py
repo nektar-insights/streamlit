@@ -18,12 +18,15 @@ def fetch_table(table_name):
 def combine_deals():
     deals = fetch_table("deals")
     mca = fetch_table("mca_deals")
+    qbo = fetch_table("qbo_loan_summary_view")
 
     # Handle null loan_ids
     deals = deals.dropna(subset=["loan_id"])
     deals["loan_id"] = deals["loan_id"].astype(str)
     mca["deal_number"] = mca["deal_number"].astype(str)
+    qbo["loan_id"] = qbo["loan_id"].astype(str)
 
+    # Merge HubSpot + MCA
     combined = pd.merge(
         deals,
         mca,
@@ -31,6 +34,15 @@ def combine_deals():
         left_on="loan_id",
         right_on="deal_number",
         suffixes=("_hubspot", "_mca")
+    )
+
+    # Merge QBO view onto combined deals
+    combined = pd.merge(
+        combined,
+        qbo,
+        how="left",
+        left_on="loan_id",
+        right_on="loan_id"  # Same field name, so no remapping needed
     )
 
     # Drop unnecessary columns
