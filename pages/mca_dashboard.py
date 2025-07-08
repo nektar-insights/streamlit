@@ -32,7 +32,7 @@ if not df.empty:
 
     # Convert all financial columns to numeric (already handled by centralized loader)
     financial_cols = ["purchase_price", "receivables_amount", "current_balance", "past_due_amount", 
-                     "principal_amount", "rtr_balance", "amount_hubspot", "total_funded_amount"]
+                      "principal_amount", "rtr_balance", "amount_hubspot", "total_funded_amount"]
     
     for col in financial_cols:
         if col in df.columns:
@@ -425,7 +425,7 @@ if "status_category" in df.columns and "csl_participation" in df.columns:
         
         # Clean up numeric data
         numeric_cols = ["CSL Participation ($)", "CSL Principal at Risk ($)", "CSL Past Due ($)", 
-                       "Original Principal ($)", "Principal Outstanding ($)", "Total Loan Outstanding ($)", "RTR ($)"]
+                        "Original Principal ($)", "Principal Outstanding ($)", "Total Loan Outstanding ($)", "RTR ($)"]
         
         for col in numeric_cols:
             if col in biggest_csl_loans_display.columns:
@@ -447,8 +447,8 @@ if "status_category" in df.columns and "csl_participation" in df.columns:
                 "Principal Outstanding ($)": st.column_config.NumberColumn("Principal Outstanding ($)", format="$%.0f"),
                 "Total Loan Outstanding ($)": st.column_config.NumberColumn("Total Loan Outstanding ($)", format="$%.0f"),
                 "RTR ($)": st.column_config.NumberColumn("RTR ($)", format="$%.0f"),
-                "RTR %": st.column_config.NumberColumn("RTR %", format="%.1%"),
-                "CSL Participation %": st.column_config.NumberColumn("CSL Participation %", format="%.1%"),
+                "RTR %": st.column_config.NumberColumn("RTR %", format="%.1f%%"),
+                "CSL Participation %": st.column_config.NumberColumn("CSL Participation %", format="%.1f%%"),
             }
         )
 
@@ -603,6 +603,92 @@ if not top_risk.empty and len(top_risk) > 0:
         )
 else:
     st.info("No deals meet the risk criteria for analysis.")
+
+# ----------------------------
+# Industry Sector Analysis
+# ----------------------------
+st.subheader("Industry Sector Analysis")
+
+# Check if required columns exist for sector analysis
+if 'sector_name' in df.columns and 'csl_past_due' in df.columns and 'csl_principal_at_risk' in df.columns and 'csl_participation' in df.columns and 'commission_rate' in df.columns:
+    # Group by sector and calculate metrics
+    sector_analysis = df.groupby('sector_name').agg(
+        total_past_due=('csl_past_due', 'sum'),
+        total_principal_at_risk=('csl_principal_at_risk', 'sum'),
+        total_investment=('csl_participation', 'sum'),
+        avg_commission=('commission_rate', 'mean'),
+        deal_count=('deal_number', 'count')
+    ).reset_index()
+
+    # CSL Past Due by Sector
+    past_due_chart = alt.Chart(sector_analysis).mark_bar().encode(
+        x=alt.X('sector_name:N', sort='-y', title='Industry Sector', axis=alt.Axis(labelAngle=-45)),
+        y=alt.Y('total_past_due:Q', title='CSL Past Due ($)'),
+        color=alt.Color('total_past_due:Q', scale=alt.Scale(range=RISK_GRADIENT), legend=None),
+        tooltip=[
+            alt.Tooltip('sector_name:N', title='Sector'),
+            alt.Tooltip('total_past_due:Q', title='Total Past Due', format='$,.0f'),
+            alt.Tooltip('deal_count:Q', title='Number of Deals')
+        ]
+    ).properties(
+        title='CSL Past Due by Sector',
+        width=700,
+        height=400
+    )
+    st.altair_chart(past_due_chart, use_container_width=True)
+
+    # CSL Principal at Risk by Sector
+    principal_risk_chart = alt.Chart(sector_analysis).mark_bar().encode(
+        x=alt.X('sector_name:N', sort='-y', title='Industry Sector', axis=alt.Axis(labelAngle=-45)),
+        y=alt.Y('total_principal_at_risk:Q', title='CSL Principal at Risk ($)'),
+        color=alt.Color('total_principal_at_risk:Q', scale=alt.Scale(range=RISK_GRADIENT), legend=None),
+        tooltip=[
+            alt.Tooltip('sector_name:N', title='Sector'),
+            alt.Tooltip('total_principal_at_risk:Q', title='Principal at Risk', format='$,.0f'),
+            alt.Tooltip('deal_count:Q', title='Number of Deals')
+        ]
+    ).properties(
+        title='CSL Principal at Risk by Sector',
+        width=700,
+        height=400
+    )
+    st.altair_chart(principal_risk_chart, use_container_width=True)
+
+    # CSL Total Investment by Sector
+    investment_chart = alt.Chart(sector_analysis).mark_bar().encode(
+        x=alt.X('sector_name:N', sort='-y', title='Industry Sector', axis=alt.Axis(labelAngle=-45)),
+        y=alt.Y('total_investment:Q', title='CSL Total Investment ($)'),
+        color=alt.Color('total_investment:Q', scale=alt.Scale(scheme='greens'), legend=None),
+        tooltip=[
+            alt.Tooltip('sector_name:N', title='Sector'),
+            alt.Tooltip('total_investment:Q', title='Total Investment', format='$,.0f'),
+            alt.Tooltip('deal_count:Q', title='Number of Deals')
+        ]
+    ).properties(
+        title='CSL Total Investment by Sector',
+        width=700,
+        height=400
+    )
+    st.altair_chart(investment_chart, use_container_width=True)
+
+    # Average Commission Rate by Sector
+    commission_chart = alt.Chart(sector_analysis).mark_bar().encode(
+        x=alt.X('sector_name:N', sort='-y', title='Industry Sector', axis=alt.Axis(labelAngle=-45)),
+        y=alt.Y('avg_commission:Q', title='Average Commission Rate', axis=alt.Axis(format='%')),
+        color=alt.Color('avg_commission:Q', scale=alt.Scale(scheme='purples'), legend=None),
+        tooltip=[
+            alt.Tooltip('sector_name:N', title='Sector'),
+            alt.Tooltip('avg_commission:Q', title='Avg. Commission Rate', format='.2%'),
+            alt.Tooltip('deal_count:Q', title='Number of Deals')
+        ]
+    ).properties(
+        title='Average Commission Rate by Sector',
+        width=700,
+        height=400
+    )
+    st.altair_chart(commission_chart, use_container_width=True)
+else:
+    st.info("Sector analysis requires 'sector_name', 'csl_past_due', 'csl_principal_at_risk', 'csl_participation', and 'commission_rate' columns.")
 
 # ----------------------------
 # Cache Management
