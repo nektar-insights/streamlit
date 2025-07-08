@@ -27,24 +27,51 @@ df = combine_deals()
 # Filter out Canceled deals completely
 df = df[df["status_category"] != "Canceled"]
 
+# DEBUG: Check what columns we have after loading and filtering
+st.write("🔍 **DEBUG: Columns after loading data:**")
+st.write(f"Total columns: {len(df.columns)}")
+st.write("Column names:", df.columns.tolist())
+
+# Check if amount_hubspot exists
+if 'amount_hubspot' in df.columns:
+    st.success("✅ amount_hubspot column found!")
+    st.write(f"amount_hubspot data type: {df['amount_hubspot'].dtype}")
+    st.write(f"amount_hubspot non-null count: {df['amount_hubspot'].count()}")
+    st.write(f"amount_hubspot sample values: {df['amount_hubspot'].head().tolist()}")
+else:
+    st.error("❌ amount_hubspot column NOT found!")
+    # Look for similar columns
+    similar_cols = [col for col in df.columns if 'amount' in col.lower() or 'hubspot' in col.lower()]
+    st.write("Similar columns found:", similar_cols)
+
 # ----------------------------
 # Data type conversions and basic calculations
 # ----------------------------
 df["funding_date"] = pd.to_datetime(df["funding_date"], errors="coerce").dt.date
 
 # Convert all financial columns to numeric, handling any non-numeric values
-for col in ["purchase_price", "receivables_amount", "current_balance", "past_due_amount", 
-            "principal_amount", "rtr_balance", "amount_hubspot", "total_funded_amount", 
-            "total_paid", "outstanding_balance"]:
-    if col in df.columns:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
+financial_columns = ["purchase_price", "receivables_amount", "current_balance", "past_due_amount", 
+                     "principal_amount", "rtr_balance", "amount_hubspot", "total_funded_amount", 
+                     "total_paid", "outstanding_balance"]
+
+# DEBUG: Check which financial columns actually exist
+existing_financial_cols = [col for col in financial_columns if col in df.columns]
+missing_financial_cols = [col for col in financial_columns if col not in df.columns]
+
+st.write("🔍 **DEBUG: Financial columns check:**")
+st.write("Existing financial columns:", existing_financial_cols)
+if missing_financial_cols:
+    st.warning(f"Missing financial columns: {missing_financial_cols}")
+
+# Only convert columns that actually exist
+for col in existing_financial_cols:
+    df[col] = pd.to_numeric(df[col], errors="coerce")
 
 # CALCULATION 1: Set past_due_amount to 0 for Matured deals
 # Logic: Matured deals have been closed out, so no amount should be past due
 df.loc[df["status_category"] == "Matured", "past_due_amount"] = 0
 
-# CALCULATION 2: Rename CSL participation column for clarity
-df.rename(columns={"amount_hubspot": "csl_participation"}, inplace=True)
+# NOTE: We keep amount_hubspot as the original field name, no renaming needed
 
 # CALCULATION 3: Calculate past due percentage
 # Formula: past_due_amount / current_balance
@@ -57,9 +84,21 @@ df["past_due_pct"] = df.apply(
 )
 
 # CALCULATION 4: Calculate CSL participation ratio using amount_hubspot
-# Formula: csl_participation / total_funded_amount
+# Formula: amount_hubspot / total_funded_amount
 # Logic: CSL's percentage ownership/participation in each deal
-df["participation_ratio"] = df["csl_participation"] / df["total_funded_amount"].replace(0, pd.NA)
+
+# DEBUG: Double-check before calculation
+if 'amount_hubspot' not in df.columns:
+    st.error("❌ CRITICAL: amount_hubspot missing before participation_ratio calculation!")
+    st.write("Available columns:", df.columns.tolist())
+    st.stop()
+
+if 'total_funded_amount' not in df.columns:
+    st.error("❌ CRITICAL: total_funded_amount missing before participation_ratio calculation!")
+    st.write("Available columns:", df.columns.tolist())
+    st.stop()
+
+df["participation_ratio"] = df["amount_hubspot"] / df["total_funded_amount"].replace(0, pd.NA)
 
 # CALCULATION 5: Calculate CSL's portion of past due amount
 # Formula: participation_ratio * past_due_amount
@@ -72,14 +111,14 @@ df["csl_past_due"] = df["participation_ratio"] * df["past_due_amount"]
 df["principal_remaining_actual"] = (df["principal_amount"] - df["total_paid"].fillna(0)).clip(lower=0)
 
 # CALCULATION 6a: Calculate CSL's principal outstanding 
-# Formula: csl_participation - (csl_participation/principal_amount * total_paid)
+# Formula: amount_hubspot - (amount_hubspot/principal_amount * total_paid)
 # Logic: CSL's share of principal minus CSL's proportional share of payments received
 df["csl_principal_outstanding"] = df.apply(
-    lambda row: (row["csl_participation"] - 
-                (row["csl_participation"] / row["principal_amount"] * row["total_paid"].fillna(0) 
+    lambda row: (row["amount_hubspot"] - 
+                (row["amount_hubspot"] / row["principal_amount"] * row["total_paid"].fillna(0) 
                  if row["principal_amount"] > 0 else 0)).clip(lower=0)
-    if pd.notna(row["csl_participation"]) and pd.notna(row["principal_amount"])
-    else row["csl_participation"] if pd.notna(row["csl_participation"]) else 0,
+    if pd.notna(row["amount_hubspot"]) and pd.notna(row["principal_amount"])
+    else row["amount_hubspot"] if pd.notna(row["amount_hubspot"]) else 0,
     axis=1
 )
 
