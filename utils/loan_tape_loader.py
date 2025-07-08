@@ -1,13 +1,49 @@
 # utils/loan_tape_loader.py
-"""
-Loan tape loading utilities that use the centralized data loader.
-Updated to remove duplicate data loading code and use centralized functions.
-"""
-
 import pandas as pd
 import numpy as np
-from utils.data_loader import data_loader
+from utils.imports import get_supabase_client
 
+def _load_all_data_with_fallback(supabase, table_name):
+    """
+    Fetch all rows from a Supabase table using the working pagination method
+    """
+    print(f"Loading all data from {table_name} using working pagination...")
+    
+    try:
+        rows = []
+        start = 0
+        chunk_size = 1000
+        
+        while True:
+            end = start + chunk_size - 1
+            response = (
+                supabase.table(table_name)
+                .select("*")
+                .range(start, end)
+                .execute()
+            )
+            batch = response.data
+            if not batch:
+                break  # no more rows
+            rows.extend(batch)
+            print(f"Loaded batch: {len(batch)} records from {table_name} (total so far: {len(rows)})")
+            start += chunk_size
+        
+        df = pd.DataFrame(rows)
+        print(f"Successfully loaded {len(df)} total records from {table_name}")
+        return df
+        
+    except Exception as e:
+        print(f"Pagination failed for {table_name}: {e}")
+        # Fallback to standard query
+        try:
+            response = supabase.table(table_name).select("*").execute()
+            df = pd.DataFrame(response.data)
+            print(f"Fallback successful: {len(df)} records from {table_name}")
+            return df
+        except Exception as e2:
+            print(f"All methods failed for {table_name}: {e2}")
+            return pd.DataFrame()
 
 def load_loan_tape_data():
     """
@@ -16,9 +52,11 @@ def load_loan_tape_data():
     Returns:
         pd.DataFrame: Comprehensive loan tape with all required metrics
     """
-    # Use centralized data loader
-    deals_df = data_loader.load_deals()
-    qbo_df, _ = data_loader.load_qbo_data()
+    supabase = get_supabase_client()
+    
+    # Try to load ALL data, with fallback to limited data
+    deals_df = _load_all_data_with_fallback(supabase, "deals")
+    qbo_df = _load_all_data_with_fallback(supabase, "qbo_invoice_payments")
     
     if deals_df.empty or qbo_df.empty:
         return pd.DataFrame()
@@ -32,7 +70,6 @@ def load_loan_tape_data():
     
     return loan_tape
 
-
 def load_unified_loan_customer_data():
     """
     Load unified loan and customer payment data in a single comprehensive table
@@ -40,9 +77,11 @@ def load_unified_loan_customer_data():
     Returns:
         pd.DataFrame: Combined loan performance and customer payment analysis
     """
-    # Use centralized data loader
-    deals_df = data_loader.load_deals()
-    qbo_df, _ = data_loader.load_qbo_data()
+    supabase = get_supabase_client()
+    
+    # Try to load ALL data, with fallback to limited data
+    deals_df = _load_all_data_with_fallback(supabase, "deals")
+    qbo_df = _load_all_data_with_fallback(supabase, "qbo_invoice_payments")
     
     if deals_df.empty or qbo_df.empty:
         print("Warning: Missing deals or QBO data for unified analysis")
@@ -57,7 +96,6 @@ def load_unified_loan_customer_data():
     
     return unified_data
 
-
 def get_data_diagnostics():
     """
     Get diagnostic information about the data join process
@@ -65,9 +103,79 @@ def get_data_diagnostics():
     Returns:
         dict: Diagnostic information for display in dashboard
     """
-    # Use centralized diagnostics function
-    return data_loader.get_data_diagnostics()
-
+    try:
+        supabase = get_supabase_client()
+        
+        # Try to load ALL data, with fallback to limited data
+        deals_df = _load_all_data_with_fallback(supabase, "deals")
+        qbo_df = _load_all_data_with_fallback(supabase, "qbo_invoice_payments")
+        
+        if deals_df.empty or qbo_df.empty:
+            return {}
+        
+        # Convert amounts to numeric for calculations
+        qbo_df["total_amount"] = pd.to_numeric(qbo_df["total_amount"], errors="coerce")
+        deals_df["amount"] = pd.to_numeric(deals_df["amount"], errors="coerce")
+        
+        # Clean loan_ids
+        qbo_df["loan_id"] = qbo_df["loan_id"].astype(str).str.strip()
+        deals_df["loan_id"] = deals_df["loan_id"].astype(str).str.strip()
+        
+        # Transaction type breakdown - simplified approach
+        transaction_types = {}
+        if "transaction_type" in qbo_df.columns:
+            txn_summary = qbo_df.groupby("transaction_type").agg({
+                "total_amount": "sum",
+                "transaction_id": "count"
+            })
+            
+            for txn_type in txn_summary.index:
+                transaction_types[txn_type] = {
+                    "total_amount": float(txn_summary.loc[txn_type, "total_amount"]),
+                    "count": int(txn_summary.loc[txn_type, "transaction_id"])
+                }
+        
+        # Basic counts
+        diagnostics = {
+            "raw_deals_count": len(deals_df),
+            "raw_qbo_count": len(qbo_df),
+            "total_qbo_amount": float(qbo_df["total_amount"].sum()),
+            
+            # Deal analysis
+            "closed_won_deals": len(deals_df[deals_df["is_closed_won"] == True]),
+            "total_participation": float(deals_df[deals_df["is_closed_won"] == True]["amount"].sum()),
+            
+            # Transaction type breakdown - fixed structure
+            "transaction_types": transaction_types,
+            
+            # Payment type filtering
+            "payment_types_amount": float(qbo_df[qbo_df["transaction_type"].isin(["Payment", "Deposit", "Receipt"])]["total_amount"].sum()),
+            "payment_types_count": len(qbo_df[qbo_df["transaction_type"].isin(["Payment", "Deposit", "Receipt"])]),
+            
+            # Loan ID analysis
+            "qbo_with_loan_id": {
+                "count": len(qbo_df[qbo_df["loan_id"].notna() & (qbo_df["loan_id"] != "") & (qbo_df["loan_id"] != "nan")]),
+                "amount": float(qbo_df[qbo_df["loan_id"].notna() & (qbo_df["loan_id"] != "") & (qbo_df["loan_id"] != "nan")]["total_amount"].sum())
+            },
+            "qbo_without_loan_id": {
+                "count": len(qbo_df[qbo_df["loan_id"].isna() | (qbo_df["loan_id"] == "") | (qbo_df["loan_id"] == "nan")]),
+                "amount": float(qbo_df[qbo_df["loan_id"].isna() | (qbo_df["loan_id"] == "") | (qbo_df["loan_id"] == "nan")]["total_amount"].sum())
+            },
+            
+            # Loan ID overlap
+            "unique_deal_loan_ids": deals_df["loan_id"].nunique(),
+            "unique_qbo_loan_ids": qbo_df["loan_id"].nunique(),
+            "overlapping_loan_ids": len(set(deals_df["loan_id"].unique()).intersection(set(qbo_df["loan_id"].unique()))),
+            
+            # Top customers
+            "top_customers": qbo_df.groupby("customer_name")["total_amount"].sum().nlargest(10).to_dict()
+        }
+        
+        return diagnostics
+        
+    except Exception as e:
+        print(f"Error in get_data_diagnostics: {e}")
+        return {"error": str(e)}
 
 def get_customer_payment_summary(qbo_df=None):
     """
@@ -80,8 +188,9 @@ def get_customer_payment_summary(qbo_df=None):
         pd.DataFrame: Customer payment summary
     """
     if qbo_df is None or qbo_df.empty:
-        # Load QBO data using centralized loader
-        qbo_df, _ = data_loader.load_qbo_data()
+        # Load all QBO data if not provided
+        supabase = get_supabase_client()
+        qbo_df = _load_all_data_with_fallback(supabase, "qbo_invoice_payments")
     
     if qbo_df.empty:
         return pd.DataFrame()
@@ -118,58 +227,44 @@ def get_customer_payment_summary(qbo_df=None):
     
     return customer_summary
 
-
 def _prepare_deals_data(deals_df):
     """Prepare and clean deals data"""
-    # Convert numeric columns (already handled by centralized loader, but ensure consistency)
+    # Convert numeric columns
     numeric_cols = ["amount", "factor_rate", "tib", "fico"]
     for col in numeric_cols:
         if col in deals_df.columns:
             deals_df[col] = pd.to_numeric(deals_df[col], errors="coerce")
     
-    # Ensure loan_id is string and clean (already handled by centralized loader)
-    if "loan_id" in deals_df.columns:
-        deals_df["loan_id"] = deals_df["loan_id"].astype(str).str.strip()
+    # Ensure loan_id is string and clean
+    deals_df["loan_id"] = deals_df["loan_id"].astype(str).str.strip()
     
     # Filter to only closed won deals (participated deals)
-    if "is_closed_won" in deals_df.columns:
-        deals_df = deals_df[deals_df["is_closed_won"] == True].copy()
+    deals_df = deals_df[deals_df["is_closed_won"] == True].copy()
     
     # Calculate total return (expected profit)
-    if "amount" in deals_df.columns and "factor_rate" in deals_df.columns:
-        deals_df["total_return"] = (deals_df["amount"] * deals_df["factor_rate"]) - deals_df["amount"]
+    deals_df["total_return"] = (deals_df["amount"] * deals_df["factor_rate"]) - deals_df["amount"]
     
     return deals_df
 
-
 def _prepare_qbo_data(qbo_df):
     """Prepare and clean QBO payment data"""
-    # Convert amount to numeric (already handled by centralized loader)
-    if "total_amount" in qbo_df.columns:
-        qbo_df["total_amount"] = pd.to_numeric(qbo_df["total_amount"], errors="coerce")
+    # Convert amount to numeric
+    qbo_df["total_amount"] = pd.to_numeric(qbo_df["total_amount"], errors="coerce")
     
-    # Ensure loan_id is string and clean (already handled by centralized loader)
-    if "loan_id" in qbo_df.columns:
-        qbo_df["loan_id"] = qbo_df["loan_id"].astype(str).str.strip()
+    # Ensure loan_id is string and clean
+    qbo_df["loan_id"] = qbo_df["loan_id"].astype(str).str.strip()
     
     # Filter to only payment transactions (positive cash flow)
-    if "transaction_type" in qbo_df.columns:
-        payment_types = ["Payment", "Deposit", "Receipt"]
-        qbo_df = qbo_df[qbo_df["transaction_type"].isin(payment_types)].copy()
+    payment_types = ["Payment", "Deposit", "Receipt"]
+    qbo_df = qbo_df[qbo_df["transaction_type"].isin(payment_types)].copy()
     
     # Take absolute value to ensure positive amounts
-    if "total_amount" in qbo_df.columns:
-        qbo_df["total_amount"] = qbo_df["total_amount"].abs()
+    qbo_df["total_amount"] = qbo_df["total_amount"].abs()
     
     return qbo_df
 
-
 def _create_loan_tape(deals_df, qbo_df):
     """Create the loan tape by joining deals and payment data"""
-    
-    if "loan_id" not in deals_df.columns or "loan_id" not in qbo_df.columns:
-        print("Warning: loan_id column missing from one or both datasets")
-        return pd.DataFrame()
     
     # Aggregate QBO payments by loan_id
     loan_payments = qbo_df.groupby("loan_id").agg({
@@ -186,9 +281,8 @@ def _create_loan_tape(deals_df, qbo_df):
     loan_tape["payment_count"] = loan_tape["payment_count"].fillna(0)
     
     # Calculate RTR percentage
-    if "amount" in loan_tape.columns:
-        loan_tape["rtr_percentage"] = (loan_tape["rtr_amount"] / loan_tape["amount"]) * 100
-        loan_tape["rtr_percentage"] = loan_tape["rtr_percentage"].fillna(0)
+    loan_tape["rtr_percentage"] = (loan_tape["rtr_amount"] / loan_tape["amount"]) * 100
+    loan_tape["rtr_percentage"] = loan_tape["rtr_percentage"].fillna(0)
     
     # Select and rename columns for final loan tape based on actual table structure
     columns_to_select = []
@@ -228,15 +322,10 @@ def _create_loan_tape(deals_df, qbo_df):
     
     return loan_tape_final
 
-
 def _create_unified_loan_customer_table(deals_df, qbo_df):
     """
     Create a unified table combining loan performance with customer payment analysis
     """
-    
-    if "customer_name" not in qbo_df.columns:
-        print("Warning: customer_name column missing from QBO data")
-        return pd.DataFrame()
     
     # Step 1: Create customer-level aggregations from QBO data
     customer_summary = qbo_df.groupby("customer_name").agg({
@@ -270,10 +359,6 @@ def _create_unified_loan_customer_table(deals_df, qbo_df):
     customer_summary["unattributed_count"] = customer_summary["unattributed_count"].fillna(0)
     
     # Step 3: Create loan-level data with payments
-    if "loan_id" not in qbo_df.columns:
-        print("Warning: loan_id column missing from QBO data")
-        return pd.DataFrame()
-    
     loan_payments = qbo_df.groupby("loan_id").agg({
         "total_amount": "sum",
         "txn_date": ["count", "min", "max"],
@@ -284,10 +369,6 @@ def _create_unified_loan_customer_table(deals_df, qbo_df):
     loan_payments.columns = ["loan_id", "rtr_amount", "payment_count", "first_payment_date", "last_payment_date", "qbo_customer_name"]
     
     # Step 4: Join deals with loan payments
-    if "loan_id" not in deals_df.columns:
-        print("Warning: loan_id column missing from deals data")
-        return pd.DataFrame()
-    
     unified = deals_df.merge(loan_payments, on="loan_id", how="left")
     
     # Fill missing payment data
@@ -295,43 +376,34 @@ def _create_unified_loan_customer_table(deals_df, qbo_df):
     unified["payment_count"] = unified["payment_count"].fillna(0)
     
     # Calculate loan-level metrics
-    if "amount" in unified.columns:
-        unified["rtr_percentage"] = (unified["rtr_amount"] / unified["amount"]) * 100
-        unified["rtr_percentage"] = unified["rtr_percentage"].fillna(0)
+    unified["rtr_percentage"] = (unified["rtr_amount"] / unified["amount"]) * 100
+    unified["rtr_percentage"] = unified["rtr_percentage"].fillna(0)
     
     # Step 5: Add customer-level summary data
     # First, try to match on deal_name to customer_name
-    if "deal_name" in unified.columns:
-        unified_with_customer = unified.merge(
-            customer_summary, 
-            left_on="deal_name", 
-            right_on="customer_name", 
-            how="left"
-        )
-    else:
-        # Fallback if deal_name doesn't exist
-        unified_with_customer = unified.copy()
-        for col in customer_summary.columns:
-            if col != "customer_name":
-                unified_with_customer[col] = 0
+    unified_with_customer = unified.merge(
+        customer_summary, 
+        left_on="deal_name", 
+        right_on="customer_name", 
+        how="left"
+    )
     
     # If that doesn't work well, try matching on qbo_customer_name
-    if "qbo_customer_name" in unified_with_customer.columns:
-        missing_customer_data = unified_with_customer["customer_name"].isna() if "customer_name" in unified_with_customer.columns else pd.Series([True] * len(unified_with_customer))
-        if missing_customer_data.any():
-            # For rows missing customer data, try matching on qbo_customer_name
-            customer_backup = unified_with_customer[missing_customer_data].merge(
-                customer_summary,
-                left_on="qbo_customer_name",
-                right_on="customer_name",
-                how="left",
-                suffixes=("", "_backup")
-            )
-            
-            # Fill in missing customer data
-            for col in customer_summary.columns:
-                if col != "customer_name" and col in customer_backup.columns:
-                    unified_with_customer.loc[missing_customer_data, col] = customer_backup[col].values
+    missing_customer_data = unified_with_customer["customer_name"].isna()
+    if missing_customer_data.any():
+        # For rows missing customer data, try matching on qbo_customer_name
+        customer_backup = unified_with_customer[missing_customer_data].merge(
+            customer_summary,
+            left_on="qbo_customer_name",
+            right_on="customer_name",
+            how="left",
+            suffixes=("", "_backup")
+        )
+        
+        # Fill in missing customer data
+        for col in customer_summary.columns:
+            if col != "customer_name" and col in customer_backup.columns:
+                unified_with_customer.loc[missing_customer_data, col] = customer_backup[col].values
     
     # Step 6: Calculate additional metrics
     unified_with_customer["customer_attributed_percentage"] = (
@@ -339,10 +411,9 @@ def _create_unified_loan_customer_table(deals_df, qbo_df):
         unified_with_customer["total_customer_payments"] * 100
     ).fillna(0)
     
-    if "last_payment" in unified_with_customer.columns:
-        unified_with_customer["days_since_last_payment"] = (
-            pd.Timestamp.now() - pd.to_datetime(unified_with_customer["last_payment"])
-        ).dt.days
+    unified_with_customer["days_since_last_payment"] = (
+        pd.Timestamp.now() - pd.to_datetime(unified_with_customer["last_payment"])
+    ).dt.days
     
     # Step 7: Select and format final columns
     final_columns = {
