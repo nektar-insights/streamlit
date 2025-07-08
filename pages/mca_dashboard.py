@@ -2,7 +2,7 @@
 from utils.imports import *
 from scripts.combine_hubspot_mca import combine_deals
 from scripts.get_naics_sector_risk import get_naics_sector_risk
-
+from utils.loan_tape_loader import load_unified_loan_customer_data
 # ----------------------------
 # Define risk gradient color scheme (updated colors) https://www.color-hex.com/color-palette/25513
 # ----------------------------
@@ -26,6 +26,23 @@ df = combine_deals()
 
 # Filter out Canceled deals completely
 df = df[df["status_category"] != "Canceled"]
+
+
+
+# Load actual RTR/payments from QBO
+unified_data_df = load_unified_loan_customer_data()
+
+# Merge unified QBO payments data with MCA
+df = combine_deals()
+df = df[df["status_category"] != "Canceled"]
+
+# Merge on Loan ID / deal_number
+df = df.merge(
+    unified_data_df[["Loan ID", "Expected Return", "RTR Amount", "RTR %", "Participation Amount"]],
+    left_on="deal_number",
+    right_on="Loan ID",
+    how="left"
+)
 
 # ----------------------------
 # Data type conversions and basic calculations
@@ -67,17 +84,14 @@ df["csl_past_due"] = df["participation_ratio"] * df["past_due_amount"]
 # CALCULATION 6: Estimate remaining principal balance
 # Formula: If payments_made is available, subtract from principal_amount; otherwise use full principal_amount
 # Logic: Estimates how much principal is still outstanding on each deal
-df["principal_remaining_est"] = df.apply(
-    lambda row: row["principal_amount"] if pd.isna(row["payments_made"])
-    else max(row["principal_amount"] - row["payments_made"], 0),
-    axis=1
-)
+df["principal_remaining_actual"] = df["Expected Return"] - df["RTR Amount"]
+df["principal_remaining_actual"] = df["principal_remaining_actual"].clip(lower=0)  # no negatives
 
 # CALCULATION 7: Calculate CSL's principal at risk
-# Formula: participation_ratio * principal_remaining_est
+# Formula: participation_ratio * principal_remaining_actual
 # Logic: CSL's proportional share of the estimated remaining principal balance
 # This represents CSL's capital that could be at risk if the deal defaults
-df["csl_principal_at_risk"] = df["participation_ratio"] * df["principal_remaining_est"]
+df["csl_principal_at_risk"] = df["Participation Amount"] / df["Expected Return"] * df["principal_remaining_actual"]
 
 # CALCULATION 8: Set CSL principal at risk to 0 for Matured deals
 # Logic: Matured deals are closed, so there's no remaining principal at risk
@@ -192,9 +206,9 @@ total_csl_past_due = df["csl_past_due"].sum()
 
 # CALCULATION 14: Outstanding CSL Principal (Capital at Risk)
 # This represents CSL's share of remaining principal on deals that are "Not Current"
-# Formula: Sum of (participation_ratio * principal_remaining_est) for Not Current deals only
+# Formula: Sum of (participation_ratio * principal_remaining_actual) for Not Current deals only
 at_risk = df[df["status_category"] == "Not Current"]
-total_csl_at_risk = (at_risk["participation_ratio"] * at_risk["principal_remaining_est"]).sum()
+total_csl_at_risk = (at_risk["participation_ratio"] * at_risk["principal_remaining_actual"]).sum()
 
 # ALTERNATIVE CALCULATION for Outstanding CSL Principal (commented out - choose one approach):
 # Option A: Include all non-matured deals (Current + Not Current)
@@ -384,7 +398,7 @@ biggest_csl_loans = biggest_csl_loans.sort_values("csl_participation", ascending
 
 biggest_csl_loans_display = biggest_csl_loans[[
     "deal_number", "dba", "status_category", "csl_participation", "csl_principal_at_risk", 
-    "csl_past_due", "principal_amount", "principal_remaining_est", "current_balance", 
+    "csl_past_due", "principal_amount", "principal_remaining_actual", "current_balance", 
     "rtr_balance", "rtr_pct", "participation_ratio"
 ]].copy()
 
@@ -396,7 +410,7 @@ biggest_csl_loans_display.rename(columns={
     "csl_principal_at_risk": "CSL Principal at Risk ($)",
     "csl_past_due": "CSL Past Due ($)",
     "principal_amount": "Original Principal ($)",
-    "principal_remaining_est": "Principal Outstanding ($)",
+    "principal_remaining_actual": "Principal Outstanding ($)",
     "current_balance": "Total Loan Outstanding ($)",
     "rtr_balance": "RTR ($)",
     "rtr_pct": "RTR %",
@@ -914,6 +928,9 @@ if 'tib' in df.columns:
         }
     )
 
+total_unattributed = unified_data_df["Unattributed Amount"].sum()
+if total_unattributed > 0:
+    st.warning(f"⚠️ ${total_unattributed:,.0f} in payments are unattributed to any deal")
 # Download buttons
 csv = loan_tape.to_csv(index=False).encode("utf-8")
 st.download_button(
