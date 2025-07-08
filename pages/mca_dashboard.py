@@ -1,4 +1,6 @@
-# pages/mca_dashboard.py
+# CALCULATION 1: Set past_due_amount to 0 for Matured deals
+# Logic: Matured deals have been closed out, so no amount should be past due
+df.loc[df["status_category"] == "Matured", "past_due_amount"] = 0# pages/mca_dashboard.py
 from utils.imports import *
 from scripts.combine_hubspot_mca import combine_deals
 from scripts.get_naics_sector_risk import get_naics_sector_risk
