@@ -124,7 +124,7 @@ for col in ["loan_term", "factor_rate", "payments_made"]:
 df["total_repayment"] = df["principal_amount"] * df["factor_rate"]
 
 # CALCULATION 25: Calculate Expected Daily Payment
-# Formula: total_repayment / term (in days)
+# Formula: total_repayment / loan_term (in days)
 # Logic: Daily payment amount based on linear amortization schedule
 df["expected_daily_payment"] = df.apply(
     lambda row: row["total_repayment"] / row["loan_term"]
