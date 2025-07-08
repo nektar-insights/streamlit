@@ -27,23 +27,6 @@ df = combine_deals()
 # Filter out Canceled deals completely
 df = df[df["status_category"] != "Canceled"]
 
-
-
-# Load actual RTR/payments from QBO
-unified_data_df = load_unified_loan_customer_data()
-
-# Merge unified QBO payments data with MCA
-df = combine_deals()
-df = df[df["status_category"] != "Canceled"]
-
-# Merge on Loan ID / deal_number
-df = df.merge(
-    unified_data_df[["Loan ID", "Expected Return", "RTR Amount", "RTR %", "Participation Amount"]],
-    left_on="deal_number",
-    right_on="Loan ID",
-    how="left"
-)
-
 # ----------------------------
 # Data type conversions and basic calculations
 # ----------------------------
@@ -51,7 +34,8 @@ df["funding_date"] = pd.to_datetime(df["funding_date"], errors="coerce").dt.date
 
 # Convert all financial columns to numeric, handling any non-numeric values
 for col in ["purchase_price", "receivables_amount", "current_balance", "past_due_amount", 
-            "principal_amount", "rtr_balance", "amount_hubspot", "total_funded_amount"]:
+            "principal_amount", "rtr_balance", "amount_hubspot", "total_funded_amount", 
+            "total_paid", "outstanding_balance"]:
     df[col] = pd.to_numeric(df[col], errors="coerce")
 
 # CALCULATION 1: Set past_due_amount to 0 for Matured deals
@@ -81,17 +65,18 @@ df["participation_ratio"] = df["csl_participation"] / df["total_funded_amount"].
 # Logic: CSL's proportional share of any past due amounts based on participation percentage
 df["csl_past_due"] = df["participation_ratio"] * df["past_due_amount"]
 
-# CALCULATION 6: Estimate remaining principal balance
-# Formula: If payments_made is available, subtract from principal_amount; otherwise use full principal_amount
+# CALCULATION 6: Calculate remaining principal balance using combined dataset
+# Formula: Use outstanding_balance from combined dataset, or calculate as principal_amount - total_paid
 # Logic: Estimates how much principal is still outstanding on each deal
-df["principal_remaining_actual"] = df["Expected Return"] - df["RTR Amount"]
-df["principal_remaining_actual"] = df["principal_remaining_actual"].clip(lower=0)  # no negatives
+df["principal_remaining_actual"] = df["outstanding_balance"].fillna(
+    df["principal_amount"] - df["total_paid"]
+).clip(lower=0)  # no negatives
 
-# CALCULATION 7: Calculate CSL's principal at risk
+# CALCULATION 7: Calculate CSL's principal at risk using combined dataset
 # Formula: participation_ratio * principal_remaining_actual
 # Logic: CSL's proportional share of the estimated remaining principal balance
 # This represents CSL's capital that could be at risk if the deal defaults
-df["csl_principal_at_risk"] = df["Participation Amount"] / df["Expected Return"] * df["principal_remaining_actual"]
+df["csl_principal_at_risk"] = df["participation_ratio"] * df["principal_remaining_actual"]
 
 # CALCULATION 8: Set CSL principal at risk to 0 for Matured deals
 # Logic: Matured deals are closed, so there's no remaining principal at risk
@@ -114,7 +99,7 @@ df["days_since_funding"] = (pd.Timestamp.today() - pd.to_datetime(df["funding_da
 # ----------------------------
 
 # Convert necessary columns to numeric for payment projections
-for col in ["loan_term", "factor_rate", "payments_made"]:
+for col in ["loan_term", "factor_rate", "total_paid"]:
     if col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
@@ -146,12 +131,12 @@ df["expected_payments_to_date"] = df.apply(
     axis=1
 )
 
-# CALCULATION 27: Calculate Payment Delta
-# Formula: payments_made - expected_payments_to_date
+# CALCULATION 27: Calculate Payment Delta using combined dataset
+# Formula: total_paid - expected_payments_to_date
 # Logic: Positive = merchant ahead of schedule, Negative = merchant behind schedule
 df["payment_delta"] = df.apply(
-    lambda row: row["payments_made"] - row["expected_payments_to_date"]
-    if pd.notna(row["payments_made"]) and pd.notna(row["expected_payments_to_date"])
+    lambda row: row["total_paid"] - row["expected_payments_to_date"]
+    if pd.notna(row["total_paid"]) and pd.notna(row["expected_payments_to_date"])
     else 0,
     axis=1
 )
@@ -273,10 +258,10 @@ outstanding_total = total_current + total_non_current
 pct_current = total_current / outstanding_total if outstanding_total > 0 else 0
 pct_non_current = total_non_current / outstanding_total if outstanding_total > 0 else 0
 
-# CSL INVESTMENT METRICS
+# CSL INVESTMENT METRICS using combined dataset
 # CALCULATION 12: Total CSL capital deployed across all deals
-# Sum of all CSL participation amounts
-csl_capital_deployed = df["csl_participation"].sum()
+# Sum of all CSL participation amounts from amount_hubspot
+csl_capital_deployed = df["amount_hubspot"].sum()
 
 # CALCULATION 13: Total CSL past due exposure
 # Sum of CSL's proportional share of all past due amounts
@@ -284,9 +269,9 @@ total_csl_past_due = df["csl_past_due"].sum()
 
 # CALCULATION 14: Outstanding CSL Principal (Capital at Risk)
 # This represents CSL's share of remaining principal on deals that are "Not Current"
-# Formula: Sum of (participation_ratio * principal_remaining_actual) for Not Current deals only
+# Formula: Sum of csl_principal_at_risk for Not Current deals only
 at_risk = df[df["status_category"] == "Not Current"]
-total_csl_at_risk = (at_risk["participation_ratio"] * at_risk["principal_remaining_actual"]).sum()
+total_csl_at_risk = at_risk["csl_principal_at_risk"].sum()
 
 # ALTERNATIVE CALCULATION for Outstanding CSL Principal (commented out - choose one approach):
 # Option A: Include all non-matured deals (Current + Not Current)
@@ -299,13 +284,13 @@ total_csl_at_risk = (at_risk["participation_ratio"] * at_risk["principal_remaini
 # CALCULATION 15: Average commission rate across all deals
 average_commission_pct = df["commission_rate"].mean()
 
-# CALCULATION 16: Total commission paid by CSL
-# Formula: Sum of (csl_participation * commission_rate) for all deals
-total_commission_paid = (df["csl_participation"] * df["commission_rate"]).sum()
+# CALCULATION 16: Total commission paid by CSL using combined dataset
+# Formula: Sum of (amount_hubspot * commission_rate) for all deals
+total_commission_paid = (df["amount_hubspot"] * df["commission_rate"]).sum()
 
-# CALCULATION 17: Average commission rate weighted by CSL participation
+# CALCULATION 17: Average commission rate weighted by CSL participation using combined dataset
 # Formula: total_commission_paid / total_csl_participation
-average_commission_on_loan = total_commission_paid / df["csl_participation"].sum() if df["csl_participation"].sum() > 0 else 0
+average_commission_on_loan = total_commission_paid / df["amount_hubspot"].sum() if df["amount_hubspot"].sum() > 0 else 0
 
 # RISK ANALYSIS DATAFRAMES
 # CALCULATION 18: Create dataframe for non-current, non-matured deals with risk metrics
@@ -430,11 +415,11 @@ loan_tape_df = df.copy()
 if loan_tape_status_filter != "All":
     loan_tape_df = loan_tape_df[loan_tape_df["status_category"] == loan_tape_status_filter]
 
-# Enhanced loan tape with new projected payment fields
+# Enhanced loan tape with new projected payment fields using combined dataset
 loan_tape = loan_tape_df[[
     "deal_number", "dba", "funding_date", "status_category",
     "csl_past_due", "past_due_pct", "performance_ratio",
-    "rtr_balance", "performance_details",
+    "outstanding_balance", "performance_details",
     "expected_payments_to_date", "payment_delta", "projected_status"
 ]].copy()
 
@@ -446,7 +431,7 @@ loan_tape.rename(columns={
     "csl_past_due": "CSL Past Due ($)",
     "past_due_pct": "Past Due %",
     "performance_ratio": "Performance Ratio",
-    "rtr_balance": "Remaining to Recover ($)",
+    "outstanding_balance": "Outstanding Balance ($)",
     "performance_details": "Performance Notes",
     "expected_payments_to_date": "Expected Payments to Date ($)",
     "payment_delta": "Payment Delta ($)",
@@ -455,7 +440,7 @@ loan_tape.rename(columns={
 
 loan_tape["Past Due %"] = pd.to_numeric(loan_tape["Past Due %"], errors="coerce").fillna(0)*100
 loan_tape["CSL Past Due ($)"] = pd.to_numeric(loan_tape["CSL Past Due ($)"], errors="coerce").fillna(0)
-loan_tape["Remaining to Recover ($)"] = pd.to_numeric(loan_tape["Remaining to Recover ($)"], errors="coerce").fillna(0)
+loan_tape["Outstanding Balance ($)"] = pd.to_numeric(loan_tape["Outstanding Balance ($)"], errors="coerce").fillna(0)
 loan_tape["Performance Ratio"] = pd.to_numeric(loan_tape["Performance Ratio"], errors="coerce").fillna(0)
 loan_tape["Expected Payments to Date ($)"] = pd.to_numeric(loan_tape["Expected Payments to Date ($)"], errors="coerce").fillna(0)
 loan_tape["Payment Delta ($)"] = pd.to_numeric(loan_tape["Payment Delta ($)"], errors="coerce").fillna(0)
@@ -466,7 +451,7 @@ st.dataframe(
     column_config={
         "Past Due %": st.column_config.NumberColumn("Past Due %", format="%.2f"),
         "CSL Past Due ($)": st.column_config.NumberColumn("CSL Past Due ($)", format="$%.0f"),
-        "Remaining to Recover ($)": st.column_config.NumberColumn("Remaining to Recover ($)", format="$%.0f"),
+        "Outstanding Balance ($)": st.column_config.NumberColumn("Outstanding Balance ($)", format="$%.0f"),
         "Performance Ratio": st.column_config.NumberColumn("Performance Ratio", format="%.2f"),
         "Expected Payments to Date ($)": st.column_config.NumberColumn("Expected Payments to Date ($)", format="$%.0f", help="Total payments expected by today based on repayment schedule"),
         "Payment Delta ($)": st.column_config.NumberColumn("Payment Delta ($)", format="$%.0f", help="Variance between actual and expected payments. Positive = ahead, negative = behind"),
@@ -480,37 +465,37 @@ st.dataframe(
 
 st.subheader("Top 5 Biggest CSL Investments Outstanding")
 
-# Filter to non-matured deals and sort by CSL participation amount
+# Filter to non-matured deals and sort by CSL participation amount using combined dataset
 biggest_csl_loans = df[df["status_category"] != "Matured"].copy()
-biggest_csl_loans = biggest_csl_loans.sort_values("csl_participation", ascending=False).head(5)
+biggest_csl_loans = biggest_csl_loans.sort_values("amount_hubspot", ascending=False).head(5)
 
 biggest_csl_loans_display = biggest_csl_loans[[
-    "deal_number", "dba", "status_category", "csl_participation", "csl_principal_at_risk", 
+    "deal_number", "dba", "status_category", "amount_hubspot", "csl_principal_at_risk", 
     "csl_past_due", "principal_amount", "principal_remaining_actual", "current_balance", 
-    "rtr_balance", "rtr_pct", "participation_ratio"
+    "outstanding_balance", "total_paid", "participation_ratio"
 ]].copy()
 
 biggest_csl_loans_display.rename(columns={
     "deal_number": "Loan ID",
     "dba": "Deal Name",
     "status_category": "Status",
-    "csl_participation": "CSL Participation ($)",
+    "amount_hubspot": "CSL Participation ($)",
     "csl_principal_at_risk": "CSL Principal at Risk ($)",
     "csl_past_due": "CSL Past Due ($)",
     "principal_amount": "Original Principal ($)",
     "principal_remaining_actual": "Principal Outstanding ($)",
     "current_balance": "Total Loan Outstanding ($)",
-    "rtr_balance": "RTR ($)",
-    "rtr_pct": "RTR %",
+    "outstanding_balance": "Outstanding Balance ($)",
+    "total_paid": "Total Paid ($)",
     "participation_ratio": "CSL Participation %"
 }, inplace=True)
 
-# Clean up numeric data
+# Clean up numeric data using combined dataset fields
 for col in ["CSL Participation ($)", "CSL Principal at Risk ($)", "CSL Past Due ($)", 
-            "Original Principal ($)", "Principal Outstanding ($)", "Total Loan Outstanding ($)", "RTR ($)"]:
+            "Original Principal ($)", "Principal Outstanding ($)", "Total Loan Outstanding ($)", 
+            "Outstanding Balance ($)", "Total Paid ($)"]:
     biggest_csl_loans_display[col] = pd.to_numeric(biggest_csl_loans_display[col], errors="coerce").fillna(0)
 
-biggest_csl_loans_display["RTR %"] = pd.to_numeric(biggest_csl_loans_display["RTR %"], errors="coerce").fillna(0)
 biggest_csl_loans_display["CSL Participation %"] = pd.to_numeric(biggest_csl_loans_display["CSL Participation %"], errors="coerce").fillna(0)
 
 st.dataframe(
@@ -523,8 +508,8 @@ st.dataframe(
         "Original Principal ($)": st.column_config.NumberColumn("Original Principal ($)", format="$%.0f"),
         "Principal Outstanding ($)": st.column_config.NumberColumn("Principal Outstanding ($)", format="$%.0f"),
         "Total Loan Outstanding ($)": st.column_config.NumberColumn("Total Loan Outstanding ($)", format="$%.0f"),
-        "RTR ($)": st.column_config.NumberColumn("RTR ($)", format="$%.0f"),
-        "RTR %": st.column_config.NumberColumn("RTR %", format="%.1%"),
+        "Outstanding Balance ($)": st.column_config.NumberColumn("Outstanding Balance ($)", format="$%.0f"),
+        "Total Paid ($)": st.column_config.NumberColumn("Total Paid ($)", format="$%.0f"),
         "CSL Participation %": st.column_config.NumberColumn("CSL Participation %", format="%.1%"),
     }
 )
@@ -751,10 +736,10 @@ if 'sector_name' in df.columns and not df['sector_name'].isna().all():
     st.subheader("Deal Distribution by Industry Sector")
     st.caption("*Risk scores are based on industry sector risk profiles from NAICS data. Risk Score 5 represents the highest industry risk (darkest red).*")
     
-    # Group by risk_score from naics_sector_risk_profile table
+    # Group by risk_score from naics_sector_risk_profile table using combined dataset
     industry_summary = df.groupby(['risk_score']).agg({
         'deal_number': 'count',
-        'csl_participation': 'sum',
+        'amount_hubspot': 'sum',
         'csl_principal_at_risk': 'sum',
         'risk_profile': 'first',
         'sector_name': lambda x: ', '.join(x.unique()[:3])  # Show up to 3 sector names per risk score
@@ -826,10 +811,10 @@ if 'sector_name' in df.columns and not df['sector_name'].isna().all():
     st.subheader("Portfolio Summary by Industry Sector")
     
     if 'sector_code' in df.columns and not df['sector_code'].isna().all():
-        # Create comprehensive sector summary
+        # Create comprehensive sector summary using combined dataset
         sector_portfolio_summary = df.groupby(['sector_code', 'sector_name']).agg({
             'deal_number': 'count',
-            'csl_participation': 'sum',
+            'amount_hubspot': 'sum',
             'csl_principal_at_risk': 'sum',
             'risk_score': 'first'
         }).reset_index()
@@ -965,10 +950,10 @@ if 'tib' in df.columns:
                            labels=['≤5', '5-10', '10-15', '15-20', '20-25', '25+'],
                            include_lowest=True)
     
-    # TIB analysis
+    # TIB analysis using combined dataset
     tib_summary = df.groupby('tib_band').agg({
         'deal_number': 'count',
-        'csl_participation': 'sum',
+        'amount_hubspot': 'sum',
         'csl_principal_at_risk': 'sum'
     }).reset_index()
     
@@ -1016,7 +1001,7 @@ if 'tib' in df.columns:
         }
     )
 
-total_unattributed = unified_data_df["Unattributed Amount"].sum()
+total_unattributed = 0  # No unattributed amounts in combined dataset
 if total_unattributed > 0:
     st.warning(f"⚠️ ${total_unattributed:,.0f} in payments are unattributed to any deal")
 
