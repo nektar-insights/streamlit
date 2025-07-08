@@ -658,35 +658,83 @@ else:
 
 st.header("Advanced Analytics")
 
-# VISUAL 1: Transaction Velocity and Frequency Analysis
-st.subheader("1. Transaction Velocity & Frequency Analysis")
+# VISUAL 1: Payment Concentration Risk Analysis
+st.subheader("1. Payment Concentration Risk Analysis")
 if df.empty:
     st.warning("No transaction data available")
 else:
-    st.markdown("Velocity Score: Transaction Count × Average Transaction Size - measures customer engagement intensity")
+    st.markdown("Focus: Payment concentration risk - identifies customers who represent the largest share of payment volume")
     
-    # Calculate transaction velocity (transactions per customer per time period)
-    velocity_df = df.groupby(["customer_name", df["txn_date"].dt.to_period("M")]).agg({
-        "total_amount": ["sum", "count"],
-        "txn_date": ["min", "max"]
-    }).reset_index()
+    # Filter for payment transactions only
+    payment_df = df[df["transaction_type"].isin(["Payment", "Deposit", "Receipt"])].copy()
     
-    velocity_df.columns = ["customer_name", "month", "total_amount", "txn_count", "first_txn", "last_txn"]
-    velocity_df["velocity_score"] = velocity_df["txn_count"] * (velocity_df["total_amount"] / velocity_df["txn_count"])
-    
-    # Top customers by transaction velocity
-    top_velocity = velocity_df.groupby("customer_name")["velocity_score"].mean().sort_values(ascending=False).head(15)
-    
-    velocity_chart = alt.Chart(top_velocity.reset_index()).mark_bar(color='lightblue', stroke='darkblue', strokeWidth=1).encode(
-        x=alt.X("velocity_score:Q", title="Velocity Score"),
-        y=alt.Y("customer_name:N", sort="-x", title="Customer"),
-        tooltip=["customer_name", "velocity_score:Q"]
-    ).properties(
-        width=700, height=400,
-        title="Top 15 Customers by Transaction Velocity"
-    )
-    
-    st.altair_chart(velocity_chart, use_container_width=True)
+    if not payment_df.empty:
+        # Calculate payment concentration by customer
+        payment_concentration = payment_df.groupby("customer_name").agg({
+            "total_amount": ["sum", "count", "mean"],
+            "txn_date": ["min", "max"]
+        }).reset_index()
+        
+        payment_concentration.columns = ["customer_name", "total_payments", "payment_count", "avg_payment", "first_payment", "last_payment"]
+        payment_concentration["payment_percentage"] = (payment_concentration["total_payments"] / payment_concentration["total_payments"].sum()) * 100
+        payment_concentration["days_active"] = (payment_concentration["last_payment"] - payment_concentration["first_payment"]).dt.days
+        payment_concentration["avg_monthly_payments"] = np.where(
+            payment_concentration["days_active"] > 30,
+            payment_concentration["total_payments"] / (payment_concentration["days_active"] / 30),
+            payment_concentration["total_payments"]
+        )
+        
+        payment_concentration = payment_concentration.sort_values("total_payments", ascending=False)
+        
+        # Concentration risk metrics
+        top_5_concentration = payment_concentration.head(5)["payment_percentage"].sum()
+        top_10_concentration = payment_concentration.head(10)["payment_percentage"].sum()
+        
+        # Display concentration risk metrics
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Top 5 Payment Concentration", f"{top_5_concentration:.1f}%",
+                     help="Percentage of total payments from top 5 customers")
+        with col2:
+            st.metric("Top 10 Payment Concentration", f"{top_10_concentration:.1f}%",
+                     help="Percentage of total payments from top 10 customers")
+        with col3:
+            customers_80_percent = (payment_concentration["payment_percentage"].cumsum() <= 80).sum() + 1
+            st.metric("Customers for 80% of Payments", customers_80_percent,
+                     help="Number of customers needed to reach 80% of payment volume")
+        with col4:
+            total_payment_customers = len(payment_concentration)
+            st.metric("Total Payment Customers", total_payment_customers,
+                     help="Total number of customers making payments")
+        
+        # Payment concentration chart
+        top_payment_customers = payment_concentration.head(15)
+        concentration_chart = alt.Chart(top_payment_customers).mark_bar(color='lightcoral', stroke='darkred', strokeWidth=1).encode(
+            x=alt.X("payment_percentage:Q", title="Payment Concentration (%)", axis=alt.Axis(format=".1f")),
+            y=alt.Y("customer_name:N", sort="-x", title="Customer"),
+            tooltip=[
+                "customer_name", 
+                "payment_percentage:Q", 
+                "total_payments:Q", 
+                "payment_count:Q",
+                "avg_monthly_payments:Q"
+            ]
+        ).properties(
+            width=700, height=400,
+            title="Top 15 Customers by Payment Concentration (%)"
+        )
+        
+        st.altair_chart(concentration_chart, use_container_width=True)
+        
+        # Risk assessment
+        if top_5_concentration > 50:
+            st.error(f"HIGH RISK: Top 5 customers represent {top_5_concentration:.1f}% of payments - significant concentration risk")
+        elif top_5_concentration > 30:
+            st.warning(f"MEDIUM RISK: Top 5 customers represent {top_5_concentration:.1f}% of payments - moderate concentration risk")
+        else:
+            st.success(f"LOW RISK: Top 5 customers represent {top_5_concentration:.1f}% of payments - well-diversified payment base")
+    else:
+        st.warning("No payment transactions found")
 
 # VISUAL 2: Customer Volume Distribution Analysis
 st.subheader("2. Customer Volume Distribution")
