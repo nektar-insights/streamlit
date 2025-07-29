@@ -490,32 +490,43 @@ count_chart = (
     .properties(height=300, title="Deals by Partner")
 )
 
-# 2) Total Funded by Partner & Period
+# Compute global maxes (if you still need them)
+max_total = partner_flow_df["total_funded"].max()
+max_avg   = partner_flow_df["avg_funded"].max()
+
+# Total Funded chart
 funded_chart = (
     alt.Chart(partner_flow_df)
     .mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
     .encode(
         x=alt.X("Period:N", title="Period", sort=[p[0] for p in periods]),
-        y=alt.Y("total_funded:Q", title="Total Funded ($)", axis=alt.Axis(format="$,",
-                                                                              titlePadding=10)),
+        y=alt.Y(
+            "total_funded:Q",
+            title="Total Funded ($)",
+            axis=alt.Axis(format="$,.0f", titlePadding=10)
+            # remove scale domain if you don't care about zero baseline
+        ),
         color=alt.Color("partner_source:N", title="Partner"),
         xOffset="partner_source:N",
         tooltip=[
-            alt.Tooltip("partner_source:N",   title="Partner"),
-            alt.Tooltip("total_funded:Q",     title="Total Funded", format="$,.0f")
+            alt.Tooltip("partner_source:N", title="Partner"),
+            alt.Tooltip("total_funded:Q",   title="Total Funded", format="$,.0f")
         ]
     )
     .properties(height=300, title="Total Funded by Partner")
 )
 
-# 3) Avg Funded per Deal by Partner & Period
+# Avg Funded chart
 avg_chart = (
     alt.Chart(partner_flow_df)
     .mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
     .encode(
         x=alt.X("Period:N", title="Period", sort=[p[0] for p in periods]),
-        y=alt.Y("avg_funded:Q", title="Avg Funded ($)", axis=alt.Axis(format="$,",
-                                                                          titlePadding=10)),
+        y=alt.Y(
+            "avg_funded:Q",
+            title="Avg Funded ($)",
+            axis=alt.Axis(format="$,.0f", titlePadding=10)
+        ),
         color=alt.Color("partner_source:N", title="Partner"),
         xOffset="partner_source:N",
         tooltip=[
@@ -526,9 +537,11 @@ avg_chart = (
     .properties(height=300, title="Avg Funded per Deal by Partner")
 )
 
+
 st.altair_chart(count_chart,   use_container_width=True)
-st.altair_chart(funded_chart,  use_container_width=True)
-st.altair_chart(avg_chart,     use_container_width=True)
+st.altair_chart(funded_chart, use_container_width=True)
+st.altair_chart(avg_chart,    use_container_width=True)
+
 # ----------------------------
 # ADDITIONAL DATA PREPARATION FOR DOLLAR-BASED PARTICIPATION RATE
 # ----------------------------
