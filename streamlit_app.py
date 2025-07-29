@@ -57,8 +57,10 @@ if selected_partner != "All Partners":
 
 participation_filter = st.radio(
     "Show Deals", 
-    ["All Deals", "Participated Only", "Not Participated"]
+    ["All Deals", "Participated Only", "Not Participated"],
+    horizontal=True
 )
+
 if participation_filter == "Participated Only":
     df = df[df["is_closed_won"] == True]
 elif participation_filter == "Not Participated":
