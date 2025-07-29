@@ -183,30 +183,28 @@ df["performance_ratio"] = df.apply(
 
 # CALCULATION 16: Calculate Projected Status
 # Logic: Simplified status - Current, Not Current, or Matured
-def calculate_projected_status(payment_delta, expected_payments_to_date, status_category):
-    # If deal is already marked as Matured, keep that status
-    if status_category == "Matured":
+def calculate_projected_status(row):
+    # already Matured?
+    if row["status_category"] == "Matured":
         return "Matured"
-    
-    if pd.isna(payment_delta) or pd.isna(expected_payments_to_date):
-        return "Current"  # Default to Current if data is missing
-    
-    if expected_payments_to_date == 0:
-        return "Current"  # New deals default to Current
-    
-    # Calculate percentage variance
-    variance_pct = payment_delta / expected_payments_to_date if expected_payments_to_date > 0 else 0
-    
-    # Simplified logic: if 10% or more behind, mark as Not Current
-    if variance_pct <= -0.10 or row["performance_ratio"] < 0.90:
-        return "Not Current"
-    else:
+
+    exp = row["expected_payments_to_date"]
+    delta = row["payment_delta"]
+    perf = row["performance_ratio"]
+
+    # new deals or missing data → assume Current
+    if pd.isna(delta) or pd.isna(exp) or exp == 0:
         return "Current"
 
-df["projected_status"] = df.apply(
-    lambda row: calculate_projected_status(row["payment_delta"], row["expected_payments_to_date"], row["status_category"]),
-    axis=1
-)
+    # % variance
+    var_pct = delta / exp
+
+    # if ≥10% behind or performance_ratio < 0.9 → Not Current
+    if var_pct <= -0.10 or perf < 0.90:
+        return "Not Current"
+    return "Current"
+
+df["projected_status"] = df.apply(calculate_projected_status, axis=1)
 
 # CALCULATION 17: Calculate RTR percentage
 # Formula: (principal_amount - rtr_balance) / principal_amount
