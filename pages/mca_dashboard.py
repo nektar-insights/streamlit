@@ -3,6 +3,7 @@ from utils.imports import *
 from scripts.combine_hubspot_mca import combine_deals
 from scripts.get_naics_sector_risk import get_naics_sector_risk
 from utils.loan_tape_loader import load_unified_loan_customer_data
+st.set_page_config(layout="wide")
 
 # ----------------------------
 # Define risk gradient color scheme (updated colors) https://www.color-hex.com/color-palette/25513
