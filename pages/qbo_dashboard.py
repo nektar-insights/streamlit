@@ -1,5 +1,14 @@
 # pages/qbo_dashboard.py
-from utils.imports import *
+from utils.imports import *  
+from utils.config import (
+    inject_global_styles,
+    inject_logo,
+    get_supabase_client,
+    PRIMARY_COLOR,
+    COLOR_PALETTE,
+    PLATFORM_FEE_RATE,
+)
+
 from utils.qbo_data_loader import load_qbo_data, load_deals, load_mca_deals
 from utils.loan_tape_loader import load_loan_tape_data, load_unified_loan_customer_data, get_customer_payment_summary, get_data_diagnostics
 import numpy as np
