@@ -6,6 +6,7 @@ import numpy as np
 from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
+st.set_page_config(layout="wide")
 
 # -------------------------
 # Setup: Supabase Connection & Load Data
