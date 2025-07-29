@@ -130,6 +130,10 @@ for label, start, end in periods:
     })
 flow_df = pd.DataFrame(flow_data)
 
+# Last 30-day window
+deals_last_30 = df[df["date_created"] >= today - pd.Timedelta(days=30)].shape[0]
+avg_deals_last_30 = deals_last_30 / 30  if 30 else 0
+
 # Monthly aggregations
 monthly_funded = df.groupby("month")["total_funded_amount"].sum().reset_index()
 monthly_funded["month_date"] = pd.to_datetime(monthly_funded["month"])
@@ -182,6 +186,7 @@ st.write("**Deal Flow Averages**")
 col4, col5, col6 = st.columns(3)
 col4.metric("Avg Deals/Week", f"{avg_deals_per_week:.1f}")
 col5.metric("Avg Deals/Month", f"{avg_deals_per_month:.1f}")
+col6.metric("Avg Deals/Month", f"{avg_deals_per_month:.1f}")
 
 # New Average Deal Characteristics 
 st.write("**Average Deal Characteristics (All Deals)**")
@@ -230,6 +235,16 @@ else:
     # No data available - show a note
     st.write("*TIB and FICO data not yet available*")
 
+# Find true mins/maxes for box plots
+amt_min, amt_max   = closed_won["amount"].min(),       closed_won["amount"].max()
+fr_min,  fr_max    = closed_won["factor_rate"].min(),  closed_won["factor_rate"].max()
+lt_min,  lt_max    = closed_won["loan_term"].min(),    closed_won["loan_term"].max()
+fico_min, fico_max = closed_won["fico"].min(),         closed_won["fico"].max()
+
+# Prepare capped TIB
+tib_df = closed_won.dropna(subset=["tib"]).copy()
+tib_df["tib_capped"] = tib_df["tib"].clip(upper=50)
+
 # ----------------------------
 # Box Plot Visualizations in Grid Layout
 # ----------------------------
@@ -240,40 +255,38 @@ col1, col2 = st.columns(2)
 
 with col1:
     st.write("**Participation Amount Distribution**")
-    participation_box = alt.Chart(closed_won).mark_boxplot(
-        size=60,
-        color=PRIMARY_COLOR,
-        outliers={"color": COLOR_PALETTE[1], "size": 40}
-    ).encode(
-        y=alt.Y("amount:Q", 
+    participation_box = (
+        alt.Chart(closed_won)
+        .mark_boxplot(size=60, color=PRIMARY_COLOR, outliers={"color": COLOR_PALETTE[1], "size": 40})
+        .encode(
+            y=alt.Y(
+                "amount:Q",
                 title="Participation Amount ($)",
-                axis=alt.Axis(format="$.2s")),
-        tooltip=[
-            alt.Tooltip("amount:Q", title="Amount", format="$,.0f")
-        ]
-    ).properties(
-        height=300
+                axis=alt.Axis(format="$.2s"),
+                scale=alt.Scale(domain=[amt_min, amt_max])
+            ),
+            tooltip=[alt.Tooltip("amount:Q", title="Amount", format="$,.0f")]
+        )
+        .properties(height=300)
     )
-    
     st.altair_chart(participation_box, use_container_width=True)
 
 with col2:
     st.write("**Factor Rate Distribution**")
-    factor_box = alt.Chart(closed_won).mark_boxplot(
-        size=60,
-        color=COLOR_PALETTE[2],
-        outliers={"color": COLOR_PALETTE[3], "size": 40}
-    ).encode(
-        y=alt.Y("factor_rate:Q", 
+    factor_box = (
+        alt.Chart(closed_won)
+        .mark_boxplot(size=60, color=COLOR_PALETTE[2], outliers={"color": COLOR_PALETTE[3], "size": 40})
+        .encode(
+            y=alt.Y(
+                "factor_rate:Q",
                 title="Factor Rate",
-                axis=alt.Axis(format=".2f")),
-        tooltip=[
-            alt.Tooltip("factor_rate:Q", title="Factor Rate", format=".3f")
-        ]
-    ).properties(
-        height=300
+                axis=alt.Axis(format=".2f"),
+                scale=alt.Scale(domain=[fr_min, fr_max])
+            ),
+            tooltip=[alt.Tooltip("factor_rate:Q", title="Factor Rate", format=".3f")]
+        )
+        .properties(height=300)
     )
-    
     st.altair_chart(factor_box, use_container_width=True)
 
 # Second row - Loan Term and TIB/FICO (when available)
@@ -281,89 +294,83 @@ col3, col4 = st.columns(2)
 
 with col3:
     st.write("**Loan Term Distribution**")
-    term_box = alt.Chart(closed_won).mark_boxplot(
-        size=60,
-        color=COLOR_PALETTE[4],
-        outliers={"color": COLOR_PALETTE[0], "size": 40}
-    ).encode(
-        y=alt.Y("loan_term:Q", 
+    term_box = (
+        alt.Chart(closed_won)
+        .mark_boxplot(size=60, color=COLOR_PALETTE[4], outliers={"color": COLOR_PALETTE[0], "size": 40})
+        .encode(
+            y=alt.Y(
+                "loan_term:Q",
                 title="Loan Term (months)",
-                axis=alt.Axis(format=".0f")),
-        tooltip=[
-            alt.Tooltip("loan_term:Q", title="Term (months)", format=".1f")
-        ]
-    ).properties(
-        height=300
+                axis=alt.Axis(format=".0f"),
+                scale=alt.Scale(domain=[lt_min, lt_max])
+            ),
+            tooltip=[alt.Tooltip("loan_term:Q", title="Term (months)", format=".1f")]
+        )
+        .properties(height=300)
     )
-    
     st.altair_chart(term_box, use_container_width=True)
 
 with col4:
-    # Show TIB if available, otherwise FICO, otherwise placeholder
     if has_tib_data:
-        st.write("**TIB Distribution**")
-        tib_box = alt.Chart(closed_won.dropna(subset=['tib'])).mark_boxplot(
-            size=60,
-            color=COLOR_PALETTE[1],
-            outliers={"color": COLOR_PALETTE[2], "size": 40}
-        ).encode(
-            y=alt.Y("tib:Q", 
-                    title="TIB",
-                    axis=alt.Axis(format=",.0f")),
-            tooltip=[
-                alt.Tooltip("tib:Q", title="TIB", format=",.0f")
-            ]
-        ).properties(
-            height=300
+        st.write("**TIB Distribution (capped at 50)**")
+        tib_box = (
+            alt.Chart(tib_df)
+            .mark_boxplot(size=60, color=COLOR_PALETTE[1], outliers={"color": COLOR_PALETTE[2], "size": 40})
+            .encode(
+                y=alt.Y(
+                    "tib_capped:Q",
+                    title="TIB (capped at 50)",
+                    axis=alt.Axis(format=",.0f"),
+                    scale=alt.Scale(domain=[tib_df["tib_capped"].min(), 50])
+                ),
+                tooltip=[alt.Tooltip("tib:Q", title="Original TIB", format=",.0f")]
+            )
+            .properties(height=300)
         )
-        
         st.altair_chart(tib_box, use_container_width=True)
+
     elif has_fico_data:
         st.write("**FICO Score Distribution**")
-        fico_box = alt.Chart(closed_won.dropna(subset=['fico'])).mark_boxplot(
-            size=60,
-            color=COLOR_PALETTE[3],
-            outliers={"color": COLOR_PALETTE[4], "size": 40}
-        ).encode(
-            y=alt.Y("fico:Q", 
+        fico_box = (
+            alt.Chart(closed_won.dropna(subset=["fico"]))
+            .mark_boxplot(size=60, color=COLOR_PALETTE[3], outliers={"color": COLOR_PALETTE[4], "size": 40})
+            .encode(
+                y=alt.Y(
+                    "fico:Q",
                     title="FICO Score",
-                    axis=alt.Axis(format=".0f")),
-            tooltip=[
-                alt.Tooltip("fico:Q", title="FICO Score", format=".0f")
-            ]
-        ).properties(
-            height=300
+                    axis=alt.Axis(format=".0f"),
+                    scale=alt.Scale(domain=[fico_min, fico_max])
+                ),
+                tooltip=[alt.Tooltip("fico:Q", title="FICO Score", format=".0f")]
+            )
+            .properties(height=300)
         )
-        
         st.altair_chart(fico_box, use_container_width=True)
+
     else:
         st.write("**Additional Data**")
         st.info("TIB and FICO data not yet available for visualization")
 
-# Third row - Only if both TIB and FICO have data
+# Third row - Only if both TIB and FICO are available
 if has_tib_data and has_fico_data:
     col5, col6 = st.columns(2)
-    
-
     with col5:
-            st.write("**FICO Score Distribution**")
-            fico_box = alt.Chart(closed_won.dropna(subset=['fico'])).mark_boxplot(
-                size=60,
-                color="#2E8B57",      # Experian green for good credit
-                outliers={"color": "#DC143C", "size": 40}  # Red for outliers (poor credit indicators)
-            ).encode(
-                y=alt.Y("fico:Q", 
-                        title="FICO Score",
-                        axis=alt.Axis(format=".0f"),
-                        scale=alt.Scale(domain=[300, 850])),  
-                tooltip=[
-                    alt.Tooltip("fico:Q", title="FICO Score", format=".0f")
-                ]
-            ).properties(
-                height=300
+        st.write("**FICO Score Distribution (300–850)**")
+        fico_box2 = (
+            alt.Chart(closed_won.dropna(subset=["fico"]))
+            .mark_boxplot(size=60, color="#2E8B57", outliers={"color": "#DC143C", "size": 40})
+            .encode(
+                y=alt.Y(
+                    "fico:Q",
+                    title="FICO Score",
+                    axis=alt.Axis(format=".0f"),
+                    scale=alt.Scale(domain=[300, 850])
+                ),
+                tooltip=[alt.Tooltip("fico:Q", title="FICO Score", format=".0f")]
             )
-            
-            st.altair_chart(fico_box, use_container_width=True)
+            .properties(height=300)
+        )
+        st.altair_chart(fico_box2, use_container_width=True)
     
 # ----------------------------
 # Rolling Deal Flow
@@ -438,6 +445,50 @@ funded_flow_chart = alt.Chart(flow_df).mark_bar(
 
 st.altair_chart(flow_chart, use_container_width=True)
 st.altair_chart(funded_flow_chart, use_container_width=True)
+
+# ----------------------------
+# Partner Rolling Flow Metrics
+# ----------------------------
+st.subheader("Partner Rolling Flow Metrics")
+
+# build a list of partner‐period dataframes
+partner_metrics = []
+for label, start, end in periods:
+    window = df[
+        (df["date_created"] >= today - pd.Timedelta(days=end)) &
+        (df["date_created"] <= today - pd.Timedelta(days=start))
+    ]
+    grp = (
+        window
+        .groupby("partner_source", dropna=False)
+        .agg(
+            deal_count=("id", "size"),
+            total_funded=("total_funded_amount", "sum")
+        )
+        .reset_index()
+    )
+    grp["avg_funded"] = grp["total_funded"] / grp["deal_count"].replace(0, pd.NA)
+    grp["Period"] = label
+    partner_metrics.append(grp)
+
+partner_flow_df = pd.concat(partner_metrics, ignore_index=True)
+
+# format for display
+partner_flow_df_display = partner_flow_df.copy()
+partner_flow_df_display["total_funded"] = partner_flow_df_display["total_funded"].apply(lambda x: f"${x:,.0f}")
+partner_flow_df_display["avg_funded"]   = partner_flow_df_display["avg_funded"].apply(lambda x: f"${x:,.0f}" if pd.notna(x) else "-")
+
+# show the full table
+st.dataframe(
+    partner_flow_df_display[["Period", "partner_source", "deal_count", "total_funded", "avg_funded"]],
+    use_container_width=True,
+    column_config={
+      "partner_source": "Partner",
+      "deal_count":    "Deal Count",
+      "total_funded":  "Total Funded",
+      "avg_funded":    "Avg Funded"
+    }
+)
 
 # ----------------------------
 # ADDITIONAL DATA PREPARATION FOR DOLLAR-BASED PARTICIPATION RATE
