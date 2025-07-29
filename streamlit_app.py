@@ -5,8 +5,6 @@ from utils.imports import *
 # Apply Branding
 # ----------------------------
 st.set_page_config(page_title="CSL Capital | Dashboard", layout="wide")
-inject_global_styles()
-inject_logo()
 
 # ----------------------------
 # Supabase connection
