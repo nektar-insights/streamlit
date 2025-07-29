@@ -631,12 +631,11 @@ funded_chart = (
             "total_funded_amount:Q",
             title="Total Funded ($)",
             axis=alt.Axis(
-                format="$,.0f",    # ← full numbers with commas
+                format="$,.0f",     # full numbers with commas
                 labelPadding=12,
                 titlePadding=25,
                 grid=True,
-                labelFontSize=11,
-                tickCount="freed"  # ← let Vega-Lite choose a sensible number
+                labelFontSize=11
             ),
             scale=alt.Scale(nice=True, padding=0.15)
         ),
@@ -651,6 +650,8 @@ funded_chart = (
         padding={"left": 85, "top": 30, "right": 20, "bottom": 60}
     )
 )
+
+st.altair_chart(funded_chart, use_container_width=True)
 
 st.altair_chart(funded_chart, use_container_width=True)
 
