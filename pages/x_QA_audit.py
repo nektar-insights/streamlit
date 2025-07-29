@@ -89,9 +89,9 @@ mca_deals_combined = preprocess_data(mca_deals_combined)
 # Page setup
 # ----------------------------
 
-st.set_page_config(page_title="Combined Deals Sample", layout="wide")
+st.set_page_config(page_title="Combined Deals", layout="wide")
 
-st.title("🔍 Sample Combined Deals")
+st.title("Combined Deals")
 
 # Load data
 with st.spinner("Loading combined deals..."):
@@ -101,7 +101,7 @@ with st.spinner("Loading combined deals..."):
 st.write(f"Total combined deals: {len(df):,}")
 
 # Show sample preview
-st.dataframe(df.head(25), use_container_width=True)
+st.dataframe(df, use_container_width=True)
 
 st.title("Comprehensive Data Audit Dashboard")
 st.markdown("Complete quality assurance checks for deal data integrity, MCA deals, and QBO financial analysis")
