@@ -176,9 +176,8 @@ col3.metric("Close Ratio", f"{participation_ratio:.2%}")
 # New Deal Flow Metrics
 st.write("**Deal Flow Averages**")
 col4, col5, col6 = st.columns(3)
-col4.metric("Avg Deals/Day", f"{avg_deals_per_day:.1f}")
-col5.metric("Avg Deals/Week", f"{avg_deals_per_week:.1f}")
-col6.metric("Avg Deals/Month", f"{avg_deals_per_month:.1f}")
+col4.metric("Avg Deals/Week", f"{avg_deals_per_week:.1f}")
+col5.metric("Avg Deals/Month", f"{avg_deals_per_month:.1f}")
 
 # New Average Deal Characteristics 
 st.write("**Average Deal Characteristics (All Deals)**")
