@@ -1,11 +1,13 @@
-import streamlit as st
-
-st.set_page_config(
-    page_title="My Dashboard",    # ← browser tab title
-    layout="wide"
-)
 # streamlit_app.py
 from utils.imports import *
+from utils.config import inject_global_styles, inject_logo
+
+# ----------------------------
+# Apply Branding
+# ----------------------------
+st.set_page_config(page_title="CSL Capital | Dashboard", layout="wide")
+inject_global_styles()
+inject_logo()
 
 # ----------------------------
 # Supabase connection
