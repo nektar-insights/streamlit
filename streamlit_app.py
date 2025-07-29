@@ -622,17 +622,15 @@ mf = monthly_funded[monthly_funded["month_date"] >= six_months_ago]
 md = monthly_deals[monthly_deals["month_date"]   >= six_months_ago]
 mp = monthly_participation[monthly_participation["month_date"] >= six_months_ago]
 
-# helper for avg-rule
-def make_avg_rule(df, field, color="gray"):
+# Helper to draw an avg‐line with proper tooltip title
+def make_avg_rule(df, field, title, color="gray"):
     return (
         alt.Chart(df)
-        .transform_aggregate(
-            mean_val=f"mean({field})"
-        )
+        .transform_aggregate(avg_val=f"mean({field})")
         .mark_rule(color=color, strokeWidth=2, strokeDash=[4,2], opacity=0.7)
         .encode(
-            y=alt.Y("mean_val:Q"),
-            tooltip=alt.Tooltip("mean_val:Q", format="$,.2f")
+            y=alt.Y("avg_val:Q"),
+            tooltip=alt.Tooltip("avg_val:Q", title=title, format="$,.2f")
         )
     )
 
@@ -643,20 +641,28 @@ funded_bars = (
     .mark_bar(size=40, color=PRIMARY_COLOR, cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
     .encode(
         x=alt.X("month_date:T", axis=alt.Axis(labelAngle=-45, format="%b %Y")),
-        y=alt.Y("total_funded_amount:Q",
-                axis=alt.Axis(format="$,.0f", grid=True, labelPadding=8, title="Total Funded ($)")),
+        y=alt.Y(
+            "total_funded_amount:Q",
+            axis=alt.Axis(format="$,.0f", grid=True, labelPadding=8, title="Total Funded ($)")
+        ),
         tooltip=[
-            alt.Tooltip("month_date:T",            title="Month", format="%B %Y"),
-            alt.Tooltip("total_funded_amount:Q",   title="Total Funded", format="$,.0f")
+            alt.Tooltip("month_date:T",           title="Month",        format="%B %Y"),
+            alt.Tooltip("total_funded_amount:Q",  title="Total Funded",  format="$,.0f")
         ]
     )
 )
-funded_reg  = funded_bars.transform_regression(
-    "month_date", "total_funded_amount", method="linear"
-).mark_line(color="#FF9900", strokeWidth=3)
-funded_avg  = make_avg_rule(mf, "total_funded_amount")
+funded_reg = funded_bars.transform_regression("month_date", "total_funded_amount", method="linear")\
+                      .mark_line(color="#e45756", strokeWidth=3)
+funded_avg = make_avg_rule(mf, "total_funded_amount", "Avg Total Funded")
 
-st.altair_chart((funded_bars + funded_reg + funded_avg).properties(height=350), use_container_width=True)
+st.altair_chart(
+    (funded_bars + funded_reg + funded_avg)
+    .properties(
+        height=400,
+        padding={"left": 85, "top": 30, "right": 20, "bottom": 80}
+    ),
+    use_container_width=True
+)
 
 
 # 2) Total Deal Count by Month
@@ -673,10 +679,18 @@ deal_bars = (
         ]
     )
 )
-deal_reg  = deal_bars.transform_regression("month_date", "deal_count", method="linear").mark_line(color="#e45756", strokeWidth=3)
-deal_avg  = make_avg_rule(md, "deal_count")
+deal_reg = deal_bars.transform_regression("month_date", "deal_count", method="linear")\
+                    .mark_line(color="#e45756", strokeWidth=3)
+deal_avg = make_avg_rule(md, "deal_count", "Avg Deals")
 
-st.altair_chart((deal_bars + deal_reg + deal_avg).properties(height=350), use_container_width=True)
+st.altair_chart(
+    (deal_bars + deal_reg + deal_avg)
+    .properties(
+        height=400,
+        padding={"left": 60, "top": 20, "right": 20, "bottom": 80}
+    ),
+    use_container_width=True
+)
 
 
 # 3) Participation Trends by Month
@@ -693,11 +707,18 @@ part_bars = (
         ]
     )
 )
-part_reg = part_bars.transform_regression("month_date", "deal_count", method="linear").mark_line(color="#FF9900", strokeWidth=3)
-part_avg = make_avg_rule(mp, "deal_count")
+part_reg = part_bars.transform_regression("month_date", "deal_count", method="linear")\
+                    .mark_line(color="#e45756", strokeWidth=3)
+part_avg = make_avg_rule(mp, "deal_count", "Avg Participated")
 
-st.altair_chart((part_bars + part_reg + part_avg).properties(height=350), use_container_width=True)
-
+st.altair_chart(
+    (part_bars + part_reg + part_avg)
+    .properties(
+        height=400,
+        padding={"left": 60, "top": 20, "right": 20, "bottom": 80}
+    ),
+    use_container_width=True
+)
 # ----------------------------
 # PARTNER SUMMARY TABLES
 # ----------------------------
