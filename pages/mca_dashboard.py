@@ -77,11 +77,12 @@ df["participation_ratio"] = df["amount_hubspot"] / df["principal_amount"].replac
 
 df["csl_principal_outstanding"] = df.apply(
     lambda row: max(
-        row["amount_hubspot"] - (row["participation_ratio"] * row["total_paid"])
-        if pd.notna(row["participation_ratio"]) and pd.notna(row["total_paid"])
-        else row["amount_hubspot"],
+        row["amount_hubspot"] -
+        (row["amount_hubspot"] / row["principal_amount"] * row["total_paid"]
+         if row["principal_amount"] > 0 else 0),
         0
-    ),
+    ) if pd.notna(row["amount_hubspot"]) and pd.notna(row["principal_amount"]) and pd.notna(row["total_paid"])
+    else row["amount_hubspot"] if pd.notna(row["amount_hubspot"]) else 0,
     axis=1
 )
 
