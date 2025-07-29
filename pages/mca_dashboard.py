@@ -1,5 +1,15 @@
 # pages/mca_dashboard.py
 from utils.imports import *
+from utils.imports import *  
+from utils.config import (
+    inject_global_styles,
+    inject_logo,
+    get_supabase_client,
+    PRIMARY_COLOR,
+    COLOR_PALETTE,
+    PLATFORM_FEE_RATE,
+)
+
 from scripts.combine_hubspot_mca import combine_deals
 from scripts.get_naics_sector_risk import get_naics_sector_risk
 from utils.loan_tape_loader import load_unified_loan_customer_data
