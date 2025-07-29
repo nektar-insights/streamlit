@@ -1,6 +1,0 @@
-[theme]
-primaryColor = "#00B248"         # Fresh green from logo
-backgroundColor = "#FFFFFF"      # White background
-secondaryBackgroundColor = "#F5F5F5"  # Light gray for card contrast
-textColor = "#222222"            # Dark charcoal
-font = "sans serif"
