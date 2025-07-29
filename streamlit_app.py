@@ -617,39 +617,42 @@ st.altair_chart(rate_line_dollar, use_container_width=True)
 # ----------------------------
 st.subheader("Total Funded Amount by Month")
 
-funded_chart = alt.Chart(monthly_funded).mark_bar(
-    size=40,
-    color=PRIMARY_COLOR,
-    cornerRadiusTopLeft=3,
-    cornerRadiusTopRight=3
-).encode(
-    x=alt.X("month_date:T", 
+funded_chart = (
+    alt.Chart(monthly_funded)
+    .mark_bar(size=40, color=PRIMARY_COLOR, cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
+    .encode(
+        x=alt.X(
+            "month_date:T",
             title="",
             axis=alt.Axis(labelAngle=-45, format="%b %Y"),
-            scale=alt.Scale(padding=0.2)),
-    y=alt.Y("total_funded_amount:Q", 
+            scale=alt.Scale(padding=0.2)
+        ),
+        y=alt.Y(
+            "total_funded_amount:Q",
             title="Total Funded ($)",
             axis=alt.Axis(
-                format="$.1s",
-                tickCount=4,        # Reduced to just 4 ticks
-                labelPadding=12,    # More space between labels and axis
-                titlePadding=25,    # More space between title and labels
+                format="$,.0f",    # ← full numbers with commas
+                labelPadding=12,
+                titlePadding=25,
                 grid=True,
-                labelFontSize=11    # Smaller font size for labels
+                labelFontSize=11,
+                tickCount="freed"  # ← let Vega-Lite choose a sensible number
             ),
-            scale=alt.Scale(
-                nice=True,
-                padding=0.15        # More padding at top/bottom
-            )),
-    tooltip=[
-        alt.Tooltip("month_date:T", title="Month", format="%B %Y"),
-        alt.Tooltip("total_funded_amount:Q", title="Total Funded Amount", format="$,.0f")
-    ]
-).properties(
-    height=400,
-    width=800,
-    padding={"left": 85, "top": 30, "right": 20, "bottom": 60}  # Even more left padding
+            scale=alt.Scale(nice=True, padding=0.15)
+        ),
+        tooltip=[
+            alt.Tooltip("month_date:T", title="Month", format="%B %Y"),
+            alt.Tooltip("total_funded_amount:Q", title="Total Funded", format="$,.0f")
+        ]
+    )
+    .properties(
+        height=400,
+        width=800,
+        padding={"left": 85, "top": 30, "right": 20, "bottom": 60}
+    )
 )
+
+st.altair_chart(funded_chart, use_container_width=True)
 
 st.altair_chart(funded_chart, use_container_width=True)
 
