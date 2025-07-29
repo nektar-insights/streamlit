@@ -745,18 +745,31 @@ st.dataframe(deal_summary, use_container_width=True)
 # ----------------------------
 st.write("**Dollar Amount Performance**")
 
-dollar_summary = partner_summary_enhanced.reset_index()[[
-    "partner_source", "total_amount", "participated_amount", "dollar_participation_rate"
-]].copy()
+# Calculate CSL’s total outlay across all partners
+total_outlay = partner_summary_enhanced["total_amount"].sum()
 
-# Format the dollar summary
-dollar_summary["$ Opportunities"] = dollar_summary["total_amount"].apply(lambda x: f"${x:,.0f}")
-dollar_summary["$ Participated"] = dollar_summary["participated_amount"].apply(lambda x: f"${x:,.0f}")
-dollar_summary["$ Participation Rate"] = dollar_summary["dollar_participation_rate"].apply(lambda x: f"{x:.2%}")
+dollar_summary = (
+    partner_summary_enhanced
+    .reset_index()[["partner_source", "total_amount", "participated_amount"]]
+    .copy()
+)
 
-dollar_summary = dollar_summary.rename(columns={
-    "partner_source": "Partner"
-})[["Partner", "$ Opportunities", "$ Participated", "$ Participation Rate"]]
+# New rate = participated_amount / CSL total_outlay
+dollar_summary["outlay_participation_rate"] = (
+    dollar_summary["participated_amount"] / total_outlay
+)
+
+# Format for display
+dollar_summary["$ Opportunities"]       = dollar_summary["total_amount"].map(lambda x: f"${x:,.0f}")
+dollar_summary["$ Participated"]        = dollar_summary["participated_amount"].map(lambda x: f"${x:,.0f}")
+dollar_summary["% of CSL Outlay"]       = dollar_summary["outlay_participation_rate"].map(lambda x: f"{x:.2%}")
+
+# Select & rename final columns
+dollar_summary = (
+    dollar_summary
+    .rename(columns={"partner_source": "Partner"})
+    [["Partner", "$ Opportunities", "$ Participated", "% of CSL Outlay"]]
+)
 
 st.dataframe(dollar_summary, use_container_width=True)
 
