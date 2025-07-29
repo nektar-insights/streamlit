@@ -444,12 +444,13 @@ funded_flow_chart = alt.Chart(flow_df).mark_bar(
 
 st.altair_chart(flow_chart, use_container_width=True)
 st.altair_chart(funded_flow_chart, use_container_width=True)
+
 # ----------------------------
 # Partner Rolling Flow Metrics & Charts (all periods)
 # ----------------------------
 st.subheader("Partner Rolling Flow Trends")
 
-# 1) Build partner metrics for each period in your existing `periods` list
+# Build partner metrics for each rolling window
 partner_metrics = []
 for label, start, end in periods:
     window = df[
@@ -458,82 +459,76 @@ for label, start, end in periods:
     ]
     grp = (
         window
-        .groupby("partner_source", dropna=False)
+        .dropna(subset=["partner_source"])          # remove null partners
+        .groupby("partner_source")
         .agg(
-            deal_count=("id", "size"),
-            total_funded=("total_funded_amount", "sum")
+            deal_count   = ("id", "size"),
+            total_funded = ("total_funded_amount", "sum")
         )
         .reset_index()
     )
-    grp["avg_funded"] = grp["total_funded"] / grp["deal_count"].replace(0, pd.NA)
+    grp["avg_funded"] = grp["total_funded"] / grp["deal_count"]
     grp["Period"] = label
     partner_metrics.append(grp)
 
 partner_flow_df = pd.concat(partner_metrics, ignore_index=True)
 
-# optional: display raw table
-partner_flow_df_display = partner_flow_df.copy()
-partner_flow_df_display["total_funded"] = partner_flow_df_display["total_funded"].map(lambda x: f"${x:,.0f}")
-partner_flow_df_display["avg_funded"]   = partner_flow_df_display["avg_funded"].map(lambda x: f"${x:,.0f}" if pd.notna(x) else "-")
-st.dataframe(
-    partner_flow_df_display[["Period","partner_source","deal_count","total_funded","avg_funded"]],
-    use_container_width=True,
-    column_config={
-      "partner_source":"Partner",
-      "deal_count":"Deal Count",
-      "total_funded":"Total Funded",
-      "avg_funded":"Avg Funded"
-    }
-)
-
-# 2) Grouped‐bar chart: Deal Count by Partner & Period
+# 1) Deal Count by Partner & Period
 count_chart = (
     alt.Chart(partner_flow_df)
     .mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
     .encode(
-        x=alt.X("Period:N", title="Period",
-                sort=[p[0] for p in periods]),
+        x=alt.X("Period:N", title="Period", sort=[p[0] for p in periods]),
         y=alt.Y("deal_count:Q", title="Deal Count"),
         color=alt.Color("partner_source:N", title="Partner"),
-        xOffset="partner_source:N"
+        xOffset="partner_source:N",
+        tooltip=[
+            alt.Tooltip("partner_source:N", title="Partner"),
+            alt.Tooltip("deal_count:Q",     title="Deal Count")
+        ]
     )
     .properties(height=300, title="Deals by Partner")
 )
 
-# 3) Grouped‐bar chart: Total Funded by Partner & Period
+# 2) Total Funded by Partner & Period
 funded_chart = (
     alt.Chart(partner_flow_df)
     .mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
     .encode(
-        x=alt.X("Period:N", title="Period",
-                sort=[p[0] for p in periods]),
-        y=alt.Y("total_funded:Q", title="Total Funded ($)",
-                axis=alt.Axis(format="$,", titlePadding=10)),
+        x=alt.X("Period:N", title="Period", sort=[p[0] for p in periods]),
+        y=alt.Y("total_funded:Q", title="Total Funded ($)", axis=alt.Axis(format="$,",
+                                                                              titlePadding=10)),
         color=alt.Color("partner_source:N", title="Partner"),
-        xOffset="partner_source:N"
+        xOffset="partner_source:N",
+        tooltip=[
+            alt.Tooltip("partner_source:N",   title="Partner"),
+            alt.Tooltip("total_funded:Q",     title="Total Funded", format="$,.0f")
+        ]
     )
     .properties(height=300, title="Total Funded by Partner")
 )
 
-# 4) Grouped‐bar chart: Avg Funded by Partner & Period
+# 3) Avg Funded per Deal by Partner & Period
 avg_chart = (
     alt.Chart(partner_flow_df)
     .mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
     .encode(
-        x=alt.X("Period:N", title="Period",
-                sort=[p[0] for p in periods]),
-        y=alt.Y("avg_funded:Q", title="Avg Funded ($)",
-                axis=alt.Axis(format="$,", titlePadding=10)),
+        x=alt.X("Period:N", title="Period", sort=[p[0] for p in periods]),
+        y=alt.Y("avg_funded:Q", title="Avg Funded ($)", axis=alt.Axis(format="$,",
+                                                                          titlePadding=10)),
         color=alt.Color("partner_source:N", title="Partner"),
-        xOffset="partner_source:N"
+        xOffset="partner_source:N",
+        tooltip=[
+            alt.Tooltip("partner_source:N", title="Partner"),
+            alt.Tooltip("avg_funded:Q",     title="Avg Funded", format="$,.0f")
+        ]
     )
     .properties(height=300, title="Avg Funded per Deal by Partner")
 )
 
-st.altair_chart(count_chart,  use_container_width=True)
-st.altair_chart(funded_chart, use_container_width=True)
-st.altair_chart(avg_chart,    use_container_width=True)
-
+st.altair_chart(count_chart,   use_container_width=True)
+st.altair_chart(funded_chart,  use_container_width=True)
+st.altair_chart(avg_chart,     use_container_width=True)
 # ----------------------------
 # ADDITIONAL DATA PREPARATION FOR DOLLAR-BASED PARTICIPATION RATE
 # ----------------------------
