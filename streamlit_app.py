@@ -1,5 +1,6 @@
 # streamlit_app.py
 from utils.imports import *
+st.set_page_config(layout="wide")
 # ----------------------------
 # Supabase connection
 # ----------------------------
