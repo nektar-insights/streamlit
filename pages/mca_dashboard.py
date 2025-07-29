@@ -1,23 +1,30 @@
-# pages/mca_dashboard.py
-from utils.imports import *  
-from utils.config import (
-    inject_global_styles,
-    inject_logo,
-    get_supabase_client,
-    PRIMARY_COLOR,
-    COLOR_PALETTE,
-    PLATFORM_FEE_RATE,
-)
+ # pages/mca_dashboard.py
+ from utils.imports import *  
+ from utils.config import (
+     inject_global_styles,
+     inject_logo,
+     get_supabase_client,
+     PRIMARY_COLOR,
+     COLOR_PALETTE,
+     PLATFORM_FEE_RATE,
+ )
+ 
+ from scripts.combine_hubspot_mca import combine_deals
+ from scripts.get_naics_sector_risk import get_naics_sector_risk
+ from utils.loan_tape_loader import load_unified_loan_customer_data
 
-from scripts.combine_hubspot_mca import combine_deals
-from scripts.get_naics_sector_risk import get_naics_sector_risk
-from utils.loan_tape_loader import load_unified_loan_customer_data
-st.set_page_config(layout="wide")
+# 1) page config
+st.set_page_config(
+    page_title="CSL Capital | MCA Dashboard",
+    layout="wide",
 
-# ----------------------------
-# Define risk gradient color scheme (updated colors) https://www.color-hex.com/color-palette/25513
-# ----------------------------
-RISK_GRADIENT = ["#fff600","#ffc302", "#ff8f00", "#ff5b00","#ff0505"]
+# 2) inject global CSS & logo
+inject_global_styles()
+inject_logo()
+
+ # ----------------------------
+ # Define risk gradient color scheme …
+ RISK_GRADIENT = ["#fff600","#ffc302", "#ff8f00", "#ff5b00","#ff0505"]
 
 # ----------------------------
 # Supabase connection
