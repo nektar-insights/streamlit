@@ -26,4 +26,4 @@ COLOR_PALETTE = [
 # ----------------------------
 # Common Configuration
 # ----------------------------
-PLATFORM_FEE_RATE = 0.04
+PLATFORM_FEE_RATE = 0.03
