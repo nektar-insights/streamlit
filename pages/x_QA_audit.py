@@ -2,6 +2,7 @@
 from utils.imports import *
 import numpy as np
 from scripts.combine_hubspot_mca import combine_deals
+st.set_page_config(layout="wide")
 
 # ----------------------------
 # Supabase connection
