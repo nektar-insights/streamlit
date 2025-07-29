@@ -1,10 +1,11 @@
+import streamlit as st
+
 st.set_page_config(
     page_title="My Dashboard",    # ← browser tab title
     layout="wide"
 )
 # streamlit_app.py
 from utils.imports import *
-
 
 # ----------------------------
 # Supabase connection
