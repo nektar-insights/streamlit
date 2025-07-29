@@ -615,110 +615,93 @@ st.altair_chart(rate_line_dollar, use_container_width=True)
 # ----------------------------
 # Monthly trend charts (last 6 months only)
 # ----------------------------
+
+# ----------------------------
+# Monthly trend charts (last 6 months) as lines
+# ----------------------------
 six_months_ago = today - pd.DateOffset(months=6)
 
-# Filter each DataFrame to the last 6 months
-mf = monthly_funded[monthly_funded["month_date"] >= six_months_ago]
-md = monthly_deals[monthly_deals["month_date"]   >= six_months_ago]
-mp = monthly_participation[monthly_participation["month_date"] >= six_months_ago]
+# Filter and dedupe
+mf = (
+    monthly_funded[monthly_funded["month_date"] >= six_months_ago]
+    .drop_duplicates("month_date")
+    .sort_values("month_date")
+)
+md = (
+    monthly_deals[monthly_deals["month_date"]   >= six_months_ago]
+    .drop_duplicates("month_date")
+    .sort_values("month_date")
+)
+mp = (
+    monthly_participation[monthly_participation["month_date"] >= six_months_ago]
+    .drop_duplicates("month_date")
+    .sort_values("month_date")
+)
 
-# Helper to draw an avg‐line with proper tooltip title
-def make_avg_rule(df, field, title, color="gray"):
+def avg_rule(df, field, title, fmt="$,.2f", color="gray"):
     return (
         alt.Chart(df)
         .transform_aggregate(avg_val=f"mean({field})")
-        .mark_rule(color=color, strokeWidth=2, strokeDash=[4,2], opacity=0.7)
+        .mark_rule(color=color, strokeDash=[4,2], strokeWidth=2)
         .encode(
             y=alt.Y("avg_val:Q"),
-            tooltip=alt.Tooltip("avg_val:Q", title=title, format="$,.2f")
+            tooltip=alt.Tooltip("avg_val:Q", title=title, format=fmt)
         )
     )
 
-# 1) Total Funded Amount by Month
+# 1) Total Funded line
 st.subheader("Total Funded Amount by Month")
-funded_bars = (
-    alt.Chart(mf)
-    .mark_bar(size=40, color=PRIMARY_COLOR, cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
-    .encode(
-        x=alt.X("month_date:T", axis=alt.Axis(labelAngle=-45, format="%b %Y")),
-        y=alt.Y(
-            "total_funded_amount:Q",
-            axis=alt.Axis(format="$,.0f", grid=True, labelPadding=8, title="Total Funded ($)")
-        ),
-        tooltip=[
-            alt.Tooltip("month_date:T",           title="Month",        format="%B %Y"),
-            alt.Tooltip("total_funded_amount:Q",  title="Total Funded",  format="$,.0f")
-        ]
-    )
+base_fund = alt.Chart(mf).encode(
+    x=alt.X("month_date:T", title="", axis=alt.Axis(format="%b %Y", labelAngle=-45)),
+    y=alt.Y("total_funded_amount:Q", title="Total Funded ($)", axis=alt.Axis(format="$,.0f", grid=True)),
+    tooltip=[
+        alt.Tooltip("month_date:T",          title="Month",       format="%B %Y"),
+        alt.Tooltip("total_funded_amount:Q", title="Total Funded", format="$,.0f")
+    ]
 )
-funded_reg = funded_bars.transform_regression("month_date", "total_funded_amount", method="linear")\
-                      .mark_line(color="#e45756", strokeWidth=3)
-funded_avg = make_avg_rule(mf, "total_funded_amount", "Avg Total Funded")
+fund_line = base_fund.mark_line(color=PRIMARY_COLOR, strokeWidth=3)
+fund_points = base_fund.mark_point(size=60, color=PRIMARY_COLOR)
+fund_reg    = fund_line.transform_regression("month_date", "total_funded_amount").mark_line(color="#e45756", strokeWidth=2)
+fund_avg    = avg_rule(mf, "total_funded_amount", "Avg Total Funded")
 
-st.altair_chart(
-    (funded_bars + funded_reg + funded_avg)
-    .properties(
-        height=400,
-        padding={"left": 85, "top": 30, "right": 20, "bottom": 80}
-    ),
-    use_container_width=True
-)
+st.altair_chart((fund_line + fund_points + fund_reg + fund_avg).properties(height=350, padding={"bottom":80}), use_container_width=True)
 
 
-# 2) Total Deal Count by Month
+# 2) Deal Count line
 st.subheader("Total Deal Count by Month")
-deal_bars = (
-    alt.Chart(md)
-    .mark_bar(size=40, color=COLOR_PALETTE[2], cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
-    .encode(
-        x=alt.X("month_date:T", axis=alt.Axis(labelAngle=-45, format="%b %Y")),
-        y=alt.Y("deal_count:Q", axis=alt.Axis(grid=True, title="Deal Count")),
-        tooltip=[
-            alt.Tooltip("month_date:T", title="Month", format="%B %Y"),
-            alt.Tooltip("deal_count:Q",   title="Deal Count")
-        ]
-    )
+base_deal = alt.Chart(md).encode(
+    x=alt.X("month_date:T", title="", axis=alt.Axis(format="%b %Y", labelAngle=-45)),
+    y=alt.Y("deal_count:Q", title="Deal Count", axis=alt.Axis(grid=True)),
+    tooltip=[
+        alt.Tooltip("month_date:T", title="Month", format="%B %Y"),
+        alt.Tooltip("deal_count:Q",   title="Deal Count")
+    ]
 )
-deal_reg = deal_bars.transform_regression("month_date", "deal_count", method="linear")\
-                    .mark_line(color="#e45756", strokeWidth=3)
-deal_avg = make_avg_rule(md, "deal_count", "Avg Deals")
+deal_line = base_deal.mark_line(color=COLOR_PALETTE[2], strokeWidth=3)
+deal_points = base_deal.mark_point(size=60, color=COLOR_PALETTE[2])
+deal_reg    = deal_line.transform_regression("month_date", "deal_count").mark_line(color="#e45756", strokeWidth=2)
+deal_avg    = avg_rule(md, "deal_count", "Avg Deals", fmt=", .2f")
 
-st.altair_chart(
-    (deal_bars + deal_reg + deal_avg)
-    .properties(
-        height=400,
-        padding={"left": 60, "top": 20, "right": 20, "bottom": 80}
-    ),
-    use_container_width=True
-)
+st.altair_chart((deal_line + deal_points + deal_reg + deal_avg).properties(height=350, padding={"bottom":80}), use_container_width=True)
 
 
-# 3) Participation Trends by Month
+# 3) Participation line
 st.subheader("Participation Trends by Month")
-part_bars = (
-    alt.Chart(mp)
-    .mark_bar(size=40, color=PRIMARY_COLOR, cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
-    .encode(
-        x=alt.X("month_date:T", axis=alt.Axis(labelAngle=-45, format="%b %Y")),
-        y=alt.Y("deal_count:Q", axis=alt.Axis(grid=True, title="Participated Deals")),
-        tooltip=[
-            alt.Tooltip("month_date:T", title="Month", format="%B %Y"),
-            alt.Tooltip("deal_count:Q", title="Participated Count")
-        ]
-    )
+base_part = alt.Chart(mp).encode(
+    x=alt.X("month_date:T", title="", axis=alt.Axis(format="%b %Y", labelAngle=-45)),
+    y=alt.Y("deal_count:Q", title="Participated Deals", axis=alt.Axis(grid=True)),
+    tooltip=[
+        alt.Tooltip("month_date:T", title="Month", format="%B %Y"),
+        alt.Tooltip("deal_count:Q", title="Participated Count")
+    ]
 )
-part_reg = part_bars.transform_regression("month_date", "deal_count", method="linear")\
-                    .mark_line(color="#e45756", strokeWidth=3)
-part_avg = make_avg_rule(mp, "deal_count", "Avg Participated")
+part_line = base_part.mark_line(color=PRIMARY_COLOR, strokeWidth=3)
+part_points = base_part.mark_point(size=60, color=PRIMARY_COLOR)
+part_reg    = part_line.transform_regression("month_date", "deal_count").mark_line(color="#e45756", strokeWidth=2)
+part_avg    = avg_rule(mp, "deal_count", "Avg Participated", fmt=", .2f")
 
-st.altair_chart(
-    (part_bars + part_reg + part_avg)
-    .properties(
-        height=400,
-        padding={"left": 60, "top": 20, "right": 20, "bottom": 80}
-    ),
-    use_container_width=True
-)
+st.altair_chart((part_line + part_points + part_reg + part_avg).properties(height=350, padding={"bottom":80}), use_container_width=True)
+
 # ----------------------------
 # PARTNER SUMMARY TABLES
 # ----------------------------
