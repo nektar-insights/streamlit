@@ -1,64 +1,70 @@
-# Debug DataFrame Issue
+# pages/debugger.py
 import streamlit as st
 import pandas as pd
-st.set_page_config(layout="wide")
 
-st.title("🔍 Debug DataFrame Issue")
+# 1) Page config
+st.set_page_config(
+    page_title="🔍 Debug DataFrame Issue",
+    layout="wide",
+)
 
-# Check if the combine_deals function is accessible
-try:
-    from scripts.combine_hubspot_mca import combine_deals
-    st.success("✅ combine_deals function imported successfully")
-    
-    # Try to load the data
+# 2) Style & branding
+from utils.config import inject_global_styles, inject_logo
+inject_global_styles()
+inject_logo()
+
+# 3) Page header
+with st.container():
+    st.title("🔍 Debug DataFrame Issue")
+    st.write("---")
+
+# 4) Import & data-load check
+with st.container():
+    st.header("1️⃣ combine_deals import + load")
     try:
+        from scripts.combine_hubspot_mca import combine_deals
+        st.success("✅ combine_deals imported")
         df = combine_deals()
-        st.success(f"✅ Data loaded successfully - Shape: {df.shape}")
-        
-        # Show basic info
-        st.subheader("Data Overview")
-        st.write(f"Rows: {len(df)}")
-        st.write(f"Columns: {len(df.columns)}")
-        
-        # Check key columns
-        key_columns = ['amount_hubspot', 'total_funded_amount', 'current_balance', 'past_due_amount', 'status_category']
-        st.subheader("Key Column Check")
-        for col in key_columns:
-            if col in df.columns:
-                st.write(f"✅ {col}: {df[col].dtype}, {df[col].count()} non-null values")
-            else:
-                st.write(f"❌ {col}: MISSING")
-        
-        # Show first few rows
-        st.subheader("Sample Data")
-        st.dataframe(df.head())
-        
-        # Test filtering
-        st.subheader("Filter Test")
-        try:
-            filtered_df = df[df["status_category"] != "Canceled"]
-            st.write(f"After filtering out Canceled: {len(filtered_df)} rows remaining")
-            
-            # Test status categories
-            status_counts = df["status_category"].value_counts()
-            st.write("Status categories:")
-            st.write(status_counts)
-            
-        except Exception as filter_error:
-            st.error(f"Error filtering data: {filter_error}")
-        
-    except Exception as load_error:
-        st.error(f"❌ Error loading data: {load_error}")
-        
-except ImportError as import_error:
-    st.error(f"❌ Error importing combine_deals: {import_error}")
+        st.success(f"✅ Loaded — {df.shape[0]:,} rows × {df.shape[1]:,} cols")
+    except Exception as e:
+        st.error(f"❌ {e}")
 
-# Check if the main dashboard file structure
-st.subheader("File Structure Check")
-try:
-    with open("/mount/src/streamlit/pages/mca_dashboard.py", "r") as f:
-        first_50_lines = f.readlines()[:50]
-        st.text("First 50 lines of mca_dashboard.py:")
-        st.code("".join(first_50_lines), language="python")
-except Exception as file_error:
-    st.error(f"Error reading dashboard file: {file_error}")
+# 5) Data overview
+with st.container():
+    st.header("2️⃣ Data Overview")
+    if 'df' in locals():
+        st.metric("Rows", len(df))
+        st.metric("Columns", len(df.columns))
+        st.write("---")
+        st.subheader("Key Columns")
+        for col in [
+            'amount_hubspot', 'total_funded_amount',
+            'current_balance', 'past_due_amount', 'status_category'
+        ]:
+            if col in df:
+                st.write(f"• ✅ **{col}**: {df[col].dtype}, {df[col].count():,} non-null")
+            else:
+                st.write(f"• ❌ **{col}**: MISSING")
+        st.subheader("Sample Data")
+        st.dataframe(df.head(), use_container_width=True)
+
+# 6) Filter test
+with st.container():
+    st.header("3️⃣ Filter Test")
+    if 'df' in locals() and 'status_category' in df:
+        filtered = df[df.status_category != "Canceled"]
+        st.write(f"Rows after filter: {len(filtered):,}")
+        st.subheader("Status Counts")
+        st.bar_chart(df.status_category.value_counts())
+    else:
+        st.warning("No status_category to test against.")
+
+# 7) File-structure check
+with st.container():
+    st.header("4️⃣ File Structure")
+    try:
+        path = "/mnt/src/streamlit/pages/mca_dashboard.py"   # ← corrected
+        lines = open(path).read().splitlines()[:50]
+        st.code("\n".join(lines), language="python")
+    except Exception as e:
+        st.error(f"❌ Unable to read `{path}`:\n{e}")
