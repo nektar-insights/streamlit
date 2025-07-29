@@ -45,7 +45,7 @@ df["is_participated"] = df["is_closed_won"] == True
 # ----------------------------
 # Filters
 # ----------------------------
-st.title("CSL Pipeline Dashboard")
+st.title("Pipeline Dashboard")
 
 min_date, max_date = df["date_created"].min(), df["date_created"].max()
 start_date, end_date = st.date_input(
