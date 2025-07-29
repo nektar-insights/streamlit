@@ -277,7 +277,7 @@ start_date, end_date = st.date_input(
 df = df[(df["funding_date"] >= start_date) & (df["funding_date"] <= end_date)]
 
 status_options = ["All"] + list(df["status_category"].dropna().unique())
-status_category_filter = st.radio("Status Category", status_options, index=0)
+status_category_filter = st.radio("Status Category", status_options, index=0,horizontal=True)
 if status_category_filter != "All":
     df = df[df["status_category"] == status_category_filter]
 
@@ -444,7 +444,7 @@ if 'deal_type' in df.columns:
 # Status Category Filter for Loan Tape
 st.subheader("Loan Tape")
 loan_tape_status_options = ["All"] + list(df["status_category"].dropna().unique())
-loan_tape_status_filter = st.radio("Filter Loan Tape by Status Category", loan_tape_status_options, index=0, key="loan_tape_filter")
+loan_tape_status_filter = st.radio("Filter Loan Tape by Status Category", loan_tape_status_options, index=0, key="loan_tape_filter",horizontal=True)
 
 # Apply filter to dataframe for loan tape
 loan_tape_df = df.copy()
