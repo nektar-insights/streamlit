@@ -73,14 +73,15 @@ df["principal_remaining_actual"] = (df["principal_amount"] - df["total_paid"].fi
 # CALCULATION 6: Calculate CSL's principal outstanding 
 # Formula: amount_hubspot - (amount_hubspot/principal_amount * total_paid)
 # Logic: CSL's share of principal minus CSL's proportional share of payments received
+df["participation_ratio"] = df["amount_hubspot"] / df["principal_amount"].replace(0, pd.NA)
+
 df["csl_principal_outstanding"] = df.apply(
     lambda row: max(
-        row["amount_hubspot"] -
-        (row["amount_hubspot"] / row["principal_amount"] * row["total_paid"]
-         if row["principal_amount"] > 0 else 0),
+        row["amount_hubspot"] - (row["participation_ratio"] * row["total_paid"])
+        if pd.notna(row["participation_ratio"]) and pd.notna(row["total_paid"])
+        else row["amount_hubspot"],
         0
-    ) if pd.notna(row["amount_hubspot"]) and pd.notna(row["principal_amount"]) and pd.notna(row["total_paid"])
-    else row["amount_hubspot"] if pd.notna(row["amount_hubspot"]) else 0,
+    ),
     axis=1
 )
 
@@ -113,7 +114,11 @@ df["csl_at_risk_pct"] = df.apply(
 # CALCULATION 10: Commission rate conversion
 # Convert commission field to numeric percentage
 df["commission_rate"] = pd.to_numeric(df["commission"], errors="coerce")
-
+if "commission" in df.columns:
+    df["commission_rate"] = pd.to_numeric(df["commission"], errors="coerce")
+else:
+    df["commission_rate"] = 0
+    
 # CALCULATION 11: Calculate days since funding
 # Used for risk scoring - older deals may have higher risk
 df["days_since_funding"] = (pd.Timestamp.today() - pd.to_datetime(df["funding_date"])).dt.days
@@ -161,8 +166,16 @@ df["expected_payments_to_date"] = df.apply(
 # Formula: total_paid - expected_payments_to_date
 # Logic: Positive = merchant ahead of schedule, Negative = merchant behind schedule
 df["payment_delta"] = df.apply(
-    lambda row: (row["total_paid"] if pd.notna(row["total_paid"]) else 0) - row["expected_payments_to_date"]
-    if pd.notna(row["expected_payments_to_date"])
+    lambda row: (row["total_paid"] - row["expected_payments_to_date"])
+    if pd.notna(row["total_paid"]) and pd.notna(row["expected_payments_to_date"])
+    else 0,
+    axis=1
+)
+
+# CALCULATION 15a: Calculate performance ratio (actual paid vs expected)
+df["performance_ratio"] = df.apply(
+    lambda row: row["total_paid"] / row["expected_payments_to_date"]
+    if pd.notna(row["total_paid"]) and pd.notna(row["expected_payments_to_date"]) and row["expected_payments_to_date"] > 0
     else 0,
     axis=1
 )
@@ -184,7 +197,7 @@ def calculate_projected_status(payment_delta, expected_payments_to_date, status_
     variance_pct = payment_delta / expected_payments_to_date if expected_payments_to_date > 0 else 0
     
     # Simplified logic: if 10% or more behind, mark as Not Current
-    if variance_pct <= -0.10:  # 10% or more behind
+    if variance_pct <= -0.10 or row["performance_ratio"] < 0.90:
         return "Not Current"
     else:
         return "Current"
@@ -218,25 +231,33 @@ if 'industry' in df.columns:
     df['sector_code_consolidated'] = df['sector_code'].copy()
     df.loc[df['sector_code'].isin(['31', '32', '33']), 'sector_code_consolidated'] = 'Manufacturing'
     
-    # Join with NAICS sector risk data
-    if not naics_risk_df.empty:
-        # Create consolidated risk data for manufacturing
-        manufacturing_risk = naics_risk_df[naics_risk_df['sector_code'].isin(['31', '32', '33'])].iloc[0:1].copy()
-        if not manufacturing_risk.empty:
-            manufacturing_risk['sector_code'] = 'Manufacturing'
-            manufacturing_risk['sector_name'] = 'Manufacturing (31-33)'
-            # Use average risk score for manufacturing
-            avg_risk_score = naics_risk_df[naics_risk_df['sector_code'].isin(['31', '32', '33'])]['risk_score'].mean()
-            manufacturing_risk['risk_score'] = avg_risk_score
-            manufacturing_risk['risk_profile'] = 'Medium'  # Default or calculate based on avg
-            
-            # Add manufacturing row to naics_risk_df
-            naics_risk_consolidated = pd.concat([naics_risk_df, manufacturing_risk], ignore_index=True)
-        else:
-            naics_risk_consolidated = naics_risk_df
-        
-        # Join on consolidated sector codes
-        df = df.merge(naics_risk_consolidated, left_on='sector_code_consolidated', right_on='sector_code', how='left', suffixes=('', '_risk'))
+# Join with NAICS sector risk data
+if not naics_risk_df.empty:
+    # Create consolidated risk data for manufacturing (31, 32, 33)
+    manufacturing_codes = ['31', '32', '33']
+    manufacturing_subset = naics_risk_df[naics_risk_df['sector_code'].isin(manufacturing_codes)]
+
+    if not manufacturing_subset.empty:
+        avg_risk_score = manufacturing_subset['risk_score'].mean()
+        manufacturing_risk_row = pd.DataFrame([{
+            'sector_code': 'Manufacturing',
+            'sector_name': 'Manufacturing (31-33)',
+            'risk_score': avg_risk_score,
+            'risk_profile': 'Medium'  # You can improve this by computing based on avg
+        }])
+
+        naics_risk_consolidated = pd.concat([naics_risk_df, manufacturing_risk_row], ignore_index=True)
+    else:
+        naics_risk_consolidated = naics_risk_df
+
+    # Join on consolidated sector codes
+    df = df.merge(
+        naics_risk_consolidated,
+        left_on='sector_code_consolidated',
+        right_on='sector_code',
+        how='left',
+        suffixes=('', '_risk')
+    )
 else:
     st.warning("Industry column not found in data")
 
@@ -313,7 +334,7 @@ not_current_df = df[(df["status_category"] != "Current") & (df["status_category"
 
 # Calculate at-risk percentage for visualization
 # Formula: past_due_amount / current_balance
-not_current_df["at_risk_pct"] = not_current_df["past_due_amount"] / not_current_df["current_balance"]
+not_current_df["at_risk_pct"] = not_current_df["past_due_amount"] / not_current_df["current_balance"].clip(lower=1)
 
 # Filter to only deals with actual risk (past due amount > 0)
 not_current_df = not_current_df[not_current_df["at_risk_pct"] > 0]
