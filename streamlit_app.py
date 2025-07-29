@@ -1,10 +1,20 @@
 # streamlit_app.py
-from utils.imports import *
+from utils.imports import *  
+from utils.config import (
+    inject_global_styles,
+    inject_logo,
+    get_supabase_client,
+    PRIMARY_COLOR,
+    COLOR_PALETTE,
+    PLATFORM_FEE_RATE,
+)
 
 # ----------------------------
 # Apply Branding
 # ----------------------------
 st.set_page_config(page_title="CSL Capital | Dashboard", layout="wide")
+inject_global_styles()
+inject_logo()
 
 # ----------------------------
 # Supabase connection
