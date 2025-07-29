@@ -132,7 +132,6 @@ flow_df = pd.DataFrame(flow_data)
 
 # Last 30-day window
 deals_last_30 = df[df["date_created"] >= today - pd.Timedelta(days=30)].shape[0]
-avg_deals_last_30 = deals_last_30 / 30  if 30 else 0
 
 # Monthly aggregations
 monthly_funded = df.groupby("month")["total_funded_amount"].sum().reset_index()
@@ -186,7 +185,7 @@ st.write("**Deal Flow Averages**")
 col4, col5, col6 = st.columns(3)
 col4.metric("Avg Deals/Week", f"{avg_deals_per_week:.1f}")
 col5.metric("Avg Deals/Month", f"{avg_deals_per_month:.1f}")
-col6.metric("Avg Deals/30 Days", f"{avg_deals_last_30:.1f}")
+col6.metric("Total Deals/30 Days", f"{deals_last_30:.1f}")
 
 # New Average Deal Characteristics 
 st.write("**Average Deal Characteristics (All Deals)**")
@@ -445,89 +444,95 @@ funded_flow_chart = alt.Chart(flow_df).mark_bar(
 
 st.altair_chart(flow_chart, use_container_width=True)
 st.altair_chart(funded_flow_chart, use_container_width=True)
+# ----------------------------
+# Partner Rolling Flow Metrics & Charts (all periods)
+# ----------------------------
+st.subheader("Partner Rolling Flow Trends")
 
-# ----------------------------
-# Partner Rolling Flow Metrics
-# ----------------------------
-st.subheader("Partner Rolling Flow Metrics")
-
-# ----------------------------
-# Partner Rolling 30-Day Metrics & Charts
-# ----------------------------
-
-# Recalculate your 0–30 window only
-window_30 = df[
-    (df["date_created"] >= today - pd.Timedelta(days=30)) &
-    (df["date_created"] <= today)
-]
-partner_flow = (
-    window_30
-    .groupby("partner_source", dropna=False)
-    .agg(
-        deal_count=("id", "size"),
-        total_funded=("total_funded_amount", "sum")
+# 1) Build partner metrics for each period in your existing `periods` list
+partner_metrics = []
+for label, start, end in periods:
+    window = df[
+        (df["date_created"] >= today - pd.Timedelta(days=end)) &
+        (df["date_created"] <= today - pd.Timedelta(days=start))
+    ]
+    grp = (
+        window
+        .groupby("partner_source", dropna=False)
+        .agg(
+            deal_count=("id", "size"),
+            total_funded=("total_funded_amount", "sum")
+        )
+        .reset_index()
     )
-    .reset_index()
-)
-partner_flow["avg_funded"] = partner_flow["total_funded"] / partner_flow["deal_count"].replace(0, pd.NA)
-partner_flow["Period"] = "0–30 Days"
+    grp["avg_funded"] = grp["total_funded"] / grp["deal_count"].replace(0, pd.NA)
+    grp["Period"] = label
+    partner_metrics.append(grp)
 
-# Format for display if you still want a table:
-partner_flow_display = partner_flow.copy()
-partner_flow_display["total_funded"] = partner_flow_display["total_funded"].map(lambda x: f"${x:,.0f}")
-partner_flow_display["avg_funded"]   = partner_flow_display["avg_funded"].map(lambda x: f"${x:,.0f}" if pd.notna(x) else "-")
-st.dataframe(partner_flow_display, use_container_width=True,
+partner_flow_df = pd.concat(partner_metrics, ignore_index=True)
+
+# optional: display raw table
+partner_flow_df_display = partner_flow_df.copy()
+partner_flow_df_display["total_funded"] = partner_flow_df_display["total_funded"].map(lambda x: f"${x:,.0f}")
+partner_flow_df_display["avg_funded"]   = partner_flow_df_display["avg_funded"].map(lambda x: f"${x:,.0f}" if pd.notna(x) else "-")
+st.dataframe(
+    partner_flow_df_display[["Period","partner_source","deal_count","total_funded","avg_funded"]],
+    use_container_width=True,
     column_config={
-      "partner_source": "Partner",
-      "deal_count":    "Deal Count",
-      "total_funded":  "Total Funded",
-      "avg_funded":    "Avg Funded"
+      "partner_source":"Partner",
+      "deal_count":"Deal Count",
+      "total_funded":"Total Funded",
+      "avg_funded":"Avg Funded"
     }
 )
 
-# Now the three grouped-bar charts
-# 1) Deal Count by Partner
+# 2) Grouped‐bar chart: Deal Count by Partner & Period
 count_chart = (
-    alt.Chart(partner_flow)
-    .mark_bar()
+    alt.Chart(partner_flow_df)
+    .mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
     .encode(
-        x=alt.X("Period:N", title="Period"),
+        x=alt.X("Period:N", title="Period",
+                sort=[p[0] for p in periods]),
         y=alt.Y("deal_count:Q", title="Deal Count"),
         color=alt.Color("partner_source:N", title="Partner"),
         xOffset="partner_source:N"
     )
-    .properties(title="Deals by Partner (Last 30 Days)", height=300)
+    .properties(height=300, title="Deals by Partner")
 )
 
-# 2) Total Funded by Partner
+# 3) Grouped‐bar chart: Total Funded by Partner & Period
 funded_chart = (
-    alt.Chart(partner_flow)
-    .mark_bar()
+    alt.Chart(partner_flow_df)
+    .mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
     .encode(
-        x=alt.X("Period:N", title="Period"),
-        y=alt.Y("total_funded:Q", title="Total Funded ($)", axis=alt.Axis(format="$,", titlePadding=10)),
+        x=alt.X("Period:N", title="Period",
+                sort=[p[0] for p in periods]),
+        y=alt.Y("total_funded:Q", title="Total Funded ($)",
+                axis=alt.Axis(format="$,", titlePadding=10)),
         color=alt.Color("partner_source:N", title="Partner"),
         xOffset="partner_source:N"
     )
-    .properties(title="Total Funded by Partner (Last 30 Days)", height=300)
+    .properties(height=300, title="Total Funded by Partner")
 )
 
-# 3) Average Funded by Partner
+# 4) Grouped‐bar chart: Avg Funded by Partner & Period
 avg_chart = (
-    alt.Chart(partner_flow)
-    .mark_bar()
+    alt.Chart(partner_flow_df)
+    .mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
     .encode(
-        x=alt.X("Period:N", title="Period"),
-        y=alt.Y("avg_funded:Q", title="Avg Funded ($)", axis=alt.Axis(format="$,", titlePadding=10)),
+        x=alt.X("Period:N", title="Period",
+                sort=[p[0] for p in periods]),
+        y=alt.Y("avg_funded:Q", title="Avg Funded ($)",
+                axis=alt.Axis(format="$,", titlePadding=10)),
         color=alt.Color("partner_source:N", title="Partner"),
         xOffset="partner_source:N"
     )
-    .properties(title="Average Funded per Deal by Partner (Last 30 Days)", height=300)
+    .properties(height=300, title="Avg Funded per Deal by Partner")
 )
 
-st.altair_chart(count_chart, use_container_width=True)
+st.altair_chart(count_chart,  use_container_width=True)
 st.altair_chart(funded_chart, use_container_width=True)
-st.altair_chart(avg_chart, use_container_width=True)
+st.altair_chart(avg_chart,    use_container_width=True)
 
 # ----------------------------
 # ADDITIONAL DATA PREPARATION FOR DOLLAR-BASED PARTICIPATION RATE
