@@ -1,6 +1,6 @@
 # streamlit_app.py
 from utils.imports import *
-from utils.config import inject_global_styles, inject_logo
+from utils.config import inject_global_styles, inject_logo, get_supabase_client
 
 # ----------------------------
 # Apply Branding
