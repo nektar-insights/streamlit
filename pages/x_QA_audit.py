@@ -85,39 +85,6 @@ qbo_gl_df = preprocess_data(qbo_gl_df)
 mca_deals_raw = preprocess_data(mca_deals_raw)
 mca_deals_combined = preprocess_data(mca_deals_combined)
 
-import pandas as pd
-from utils.imports import get_supabase_client
-
-supabase = get_supabase_client()
-
-def fetch_table(table_name: str):
-    return pd.DataFrame(supabase.table(table_name).select("*").execute().data)
-
-def combine_deals():
-    # 1) Pull each table
-    hubspot = fetch_table("deals")
-    mca     = fetch_table("mca_deals")
-    qbo     = fetch_table("qbo_invoice_payments")
-
-    # 2) Pick a common “merge key” and rename it the same in each DF
-    #    (assuming hubspot.loan_id == mca.deal_number == qbo.customer_name or similar)
-    hubspot = hubspot.rename(columns={"loan_id": "merge_id"})
-    mca     = mca    .rename(columns={"deal_number": "merge_id"})
-    qbo     = qbo    .rename(columns={"customer_name": "merge_id"})
-
-    # 3) Prefix every _other_ column
-    hubspot = hubspot.set_index("merge_id").add_prefix("hubspot_").reset_index()
-    mca     = mca    .set_index("merge_id").add_prefix("mca_")    .reset_index()
-    qbo     = qbo    .set_index("merge_id").add_prefix("qbo_")    .reset_index()
-
-    # 4) Merge them all together
-    combined = (
-        hubspot
-        .merge(mca, on="merge_id", how="outer")
-        .merge(qbo, on="merge_id", how="outer")
-    )
-
-    return combined
 # ----------------------------
 # Page setup
 # ----------------------------
