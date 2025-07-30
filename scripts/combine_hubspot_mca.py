@@ -1,3 +1,20 @@
+# scripts/combine_hubspot_mca.py
+
+import streamlit as st
+import pandas as pd
+from supabase import create_client
+import os
+
+# -------------------------
+# Setup: Supabase Connection
+# -------------------------
+url = st.secrets["supabase"]["url"]
+key = st.secrets["supabase"]["service_role"]
+supabase = create_client(url, key)
+
+def fetch_table(table_name):
+    return pd.DataFrame(supabase.table(table_name).select("*").execute().data)
+
 def combine_deals():
     # Load tables
     deals = fetch_table("deals")
