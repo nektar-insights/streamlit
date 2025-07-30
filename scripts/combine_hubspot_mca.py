@@ -48,8 +48,8 @@ def combine_deals():
     # Exclude any deals marked as canceled in status_category
     combined = combined[combined["status_category"] != "Canceled"]
 
-    # Compute tib as the rounded average of tip and years_in_business
-    combined["tib"] = ((combined["tip"] + combined["years_in_business"]) / 2).round().astype(int)
+    # Compute tib as the rounded average of tib and years_in_business
+    combined["tib"] = ((combined["tib"] + combined["years_in_business"]) / 2).round().astype(int)
 
     # Drop unnecessary columns
     drop_cols = [
