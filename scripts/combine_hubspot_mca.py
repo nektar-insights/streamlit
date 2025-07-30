@@ -61,7 +61,7 @@ def combine_deals():
     drop_cols = [
         # HubSpot/MCA metadata
         "id_hubspot", "pipeline", "is_closed_won", "id_mca", "extraction_run_id",
-        "deal_id", "deal_type", "owner", "funding_type", "sales_rep",
+        "deal_id", "owner", "sales_rep",
         "nature_of_business", "sos_status", "google_score", "twitter_score",
         # MCA-specific fields
         "deal_number", "purchase_price", "receivables_amount", "years_in_business",
