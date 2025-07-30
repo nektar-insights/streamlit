@@ -488,7 +488,8 @@ loan_tape.rename(columns={
     "performance_details": "Performance Notes",
     "expected_payments_to_date": "Expected Payments to Date ($)",
     "payment_delta": "Payment Delta ($)",
-    "projected_status": "Projected Status"
+    "projected_status": "Projected Status",
+    "nature_of_business_mca";"Nature of Business"
 }, inplace=True)
 
 loan_tape["Past Due %"] = pd.to_numeric(loan_tape["Past Due %"], errors="coerce").fillna(0)*100
