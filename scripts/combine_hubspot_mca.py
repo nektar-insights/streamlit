@@ -1,20 +1,3 @@
-# scripts/combine_hubspot_mca.py
-
-import streamlit as st
-import pandas as pd
-from supabase import create_client
-import os
-
-# -------------------------
-# Setup: Supabase Connection
-# -------------------------
-url = st.secrets["supabase"]["url"]
-key = st.secrets["supabase"]["service_role"]
-supabase = create_client(url, key)
-
-def fetch_table(table_name):
-    return pd.DataFrame(supabase.table(table_name).select("*").execute().data)
-
 def combine_deals():
     # Load tables
     deals = fetch_table("deals")
@@ -45,12 +28,15 @@ def combine_deals():
         on="loan_id"
     )
 
+    # Exclude unwanted statuses
+    combined = combined[~combined["status"].isin(["Canceled", "Declined"])]
+
     # Compute tib as the rounded average of tip and years_in_business
     combined["tib"] = ((combined["tip"] + combined["years_in_business"]) / 2).round().astype(int)
 
     # Drop unnecessary columns
     drop_cols = [
-        # original HubSpot/MCA metadata
+        # HubSpot/MCA metadata
         "id_hubspot", "pipeline", "is_closed_won", "id_mca", "extraction_run_id",
         "deal_id", "deal_type", "owner", "funding_type", "sales_rep",
         "nature_of_business", "sos_status", "google_score", "twitter_score",
