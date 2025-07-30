@@ -469,7 +469,7 @@ if loan_tape_status_filter != "All":
 
 # Enhanced loan tape with new projected payment fields using combined dataset
 loan_tape = loan_tape_df[[
-    "loan_id", "dba", "funding_date", "status_category","projected_status",
+    "loan_id", "dba","nature_of_business_mca", "funding_date", "status_category","projected_status",
     "csl_past_due", "past_due_pct", "performance_ratio",
     "current_balance", "csl_principal_outstanding", "performance_details",
     "expected_payments_to_date", "payment_delta"
