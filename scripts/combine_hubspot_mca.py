@@ -16,11 +16,12 @@ def fetch_table(table_name):
     return pd.DataFrame(supabase.table(table_name).select("*").execute().data)
 
 def combine_deals():
+    # Load tables
     deals = fetch_table("deals")
     mca = fetch_table("mca_deals")
     qbo = fetch_table("qbo_loan_summary_view")
 
-    # Handle null loan_ids
+    # Clean and cast IDs
     deals = deals.dropna(subset=["loan_id"])
     deals["loan_id"] = deals["loan_id"].astype(str)
     mca["deal_number"] = mca["deal_number"].astype(str)
@@ -36,20 +37,29 @@ def combine_deals():
         suffixes=("_hubspot", "_mca")
     )
 
-    # Merge QBO view onto combined deals
+    # Merge QBO view
     combined = pd.merge(
         combined,
         qbo,
         how="left",
-        left_on="loan_id",
-        right_on="loan_id"  # Same field name, so no remapping needed
+        on="loan_id"
     )
+
+    # Compute tib as the rounded average of tip and years_in_business
+    combined["tib"] = ((combined["tip"] + combined["years_in_business"]) / 2).round().astype(int)
 
     # Drop unnecessary columns
     drop_cols = [
+        # original HubSpot/MCA metadata
         "id_hubspot", "pipeline", "is_closed_won", "id_mca", "extraction_run_id",
         "deal_id", "deal_type", "owner", "funding_type", "sales_rep",
-        "nature_of_business", "sos_status", "google_score", "twitter_score"
+        "nature_of_business", "sos_status", "google_score", "twitter_score",
+        # MCA-specific fields
+        "deal_number", "purchase_price", "receivables_amount", "years_in_business",
+        "payments_made", "total_payments_expected", "detail_url", "page_url",
+        "extracted_at", "created_at", "amount_mca", "mca_app_date",
+        "monthly_cc_processing", "monthly_bank_deposits", "avg_daily_bank_bal",
+        "last_updated", "rtr_balance", "net_activity"
     ]
     combined = combined.drop(columns=[col for col in drop_cols if col in combined.columns])
 
