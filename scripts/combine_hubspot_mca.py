@@ -68,7 +68,7 @@ def combine_deals():
         "payments_made", "total_payments_expected", "detail_url", "page_url",
         "extracted_at", "created_at", "amount_mca", "mca_app_date",
         "monthly_cc_processing", "monthly_bank_deposits", "avg_daily_bank_bal",
-        "last_updated", "rtr_balance", "net_activity"
+        "last_updated", "net_activity"
     ]
     combined = combined.drop(columns=[col for col in drop_cols if col in combined.columns])
 
