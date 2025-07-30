@@ -469,14 +469,14 @@ if loan_tape_status_filter != "All":
 
 # Enhanced loan tape with new projected payment fields using combined dataset
 loan_tape = loan_tape_df[[
-    "deal_number", "dba", "funding_date", "status_category",
+    "loan_id", "dba", "funding_date", "status_category",
     "csl_past_due", "past_due_pct", "performance_ratio",
     "current_balance", "csl_principal_outstanding", "performance_details",
     "expected_payments_to_date", "payment_delta", "projected_status"
 ]].copy()
 
 loan_tape.rename(columns={
-    "deal_number": "Loan ID",
+    "loan_id": "Loan ID",
     "dba": "Deal",
     "funding_date": "Funding Date",
     "status_category": "Status Category",
@@ -525,13 +525,13 @@ biggest_csl_loans = df[df["status_category"] != "Matured"].copy()
 biggest_csl_loans = biggest_csl_loans.sort_values("amount_hubspot", ascending=False).head(5)
 
 biggest_csl_loans_display = biggest_csl_loans[[
-    "deal_number", "dba", "status_category", "amount_hubspot", "csl_principal_outstanding", 
+    "loan_id", "dba", "status_category", "amount_hubspot", "csl_principal_outstanding", 
     "csl_past_due", "principal_amount", "principal_remaining_actual", "current_balance", 
     "total_paid", "participation_ratio"
 ]].copy()
 
 biggest_csl_loans_display.rename(columns={
-    "deal_number": "Loan ID",
+    "loan_id": "Loan ID",
     "dba": "Deal Name",
     "status_category": "Status",
     "amount_hubspot": "CSL Investment ($)",
@@ -613,7 +613,7 @@ st.altair_chart(bar, use_container_width=True)
 if len(not_current_df) > 0:
     risk_chart = alt.Chart(not_current_df).mark_bar().encode(
         x=alt.X(
-            "deal_number:N",
+            "loan_id:N",
             title="Loan ID",
             sort="-y",
             axis=alt.Axis(labelAngle=-90)
@@ -641,7 +641,7 @@ if len(risk_df) > 0:
     # Risk score bar chart with Loan ID on x-axis
     bar_chart = alt.Chart(top_risk).mark_bar().encode(
         x=alt.X(
-            "deal_number:N",
+            "loan_id:N",
             title="Loan ID",
             sort="-y",
             axis=alt.Axis(labelAngle=-90)
@@ -653,7 +653,7 @@ if len(risk_df) > 0:
             legend=alt.Legend(title="Risk Score")
         ),
         tooltip=[
-            alt.Tooltip("deal_number:N", title="Loan ID"),
+            alt.Tooltip("loan_id:N", title="Loan ID"),
             alt.Tooltip("dba:N", title="Deal Name"),
             alt.Tooltip("status_category:N", title="Status Category"),
             alt.Tooltip("funding_date:T", title="Funding Date"),
@@ -671,12 +671,12 @@ if len(risk_df) > 0:
 
     # Top 10 Risk table
     top_risk_display = top_risk[[
-        "deal_number", "dba", "status_category", "funding_date", "risk_score",
+        "loan_id", "dba", "status_category", "funding_date", "risk_score",
         "csl_past_due", "current_balance"
     ]].copy()
 
     top_risk_display.rename(columns={
-        "deal_number": "Loan ID",
+        "loan_id": "Loan ID",
         "dba": "Deal",
         "status_category": "Status",
         "funding_date": "Funded",
@@ -723,7 +723,7 @@ if len(risk_df) > 0:
             title="Risk Score"
         ),
         tooltip=[
-            alt.Tooltip("deal_number:N", title="Loan ID"),
+            alt.Tooltip("loan_id:N", title="Loan ID"),
             alt.Tooltip("dba:N", title="Deal Name"),
             alt.Tooltip("status_category:N", title="Status"),
             alt.Tooltip("funding_date:T", title="Funded"),
@@ -784,7 +784,7 @@ if 'sector_name' in df.columns and not df['sector_name'].isna().all():
     
     # Group by risk_score from naics_sector_risk_profile table using combined dataset
     industry_summary = df.groupby(['risk_score']).agg({
-        'deal_number': 'count',
+        'loan_id': 'count',
         'amount_hubspot': 'sum',
         'csl_principal_outstanding': 'sum',
         'risk_profile': 'first',
@@ -859,14 +859,14 @@ if 'sector_name' in df.columns and not df['sector_name'].isna().all():
     if 'sector_code' in df.columns and not df['sector_code'].isna().all():
         # Create comprehensive sector summary using combined dataset
         sector_portfolio_summary = df.groupby(['sector_code', 'sector_name']).agg({
-            'deal_number': 'count',
+            'loan_id': 'count',
             'amount_hubspot': 'sum',
             'csl_principal_outstanding': 'sum',
             'risk_score': 'first'
         }).reset_index()
         
         # Calculate percentage of total deals
-        sector_portfolio_summary['pct_of_total'] = (sector_portfolio_summary['deal_number'] / sector_portfolio_summary['deal_number'].sum()) * 100
+        sector_portfolio_summary['pct_of_total'] = (sector_portfolio_summary['loan_id'] / sector_portfolio_summary['loan_id'].sum()) * 100
         
         sector_portfolio_summary.columns = ['Sector Number', 'Industry Name', 'Count of Deals', 'Total Deployed', 'Principal Outstanding', 'Risk Score', '% of Total']
         
@@ -907,13 +907,13 @@ if 'fico' in df.columns:
     
     # FICO analysis using combined dataset
     fico_summary = df.groupby('fico_band').agg({
-        'deal_number': 'count',
+        'loan_id': 'count',
         'amount_hubspot': 'sum',
         'csl_principal_outstanding': 'sum'
     }).reset_index()
     
     # Calculate percentage of total deals (not capital)
-    fico_summary['pct_of_total'] = (fico_summary['deal_number'] / fico_summary['deal_number'].sum()) * 100
+    fico_summary['pct_of_total'] = (fico_summary['loan_id'] / fico_summary['loan_id'].sum()) * 100
     
     fico_summary.columns = ['FICO Band', 'Deal Count', 'CSL Capital Deployed', 'CSL Principal Outstanding', 'Pct of Total']
     
@@ -996,7 +996,7 @@ if 'tib' in df.columns:
     
     # TIB analysis using combined dataset
     tib_summary = df.groupby('tib_band').agg({
-        'deal_number': 'count',
+        'loan_id': 'count',
         'amount_hubspot': 'sum',
         'csl_principal_outstanding': 'sum'
     }).reset_index()
