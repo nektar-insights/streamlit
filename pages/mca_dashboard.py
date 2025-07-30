@@ -46,9 +46,6 @@ def load_mca_deals():
 # Use combined dataframe as the single source of truth
 df = combine_deals()
 
-# Filter out Canceled deals completely
-df = df[df["status_category"] != "Canceled"]
-
 # ----------------------------
 # Data type conversions and basic calculations
 # ----------------------------
