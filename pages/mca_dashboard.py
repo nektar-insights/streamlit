@@ -60,7 +60,7 @@ for col in ["purchase_price", "receivables_amount", "current_balance", "past_due
 
 # CALCULATION 1: Set past_due_amount to 0 for Matured deals
 # Logic: Matured deals have been closed out, so no amount should be past due
-df.loc[df["current_status"] == "Matured", "past_due_amount"] = 0
+df.loc[df["status_category"] == "Matured", "past_due_amount"] = 0
 
 # CALCULATION 2: Calculate past due percentage
 # Formula: past_due_amount / current_balance
@@ -107,19 +107,19 @@ df["csl_principal_outstanding"] = df.apply(
 # Formula: Use csl_principal_outstanding for deals that are "Not Current"
 # Logic: CSL's actual outstanding principal that could be at risk if deal defaults
 df["csl_principal_at_risk"] = df.apply(
-    lambda row: row["csl_principal_outstanding"] if row["current_status"] == "Not Current" 
+    lambda row: row["csl_principal_outstanding"] if row["status_category"] == "Not Current" 
     else 0,
     axis=1
 )
 
 # CALCULATION 8: Set CSL principal at risk to 0 for Matured deals
 # Logic: Matured deals are closed, so there's no remaining principal at risk
-df.loc[df["current_status"] == "Matured", "csl_principal_at_risk"] = 0
-df.loc[df["current_status"] == "Matured", "csl_principal_outstanding"] = 0
+df.loc[df["status_category"] == "Matured", "csl_principal_at_risk"] = 0
+df.loc[df["status_category"] == "Matured", "csl_principal_outstanding"] = 0
 
 # CALCULATION 9: Set CSL past due to 0 for Current deals
 # Logic: Current deals by definition have no past due amounts
-df.loc[df["current_status"] == "Current", "csl_past_due"] = 0
+df.loc[df["status_category"] == "Current", "csl_past_due"] = 0
 
 # CALCULATION 9a: Calculate CSL % of balance at risk
 df["csl_at_risk_pct"] = df.apply(
@@ -202,7 +202,7 @@ df["performance_ratio"] = df.apply(
 # Logic: Simplified status - Current, Not Current, or Matured
 def calculate_projected_status(row):
     # already Matured?
-    if row["current_status"] == "Matured":
+    if row["status_category"] == "Matured":
         return "Matured"
 
     exp = row["expected_payments_to_date"]
@@ -292,10 +292,10 @@ start_date, end_date = st.date_input(
 )
 df = df[(df["funding_date"] >= start_date) & (df["funding_date"] <= end_date)]
 
-status_options = ["All"] + list(df["current_status"].dropna().unique())
-current_status_filter = st.radio("Current Status", status_options, index=0,horizontal=True)
-if current_status_filter != "All":
-    df = df[df["current_status"] == current_status_filter]
+status_options = ["All"] + list(df["status_category"].dropna().unique())
+status_category_filter = st.radio("Current Status", status_options, index=0,horizontal=True)
+if status_category_filter != "All":
+    df = df[df["status_category"] == status_category_filter]
 
 # ----------------------------
 # Calculate all metrics with detailed comments
@@ -306,9 +306,9 @@ if current_status_filter != "All":
 total_deals = len(df)
 
 # Count deals by status category
-total_matured = (df["current_status"] == "Matured").sum()
-total_current = (df["current_status"] == "Current").sum()
-total_non_current = (df["current_status"] == "Not Current").sum()
+total_matured = (df["status_category"] == "Matured").sum()
+total_current = (df["status_category"] == "Current").sum()
+total_non_current = (df["status_category"] == "Not Current").sum()
 
 # Calculate outstanding deals (Current + Not Current, excludes Matured)
 outstanding_total = total_current + total_non_current
@@ -329,7 +329,7 @@ total_csl_past_due = df["csl_past_due"].sum()
 # CALCULATION 20: Outstanding CSL Principal (Capital at Risk)
 # This represents CSL's actual principal outstanding on deals that are "Not Current"
 # Formula: Sum of csl_principal_outstanding for Not Current deals only
-at_risk = df[df["current_status"] == "Not Current"]
+at_risk = df[df["status_category"] == "Not Current"]
 total_csl_at_risk = at_risk["csl_principal_outstanding"].sum()
 
 # COMMISSION METRICS
@@ -346,7 +346,7 @@ average_commission_on_loan = total_commission_paid / df["amount_hubspot"].sum() 
 
 # RISK ANALYSIS DATAFRAMES
 # CALCULATION 24: Create dataframe for non-current, non-matured deals with risk metrics
-not_current_df = df[(df["current_status"] != "Current") & (df["current_status"] != "Matured")].copy()
+not_current_df = df[(df["status_category"] != "Current") & (df["status_category"] != "Matured")].copy()
 
 # Calculate at-risk percentage for visualization
 # Formula: past_due_amount / current_balance
@@ -363,8 +363,8 @@ not_current_df = not_current_df[not_current_df["at_risk_pct"] > 0]
 risk_df = df[
     (df["days_since_funding"] > 30) &
     (df["past_due_amount"] > df["current_balance"] * 0.01) &
-    (df["current_status"] != "Current") &
-    (df["current_status"] != "Matured")
+    (df["status_category"] != "Current") &
+    (df["status_category"] != "Matured")
 ].copy()
 
 if len(risk_df) > 0:
@@ -459,17 +459,17 @@ if 'deal_type' in df.columns:
 
 # Status Category Filter for Loan Tape
 st.subheader("Loan Tape")
-loan_tape_status_options = ["All"] + list(df["current_status"].dropna().unique())
+loan_tape_status_options = ["All"] + list(df["status_category"].dropna().unique())
 loan_tape_status_filter = st.radio("Filter Loan Tape by Status Category", loan_tape_status_options, index=0, key="loan_tape_filter",horizontal=True)
 
 # Apply filter to dataframe for loan tape
 loan_tape_df = df.copy()
 if loan_tape_status_filter != "All":
-    loan_tape_df = loan_tape_df[loan_tape_df["current_status"] == loan_tape_status_filter]
+    loan_tape_df = loan_tape_df[loan_tape_df["status_category"] == loan_tape_status_filter]
 
 # Enhanced loan tape with new projected payment fields using combined dataset
 loan_tape = loan_tape_df[[
-    "loan_id", "dba", "funding_date", "current_status","projected_status",
+    "loan_id", "dba", "funding_date", "status_category","projected_status",
     "csl_past_due", "past_due_pct", "performance_ratio",
     "current_balance", "csl_principal_outstanding", "performance_details",
     "expected_payments_to_date", "payment_delta"
@@ -479,7 +479,7 @@ loan_tape.rename(columns={
     "loan_id": "Loan ID",
     "dba": "Deal",
     "funding_date": "Funding Date",
-    "current_status": "Status Category",
+    "status_category": "Status Category",
     "csl_past_due": "CSL Past Due ($)",
     "past_due_pct": "Past Due %",
     "performance_ratio": "Performance Ratio",
@@ -521,11 +521,11 @@ st.dataframe(
 st.subheader("Top 5 Biggest CSL Investments Outstanding")
 
 # Filter to non-matured deals and sort by CSL participation amount using combined dataset
-biggest_csl_loans = df[df["current_status"] != "Matured"].copy()
+biggest_csl_loans = df[df["status_category"] != "Matured"].copy()
 biggest_csl_loans = biggest_csl_loans.sort_values("amount_hubspot", ascending=False).head(5)
 
 biggest_csl_loans_display = biggest_csl_loans[[
-    "loan_id", "dba", "current_status", "amount_hubspot", "csl_principal_outstanding", 
+    "loan_id", "dba", "status_category", "amount_hubspot", "csl_principal_outstanding", 
     "csl_past_due", "principal_amount", "principal_remaining_actual", "current_balance", 
     "total_paid", "participation_ratio"
 ]].copy()
@@ -533,7 +533,7 @@ biggest_csl_loans_display = biggest_csl_loans[[
 biggest_csl_loans_display.rename(columns={
     "loan_id": "Loan ID",
     "dba": "Deal Name",
-    "current_status": "Status",
+    "status_category": "Status",
     "amount_hubspot": "CSL Investment ($)",
     "csl_principal_outstanding": "CSL Principal Outstanding ($)",
     "csl_past_due": "CSL Past Due ($)",
@@ -572,20 +572,20 @@ st.dataframe(
 # ----------------------------
 
 # Distribution of Deal Status (Bar Chart)
-current_status_counts = df["current_status"].fillna("Unknown").value_counts(normalize=True)
+status_category_counts = df["status_category"].fillna("Unknown").value_counts(normalize=True)
 
 # Calculate unpaid CSL Principal by status category
-status_csl_principal = df.groupby(df["current_status"].fillna("Unknown"))["csl_principal_at_risk"].sum()
+status_csl_principal = df.groupby(df["status_category"].fillna("Unknown"))["csl_principal_at_risk"].sum()
 
-current_status_chart = pd.DataFrame({
-    "current_status": current_status_counts.index.astype(str),
-    "Share": current_status_counts.values,
-    "unpaid_csl_principal": status_csl_principal.reindex(current_status_counts.index).fillna(0).values
+status_category_chart = pd.DataFrame({
+    "status_category": status_category_counts.index.astype(str),
+    "Share": status_category_counts.values,
+    "unpaid_csl_principal": status_csl_principal.reindex(status_category_counts.index).fillna(0).values
 })
 
-bar = alt.Chart(current_status_chart).mark_bar().encode(
+bar = alt.Chart(status_category_chart).mark_bar().encode(
     x=alt.X(
-        "current_status:N",
+        "status_category:N",
         title="Status Category",
         sort=alt.EncodingSortField(field="Share", order="descending"),
         axis=alt.Axis(labelAngle=-90)
@@ -597,7 +597,7 @@ bar = alt.Chart(current_status_chart).mark_bar().encode(
         legend=None
     ),
     tooltip=[
-        alt.Tooltip("current_status", title="Status"),
+        alt.Tooltip("status_category", title="Status"),
         alt.Tooltip("Share:Q", title="Share", format=".2%"),
         alt.Tooltip("unpaid_csl_principal:Q", title="Unpaid CSL Principal (Est.)", format="$,.0f")
     ]
@@ -655,7 +655,7 @@ if len(risk_df) > 0:
         tooltip=[
             alt.Tooltip("loan_id:N", title="Loan ID"),
             alt.Tooltip("dba:N", title="Deal Name"),
-            alt.Tooltip("current_status:N", title="Status Category"),
+            alt.Tooltip("status_category:N", title="Status Category"),
             alt.Tooltip("funding_date:T", title="Funding Date"),
             alt.Tooltip("past_due_amount:Q", title="Past Due Amount", format="$,.0f"),
             alt.Tooltip("current_balance:Q", title="Current Balance", format="$,.0f"),
@@ -671,14 +671,14 @@ if len(risk_df) > 0:
 
     # Top 10 Risk table
     top_risk_display = top_risk[[
-        "loan_id", "dba", "current_status", "funding_date", "risk_score",
+        "loan_id", "dba", "status_category", "funding_date", "risk_score",
         "csl_past_due", "current_balance"
     ]].copy()
 
     top_risk_display.rename(columns={
         "loan_id": "Loan ID",
         "dba": "Deal",
-        "current_status": "Status",
+        "status_category": "Status",
         "funding_date": "Funded",
         "risk_score": "Risk Score",
         "csl_past_due": "CSL Past Due ($)",
@@ -725,7 +725,7 @@ if len(risk_df) > 0:
         tooltip=[
             alt.Tooltip("loan_id:N", title="Loan ID"),
             alt.Tooltip("dba:N", title="Deal Name"),
-            alt.Tooltip("current_status:N", title="Status"),
+            alt.Tooltip("status_category:N", title="Status"),
             alt.Tooltip("funding_date:T", title="Funded"),
             alt.Tooltip("risk_score:Q", title="Risk Score", format=".2f"),
             alt.Tooltip("past_due_pct_calc:Q", title="% Past Due", format=".2%"),
