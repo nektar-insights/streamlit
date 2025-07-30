@@ -48,10 +48,10 @@ def combine_deals():
     # Exclude any deals marked as canceled in status_category
     combined = combined[combined["status_category"] != "Canceled"]
 
-    # Compute tib as the rounded average of tip and years_in_business,
+    # Compute tib as the rounded average of tib and years_in_business,
     # skipping nulls so a single non-null will carry through
     combined["tib"] = (
-        combined[["tip", "years_in_business"]]
+        combined[["tib", "years_in_business"]]
         .mean(axis=1)            # skips NaNs
         .round()                 
         .astype("Int64")         # nullable integer dtype
