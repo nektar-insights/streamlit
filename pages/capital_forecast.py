@@ -36,4 +36,4 @@ deals_df[cols_to_convert] = deals_df[cols_to_convert].apply(pd.to_numeric, error
 closed_won = deals_df[deals_df["is_closed_won"] == True]
 
 # Create integrated forecast
-create_integrated_cash_flow_forecast(deals_df, closed_won, qbo_df)
+create_cash_flow_forecast(deals_df, closed_won, qbo_df)
