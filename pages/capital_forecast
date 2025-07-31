@@ -1,4 +1,4 @@
-# pages/cash_flow_forecast.py
+# pages/capital_forecast.py
 from utils.imports import *
 from utils.config import (
     inject_global_styles,
