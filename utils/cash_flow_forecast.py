@@ -1,22 +1,62 @@
-# cash_flow_forecast.py
 import streamlit as st
 import pandas as pd
 import numpy as np
 import altair as alt
 from datetime import datetime, timedelta
 
+
+# -------------------------------------------------
+# Helper lives at module level (above the main func)
+# -------------------------------------------------
+def _sanitize(df, date_cols=None, num_cols=None):
+    """Force dates → datetime64 and numbers → numeric."""
+    if date_cols:
+        for c in date_cols:
+            if c in df.columns:
+                df[c] = pd.to_datetime(df[c], errors="coerce")
+    if num_cols:
+        for c in num_cols:
+            if c in df.columns:
+                df[c] = pd.to_numeric(df[c], errors="coerce")
+    return df
+
+
 def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
     """
-    Create an integrated cash flow forecast that includes:
+    Create an integrated cash-flow forecast that includes:
     - Capital deployment (outflows for new deals)
     - Loan repayments (inflows from QBO)
     - Operating expenses (other outflows from QBO)
-    
-    Args:
-        deals_df: DataFrame with all deals data
-        closed_won_df: DataFrame with only closed/won deals
-        qbo_df: DataFrame with QBO transaction data (optional for backward compatibility)
     """
+
+    # ---------- 1) Sanitize inputs ----------
+    closed_won_df = _sanitize(
+        closed_won_df,
+        date_cols=["date_created"],
+        num_cols=["amount"]
+    )
+    if qbo_df is not None:
+        qbo_df = _sanitize(
+            qbo_df,
+            date_cols=["txn_date"],
+            num_cols=["total_amount"]
+        )
+
+    # ---------- 2) Quick visual check ----------
+    with st.expander("🔍  Debug – raw data & dtypes"):
+        st.write("**closed_won_df (top 5 rows)**")
+        st.dataframe(closed_won_df.head())
+        st.write(closed_won_df.dtypes)
+
+        if qbo_df is not None:
+            st.write("**qbo_df (top 5 rows)**")
+            st.dataframe(qbo_df.head())
+            st.write(qbo_df.dtypes)
+        else:
+            st.info("`qbo_df` is None – forecasting will run in *simple* mode")
+
+    # ---------- 3) ...rest of your existing code ----------
+    # (historical metrics, forecast config, charts, etc.)
     
     st.header("Capital Deployment Forecast")
     st.markdown("---")
