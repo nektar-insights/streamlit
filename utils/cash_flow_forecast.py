@@ -26,10 +26,19 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
     
     # Prepare QBO data if available
     if has_qbo_data:
+        # Ensure txn_date is datetime
+        qbo_df["txn_date"] = pd.to_datetime(qbo_df["txn_date"], errors="coerce")
+        
+        # Ensure total_amount is numeric
+        if "total_amount" in qbo_df.columns:
+            qbo_df["total_amount"] = pd.to_numeric(qbo_df["total_amount"], errors="coerce")
         # Filter for relevant cash transactions
         cash_transactions = qbo_df[qbo_df["transaction_type"].isin([
             "Payment", "Deposit", "Receipt", "Invoice", "Bill", "Expense"
         ])].copy()
+        
+        # Drop any rows with invalid dates
+        cash_transactions = cash_transactions.dropna(subset=["txn_date"])
         
         # Categorize cash flows
         cash_transactions["cash_impact"] = np.where(
@@ -49,22 +58,28 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             cash_transactions["transaction_type"].isin(["Bill", "Expense"])
         ].copy()
         
-        # Calculate historical metrics
-        min_date = cash_transactions["txn_date"].min()
-        max_date = cash_transactions["txn_date"].max()
-        total_days = (max_date - min_date).days + 1
-        total_weeks = total_days / 7
-        total_months = total_days / 30.44
-        
-        # Inflow metrics (loan repayments)
-        total_inflows = customer_payments["total_amount"].abs().sum()
-        weekly_inflow_rate = total_inflows / total_weeks if total_weeks > 0 else 0
-        monthly_inflow_rate = total_inflows / total_months if total_months > 0 else 0
-        
-        # Operating expense metrics
-        total_opex = operating_expenses["total_amount"].abs().sum()
-        weekly_opex_rate = total_opex / total_weeks if total_weeks > 0 else 0
-        monthly_opex_rate = total_opex / total_months if total_months > 0 else 0
+        # Calculate historical metrics only if we have valid data
+        if len(cash_transactions) > 0 and cash_transactions["txn_date"].notna().any():
+            min_date = cash_transactions["txn_date"].min()
+            max_date = cash_transactions["txn_date"].max()
+            total_days = (max_date - min_date).days + 1
+            total_weeks = total_days / 7
+            total_months = total_days / 30.44
+            
+            # Inflow metrics (loan repayments)
+            total_inflows = customer_payments["total_amount"].abs().sum()
+            weekly_inflow_rate = total_inflows / total_weeks if total_weeks > 0 else 0
+            monthly_inflow_rate = total_inflows / total_months if total_months > 0 else 0
+            
+            # Operating expense metrics
+            total_opex = operating_expenses["total_amount"].abs().sum()
+            weekly_opex_rate = total_opex / total_weeks if total_weeks > 0 else 0
+            monthly_opex_rate = total_opex / total_months if total_months > 0 else 0
+        else:
+            # No valid QBO data
+            weekly_inflow_rate = monthly_inflow_rate = 0
+            weekly_opex_rate = monthly_opex_rate = 0
+            has_qbo_data = False
         
     else:
         # Default to zero if no QBO data
