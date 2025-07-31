@@ -5,7 +5,7 @@ import numpy as np
 import altair as alt
 from datetime import datetime, timedelta
 
-def cash_flow_forecast(deals_df, closed_won_df, qbo_df):
+def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df):
     """
     Create an integrated cash flow forecast that includes:
     - Capital deployment (outflows for new deals)
