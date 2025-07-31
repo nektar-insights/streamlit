@@ -467,21 +467,19 @@ loan_tape_df = df.copy()
 if loan_tape_status_filter != "All":
     loan_tape_df = loan_tape_df[loan_tape_df["status_category"] == loan_tape_status_filter]
 
-# ——— Enhanced loan tape with new projected payment fields ———
+# Enhanced loan tape with new projected payment fields using combined dataset
 loan_tape = loan_tape_df[[
-    "loan_id", "dba", "nature_of_business_mca", "funding_date", "status_category", "projected_status",
+    "loan_id", "dba","nature_of_business_mca", "funding_date", "status_category","projected_status",
     "csl_past_due", "past_due_pct", "performance_ratio",
     "current_balance", "csl_principal_outstanding", "performance_details",
     "expected_payments_to_date", "payment_delta"
 ]].copy()
 
-# 1) Rename for display (include projected_status → Projected Status)
 loan_tape.rename(columns={
     "loan_id": "Loan ID",
     "dba": "Deal",
     "funding_date": "Funding Date",
     "status_category": "Status Category",
-    "projected_status": "Projected Status",
     "csl_past_due": "CSL Past Due ($)",
     "past_due_pct": "Past Due %",
     "performance_ratio": "Performance Ratio",
@@ -490,15 +488,9 @@ loan_tape.rename(columns={
     "performance_details": "Performance Notes",
     "expected_payments_to_date": "Expected Payments to Date ($)",
     "payment_delta": "Payment Delta ($)",
-    "nature_of_business_mca": "Nature of Business"
+    "projected_status": "Projected Status",
+    "nature_of_business_mca":"Nature of Business"
 }, inplace=True)
-
-# 2) Now map the labels off of the newly‐renamed column
-loan_tape["Projected Status Label"] = loan_tape["Projected Status"].map({
-    "Current":       "Current",
-    "Not Current":   "⚠️ Not Current",
-    "Matured":       "Matured"
-})
 
 loan_tape["Past Due %"] = pd.to_numeric(loan_tape["Past Due %"], errors="coerce").fillna(0)*100
 loan_tape["CSL Past Due ($)"] = pd.to_numeric(loan_tape["CSL Past Due ($)"], errors="coerce").fillna(0)
@@ -514,36 +506,12 @@ st.dataframe(
     column_config={
         "Past Due %": st.column_config.NumberColumn("Past Due %", format="%.2f"),
         "CSL Past Due ($)": st.column_config.NumberColumn("CSL Past Due ($)", format="$%.0f"),
-        "Total Loan Remaining ($)": st.column_config.NumberColumn(
-            "Total Loan Remaining ($)",
-            format="$%.0f",
-            help="Full loan balance remaining including interest/fees"
-        ),
-        "CSL Principal Outstanding ($)": st.column_config.NumberColumn(
-            "CSL Principal Outstanding ($)",
-            format="$%.0f",
-            help="CSL's principal investment minus payments received"
-        ),
+        "Total Loan Remaining ($)": st.column_config.NumberColumn("Total Loan Remaining ($)", format="$%.0f", help="Full loan balance remaining including interest/fees"),
+        "CSL Principal Outstanding ($)": st.column_config.NumberColumn("CSL Principal Outstanding ($)", format="$%.0f", help="CSL's principal investment minus payments received"),
         "Performance Ratio": st.column_config.NumberColumn("Performance Ratio", format="%.2f"),
-        "Expected Payments to Date ($)": st.column_config.NumberColumn(
-            "Expected Payments to Date ($)",
-            format="$%.0f",
-            help="Total payments expected by today based on repayment schedule"
-        ),
-        "Payment Delta ($)": st.column_config.NumberColumn(
-            "Payment Delta ($)",
-            format="$%.0f",
-            help="Variance between actual and expected payments. Positive = ahead, negative = behind"
-        ),
-        "Projected Status": st.column_config.TextColumn(
-            "Projected Status",
-            help=(
-                "Status based on how actual payments compare to expected schedule:\n"
-                "- 'Current': Payments are on track\n"
-                "- 'Not Current': ≥10% behind or under 90% of expected payments\n"
-                "- 'Matured': Deal is complete"
-            )
-        )
+        "Expected Payments to Date ($)": st.column_config.NumberColumn("Expected Payments to Date ($)", format="$%.0f", help="Total payments expected by today based on repayment schedule"),
+        "Payment Delta ($)": st.column_config.NumberColumn("Payment Delta ($)", format="$%.0f", help="Variance between actual and expected payments. Positive = ahead, negative = behind"),
+        "Projected Status": st.column_config.TextColumn("Projected Status", help="Current, Not Current, or Matured based on payment performance vs. expected schedule")
     }
 )
 
