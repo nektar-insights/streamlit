@@ -171,7 +171,7 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                 starting_cash = st.number_input(
                     "Current Cash Position",
                     min_value=0,
-                    value=500000,
+                    value=1000000,
                     step=100000,
                     format="%d",
                     help="Enter your current available cash balance"
@@ -180,7 +180,7 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                 starting_cash = st.number_input(
                     "Available Capital (Dry Powder)",
                     min_value=0,
-                    value=500000,
+                    value=1000000,
                     step=100000,
                     format="%d",
                     help="Enter the amount of capital available for deployment"
@@ -488,14 +488,26 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
         if has_qbo_data:
             # Integrated forecast with QBO data
             if forecast_period == "Weekly":
-                dates = pd.date_range(start=datetime.now(), periods=forecast_horizon + 1, freq='W')
+                dates = pd.date_range(start=datetime.now(), periods=forecast_horizon, freq='W')
             else:
-                dates = pd.date_range(start=datetime.now(), periods=forecast_horizon + 1, freq='M')
+                dates = pd.date_range(start=datetime.now(), periods=forecast_horizon, freq='M')
             
             forecast_data = []
             current_cash = starting_cash
             
-            for i, date in enumerate(dates[1:], 1):
+            # Add starting point
+            forecast_data.append({
+                "Date": datetime.now(),
+                "Period": 0,
+                "Cash Position": starting_cash,
+                "Deployment": 0,
+                "Inflows": 0,
+                "OpEx": 0,
+                "Net Flow": 0,
+                "Above Minimum": starting_cash > min_cash_threshold
+            })
+            
+            for i, date in enumerate(dates, 1):
                 # Calculate flows for this period
                 period_deployment = deployment_rate
                 period_inflows = inflow_rate
@@ -522,80 +534,94 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             
             forecast_df = pd.DataFrame(forecast_data)
             
+            # Debug info
+            st.write(f"Debug: Created {len(forecast_df)} forecast periods")
+            
             # Cash position chart
             date_format = "%b %d" if forecast_period == "Weekly" else "%b %Y"
             
-            # Create base chart
-            base = alt.Chart(forecast_df).encode(
-                x=alt.X("Date:T", 
-                       title=f"Date ({forecast_period})",
-                       axis=alt.Axis(format=date_format, labelAngle=-45))
-            )
-            
-            # Cash position line
-            cash_line = base.mark_line(strokeWidth=3, color="#2E8B57").encode(
-                y=alt.Y("Cash Position:Q", 
-                       title="Cash Position ($)", 
-                       axis=alt.Axis(format="$,.0f")),
-                tooltip=[
-                    alt.Tooltip("Date:T", format="%b %d, %Y"),
-                    alt.Tooltip("Cash Position:Q", format="$,.0f"),
-                    alt.Tooltip("Net Flow:Q", format="$+,.0f")
-                ]
-            )
-            
-            # Minimum threshold line
-            threshold_line = alt.Chart(pd.DataFrame({
-                "Minimum Reserve": [min_cash_threshold]
-            })).mark_rule(color="red", strokeDash=[5, 5], strokeWidth=2).encode(
-                y="Minimum Reserve:Q",
-                tooltip=alt.Tooltip("Minimum Reserve:Q", format="$,.0f")
-            )
-            
-            # Combine charts
-            combined_chart = (cash_line + threshold_line).properties(
-                height=400,
-                title="Projected Cash Position"
-            )
-            
-            st.altair_chart(combined_chart, use_container_width=True)
+            if len(forecast_df) > 0:
+                # Create base chart
+                base = alt.Chart(forecast_df).encode(
+                    x=alt.X("Date:T", 
+                           title=f"Date ({forecast_period})",
+                           axis=alt.Axis(format=date_format, labelAngle=-45))
+                )
+                
+                # Cash position line
+                cash_line = base.mark_line(strokeWidth=3, color="#2E8B57").encode(
+                    y=alt.Y("Cash Position:Q", 
+                           title="Cash Position ($)", 
+                           axis=alt.Axis(format="$,.0f")),
+                    tooltip=[
+                        alt.Tooltip("Date:T", format="%b %d, %Y"),
+                        alt.Tooltip("Cash Position:Q", format="$,.0f"),
+                        alt.Tooltip("Net Flow:Q", format="$+,.0f")
+                    ]
+                )
+                
+                # Minimum threshold line
+                threshold_line = alt.Chart(pd.DataFrame({
+                    "Minimum Reserve": [min_cash_threshold]
+                })).mark_rule(color="red", strokeDash=[5, 5], strokeWidth=2).encode(
+                    y="Minimum Reserve:Q",
+                    tooltip=alt.Tooltip("Minimum Reserve:Q", format="$,.0f")
+                )
+                
+                # Combine charts
+                combined_chart = (cash_line + threshold_line).properties(
+                    height=400,
+                    title="Projected Cash Position"
+                )
+                
+                st.altair_chart(combined_chart, use_container_width=True)
+            else:
+                st.warning("No forecast data to display")
             
             # Flow components chart
             st.subheader("Cash Flow Components")
             
-            # Prepare data for stacked bar chart
-            flow_data = forecast_df[["Date", "Inflows", "Deployment", "OpEx"]].copy()
-            flow_data["Deployment"] = -flow_data["Deployment"]  # Make negative for visualization
-            flow_data["OpEx"] = -flow_data["OpEx"]  # Make negative for visualization
-            
-            flow_long = flow_data.melt(id_vars=["Date"], 
-                                      value_vars=["Inflows", "Deployment", "OpEx"],
-                                      var_name="Component", 
-                                      value_name="Amount")
-            
-            flow_chart = alt.Chart(flow_long).mark_bar().encode(
-                x=alt.X("Date:T", 
-                       title=f"Date ({forecast_period})",
-                       axis=alt.Axis(format=date_format, labelAngle=-45)),
-                y=alt.Y("Amount:Q", 
-                       title="Cash Flow ($)", 
-                       axis=alt.Axis(format="$,.0f")),
-                color=alt.Color("Component:N", 
-                              scale=alt.Scale(
-                                  domain=["Inflows", "Deployment", "OpEx"],
-                                  range=["#27AE60", "#E74C3C", "#F39C12"]
-                              )),
-                tooltip=[
-                    alt.Tooltip("Date:T", format="%b %d, %Y"),
-                    alt.Tooltip("Component:N"),
-                    alt.Tooltip("Amount:Q", format="$+,.0f")
-                ]
-            ).properties(
-                height=300,
-                title="Cash Flow Components by Period"
-            )
-            
-            st.altair_chart(flow_chart, use_container_width=True)
+            if len(forecast_df) > 1:  # Skip the starting point
+                # Prepare data for stacked bar chart - skip period 0
+                flow_data = forecast_df[forecast_df["Period"] > 0][["Date", "Inflows", "Deployment", "OpEx"]].copy()
+                flow_data["Deployment"] = -flow_data["Deployment"]  # Make negative for visualization
+                flow_data["OpEx"] = -flow_data["OpEx"]  # Make negative for visualization
+                
+                # Debug info
+                st.write(f"Debug: Flow data has {len(flow_data)} periods")
+                st.write("Debug: Sample flow data:")
+                st.write(flow_data.head())
+                
+                flow_long = flow_data.melt(id_vars=["Date"], 
+                                          value_vars=["Inflows", "Deployment", "OpEx"],
+                                          var_name="Component", 
+                                          value_name="Amount")
+                
+                flow_chart = alt.Chart(flow_long).mark_bar().encode(
+                    x=alt.X("Date:T", 
+                           title=f"Date ({forecast_period})",
+                           axis=alt.Axis(format=date_format, labelAngle=-45)),
+                    y=alt.Y("Amount:Q", 
+                           title="Cash Flow ($)", 
+                           axis=alt.Axis(format="$,.0f")),
+                    color=alt.Color("Component:N", 
+                                  scale=alt.Scale(
+                                      domain=["Inflows", "Deployment", "OpEx"],
+                                      range=["#27AE60", "#E74C3C", "#F39C12"]
+                                  )),
+                    tooltip=[
+                        alt.Tooltip("Date:T", format="%b %d, %Y"),
+                        alt.Tooltip("Component:N"),
+                        alt.Tooltip("Amount:Q", format="$+,.0f")
+                    ]
+                ).properties(
+                    height=300,
+                    title="Cash Flow Components by Period"
+                )
+                
+                st.altair_chart(flow_chart, use_container_width=True)
+            else:
+                st.warning("Not enough data for flow components chart")
         else:
             # Simple forecast visualization
             if forecast_period == "Weekly":
@@ -660,10 +686,13 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
         # Summary table
         st.subheader("Detailed Cash Flow Summary")
         
-        if has_qbo_data:
+        if has_qbo_data and len(forecast_df) > 0:
             # Create summary table for integrated forecast
-            summary_df = forecast_df[["Date", "Cash Position", "Deployment", "Inflows", "OpEx", "Net Flow"]].copy()
+            summary_df = forecast_df[forecast_df["Period"] > 0][["Date", "Cash Position", "Deployment", "Inflows", "OpEx", "Net Flow"]].copy()
             summary_df["Date"] = summary_df["Date"].dt.strftime(date_format)
+            
+            # Debug info
+            st.write(f"Debug: Summary table has {len(summary_df)} rows")
             
             # Display with formatting
             st.dataframe(
@@ -681,8 +710,10 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             )
             
             # Warnings
-            if ending_cash < min_cash_threshold:
-                st.error(f"⚠️ Warning: Cash position will fall below minimum reserve of ${min_cash_threshold:,.0f}")
+            if len(forecast_df) > 0:
+                ending_cash = forecast_df.iloc[-1]["Cash Position"]
+                if ending_cash < min_cash_threshold:
+                    st.error(f"⚠️ Warning: Cash position will fall below minimum reserve of ${min_cash_threshold:,.0f}")
             
             if net_flow_per_period < 0:
                 monthly_burn = net_flow_per_period * (4.33 if forecast_period == "Weekly" else 1)
