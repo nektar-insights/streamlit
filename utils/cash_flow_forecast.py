@@ -171,7 +171,7 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                 starting_cash = st.number_input(
                     "Current Cash Position",
                     min_value=0,
-                    value=1000000,
+                    value=500000,
                     step=100000,
                     format="%d",
                     help="Enter your current available cash balance"
@@ -180,7 +180,7 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                 starting_cash = st.number_input(
                     "Available Capital (Dry Powder)",
                     min_value=0,
-                    value=1000000,
+                    value=500000,
                     step=100000,
                     format="%d",
                     help="Enter the amount of capital available for deployment"
