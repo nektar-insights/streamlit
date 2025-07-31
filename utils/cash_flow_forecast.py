@@ -334,7 +334,3 @@ def create_cash_flow_forecast(deals_df, closed_won_df):
     
     else:
         st.warning("No historical data available for forecasting. Please ensure you have closed/won deals with valid dates.")
-
-# Usage in your main dashboard
-# Add this to your streamlit_app.py or create a new page for it:
-# create_cash_flow_forecast(df, closed_won)
