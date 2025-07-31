@@ -495,9 +495,9 @@ loan_tape.rename(columns={
 
 # 2) Now map the labels off of the newly‐renamed column
 loan_tape["Projected Status Label"] = loan_tape["Projected Status"].map({
-    "Current":       "✅ Current",
+    "Current":       "Current",
     "Not Current":   "⚠️ Not Current",
-    "Matured":       "🟦 Matured"
+    "Matured":       "Matured"
 })
 
 loan_tape["Past Due %"] = pd.to_numeric(loan_tape["Past Due %"], errors="coerce").fillna(0)*100
