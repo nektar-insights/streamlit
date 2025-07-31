@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import altair as alt
 from datetime import datetime, timedelta
-
+alt.data_transformers.disable_max_rows()
 
 # -------------------------------------------------
 # Helper lives at module level (above the main func)
@@ -600,7 +600,19 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                 y="Minimum Reserve:Q",
                 tooltip=alt.Tooltip("Minimum Reserve:Q", format="$,.0f")
             )
-            
+
+            st.subheader("🐞 Quick chart smoke-test")
+            test_chart = (
+                alt.Chart(forecast_df.head(10))
+                  .mark_point(size=60)
+                  .encode(
+                      x="Date:T",
+                      y="Cash Position:Q",
+                      tooltip=["Date:T", "Cash Position:Q"]
+                  )
+            )
+            st.altair_chart(test_chart, use_container_width=True)
+
             # Combine charts
             combined_chart = (cash_line + threshold_line).properties(
                 height=400,
