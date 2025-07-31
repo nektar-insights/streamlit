@@ -467,25 +467,21 @@ loan_tape_df = df.copy()
 if loan_tape_status_filter != "All":
     loan_tape_df = loan_tape_df[loan_tape_df["status_category"] == loan_tape_status_filter]
 
-# Enhanced loan tape with new projected payment fields using combined dataset
+# ——— Enhanced loan tape with new projected payment fields ———
 loan_tape = loan_tape_df[[
-    "loan_id", "dba","nature_of_business_mca", "funding_date", "status_category","projected_status",
+    "loan_id", "dba", "nature_of_business_mca", "funding_date", "status_category", "projected_status",
     "csl_past_due", "past_due_pct", "performance_ratio",
     "current_balance", "csl_principal_outstanding", "performance_details",
     "expected_payments_to_date", "payment_delta"
 ]].copy()
 
-loan_tape["Projected Status Label"] = loan_tape["Projected Status"].map({
-    "Current": "✅ Current",
-    "Not Current": "⚠️ Not Current",
-    "Matured": "🟦 Matured"
-})
-
+# 1) Rename for display (include projected_status → Projected Status)
 loan_tape.rename(columns={
     "loan_id": "Loan ID",
     "dba": "Deal",
     "funding_date": "Funding Date",
     "status_category": "Status Category",
+    "projected_status": "Projected Status",
     "csl_past_due": "CSL Past Due ($)",
     "past_due_pct": "Past Due %",
     "performance_ratio": "Performance Ratio",
@@ -494,8 +490,15 @@ loan_tape.rename(columns={
     "performance_details": "Performance Notes",
     "expected_payments_to_date": "Expected Payments to Date ($)",
     "payment_delta": "Payment Delta ($)",
-    "nature_of_business_mca":"Nature of Business"
+    "nature_of_business_mca": "Nature of Business"
 }, inplace=True)
+
+# 2) Now map the labels off of the newly‐renamed column
+loan_tape["Projected Status Label"] = loan_tape["Projected Status"].map({
+    "Current":       "✅ Current",
+    "Not Current":   "⚠️ Not Current",
+    "Matured":       "🟦 Matured"
+})
 
 loan_tape["Past Due %"] = pd.to_numeric(loan_tape["Past Due %"], errors="coerce").fillna(0)*100
 loan_tape["CSL Past Due ($)"] = pd.to_numeric(loan_tape["CSL Past Due ($)"], errors="coerce").fillna(0)
