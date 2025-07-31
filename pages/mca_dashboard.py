@@ -540,7 +540,6 @@ st.dataframe(
                 "- 'Not Current': ≥10% behind or under 90% of expected payments\n"
                 "- 'Matured': Deal is complete"
             )
-            }
         )
     }
 )
