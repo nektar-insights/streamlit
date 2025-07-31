@@ -475,6 +475,12 @@ loan_tape = loan_tape_df[[
     "expected_payments_to_date", "payment_delta"
 ]].copy()
 
+loan_tape["Projected Status Label"] = loan_tape["Projected Status"].map({
+    "Current": "✅ Current",
+    "Not Current": "⚠️ Not Current",
+    "Matured": "🟦 Matured"
+})
+
 loan_tape.rename(columns={
     "loan_id": "Loan ID",
     "dba": "Deal",
@@ -488,7 +494,6 @@ loan_tape.rename(columns={
     "performance_details": "Performance Notes",
     "expected_payments_to_date": "Expected Payments to Date ($)",
     "payment_delta": "Payment Delta ($)",
-    "projected_status": "Projected Status",
     "nature_of_business_mca":"Nature of Business"
 }, inplace=True)
 
@@ -534,11 +539,7 @@ st.dataframe(
                 "- 'Current': Payments are on track\n"
                 "- 'Not Current': ≥10% behind or under 90% of expected payments\n"
                 "- 'Matured': Deal is complete"
-            ),
-            map={
-                "Current": "✅ Current",
-                "Not Current": "⚠️ Not Current",
-                "Matured": "🟦 Matured"
+            )
             }
         )
     }
