@@ -268,8 +268,7 @@ with tab1:
                 "Days Since Last Payment": st.column_config.NumberColumn("Days Since Last Payment", width="small", format="%.0f"),
                 "Loan Payment Count": st.column_config.NumberColumn("Loan Payments", width="small"),
                 "Total Customer Payment Count": st.column_config.NumberColumn("Customer Payments", width="small"),
-                "Customer Active Loans": st.column_config.NumberColumn("Active Loans", width="small"),
-                "Unattributed Count": st.column_config.NumberColumn("Unattributed Count", width="small")
+                # “Customer Active Loans” and “Unattributed Count” have been moved out
             }
         )
         
@@ -546,34 +545,6 @@ else:
     daily_cash_flow.columns = ["date", "net_cash_flow", "transaction_count"]
     daily_cash_flow["cumulative_cash_flow"] = daily_cash_flow["net_cash_flow"].cumsum()
     
-    # Cash flow trend chart
-    daily_cash_flow["date_str"] = daily_cash_flow["date"].astype(str)
-    
-    base = alt.Chart(daily_cash_flow).add_selection(
-        alt.selection_interval(bind="scales")
-    )
-    
-    cash_flow_chart = base.mark_line(color="steelblue", strokeWidth=2).encode(
-        x=alt.X("date:T", title="Date"),
-        y=alt.Y("net_cash_flow:Q", title="Daily Net Cash Flow ($)", axis=alt.Axis(format="$,.0f")),
-        tooltip=["date:T", "net_cash_flow:Q", "transaction_count:Q"]
-    ).properties(
-        width=700, height=300,
-        title="Daily Net Cash Flow Trend"
-    )
-    
-    cumulative_chart = base.mark_line(color="orange", strokeWidth=2).encode(
-        x=alt.X("date:T", title="Date"),
-        y=alt.Y("cumulative_cash_flow:Q", title="Cumulative Cash Flow ($)", axis=alt.Axis(format="$,.0f")),
-        tooltip=["date:T", "cumulative_cash_flow:Q"]
-    ).properties(
-        width=700, height=300,
-        title="Cumulative Cash Flow"
-    )
-    
-    st.altair_chart(cash_flow_chart, use_container_width=True)
-    st.altair_chart(cumulative_chart, use_container_width=True)
-    
     # Cash flow statistics
     col1, col2, col3, col4 = st.columns(4)
     with col1:
@@ -682,134 +653,8 @@ else:
 # ADVANCED ANALYTICS
 # -------------------------
 
-st.header("Advanced Analytics")
-
-# VISUAL 1: Payment Concentration Risk Analysis
-st.subheader("1. Payment Concentration Risk Analysis")
-if df.empty:
-    st.warning("No transaction data available")
-else:
-    st.markdown("Focus: Payment concentration risk - identifies customers who represent the largest share of payment volume")
-    
-    # Filter for payment transactions only
-    payment_df = df[df["transaction_type"].isin(["Payment", "Deposit", "Receipt"])].copy()
-    
-    if not payment_df.empty:
-        # Calculate payment concentration by customer
-        payment_concentration = payment_df.groupby("customer_name").agg({
-            "total_amount": ["sum", "count", "mean"],
-            "txn_date": ["min", "max"]
-        }).reset_index()
-        
-        payment_concentration.columns = ["customer_name", "total_payments", "payment_count", "avg_payment", "first_payment", "last_payment"]
-        payment_concentration["payment_percentage"] = (payment_concentration["total_payments"] / payment_concentration["total_payments"].sum()) * 100
-        payment_concentration["days_active"] = (payment_concentration["last_payment"] - payment_concentration["first_payment"]).dt.days
-        payment_concentration["avg_monthly_payments"] = np.where(
-            payment_concentration["days_active"] > 30,
-            payment_concentration["total_payments"] / (payment_concentration["days_active"] / 30),
-            payment_concentration["total_payments"]
-        )
-        
-        payment_concentration = payment_concentration.sort_values("total_payments", ascending=False)
-        
-        # Concentration risk metrics
-        top_5_concentration = payment_concentration.head(5)["payment_percentage"].sum()
-        top_10_concentration = payment_concentration.head(10)["payment_percentage"].sum()
-        
-        # Display concentration risk metrics
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Top 5 Payment Concentration", f"{top_5_concentration:.1f}%",
-                     help="Percentage of total payments from top 5 customers")
-        with col2:
-            st.metric("Top 10 Payment Concentration", f"{top_10_concentration:.1f}%",
-                     help="Percentage of total payments from top 10 customers")
-        with col3:
-            customers_80_percent = (payment_concentration["payment_percentage"].cumsum() <= 80).sum() + 1
-            st.metric("Customers for 80% of Payments", customers_80_percent,
-                     help="Number of customers needed to reach 80% of payment volume")
-        with col4:
-            total_payment_customers = len(payment_concentration)
-            st.metric("Total Payment Customers", total_payment_customers,
-                     help="Total number of customers making payments")
-        
-        # Payment concentration chart
-        top_payment_customers = payment_concentration.head(15)
-        concentration_chart = alt.Chart(top_payment_customers).mark_bar(color='lightcoral', stroke='darkred', strokeWidth=1).encode(
-            x=alt.X("payment_percentage:Q", title="Payment Concentration (%)", axis=alt.Axis(format=".1f")),
-            y=alt.Y("customer_name:N", sort="-x", title="Customer"),
-            tooltip=[
-                "customer_name", 
-                "payment_percentage:Q", 
-                "total_payments:Q", 
-                "payment_count:Q",
-                "avg_monthly_payments:Q"
-            ]
-        ).properties(
-            width=700, height=400,
-            title="Top 15 Customers by Payment Concentration (%)"
-        )
-        
-        st.altair_chart(concentration_chart, use_container_width=True)
-        
-        # Risk assessment
-        if top_5_concentration > 50:
-            st.error(f"HIGH RISK: Top 5 customers represent {top_5_concentration:.1f}% of payments - significant concentration risk")
-        elif top_5_concentration > 30:
-            st.warning(f"MEDIUM RISK: Top 5 customers represent {top_5_concentration:.1f}% of payments - moderate concentration risk")
-        else:
-            st.success(f"LOW RISK: Top 5 customers represent {top_5_concentration:.1f}% of payments - well-diversified payment base")
-    else:
-        st.warning("No payment transactions found")
-
-# VISUAL 2: Customer Volume Distribution Analysis
-st.subheader("2. Customer Volume Distribution")
-if df.empty:
-    st.warning("No transaction data available")
-else:
-    st.markdown("Purpose: Shows transaction volume distribution across customers to identify concentration risk")
-    
-    # Customer transaction volume analysis
-    customer_volume = df.groupby("customer_name").agg({
-        "total_amount": ["sum", "count", "mean"],
-        "txn_date": ["min", "max"]
-    }).reset_index()
-    
-    customer_volume.columns = ["customer_name", "total_volume", "transaction_count", "avg_transaction", "first_txn", "last_txn"]
-    customer_volume["volume_percentage"] = (customer_volume["total_volume"] / customer_volume["total_volume"].sum()) * 100
-    customer_volume = customer_volume.sort_values("total_volume", ascending=False)
-    
-    # Concentration analysis
-    top_10_concentration = customer_volume.head(10)["volume_percentage"].sum()
-    top_20_concentration = customer_volume.head(20)["volume_percentage"].sum()
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Top 10 Customer Concentration", f"{top_10_concentration:.1f}%",
-                 help="Percentage of total volume from top 10 customers - high concentration indicates risk")
-    with col2:
-        st.metric("Top 20 Customer Concentration", f"{top_20_concentration:.1f}%",
-                 help="Percentage of total volume from top 20 customers")
-    with col3:
-        total_customers = len(customer_volume)
-        st.metric("Total Active Customers", total_customers,
-                 help="Number of customers with transactions in the period")
-    
-    # Volume distribution chart
-    top_customers = customer_volume.head(20)
-    volume_chart = alt.Chart(top_customers).mark_bar(color='steelblue', stroke='darkblue', strokeWidth=1).encode(
-        x=alt.X("total_volume:Q", title="Total Volume ($)", axis=alt.Axis(format="$,.0f")),
-        y=alt.Y("customer_name:N", sort="-x", title="Customer"),
-        tooltip=["customer_name", "total_volume:Q", "transaction_count:Q", "volume_percentage:Q"]
-    ).properties(
-        width=700, height=500,
-        title="Top 20 Customers by Transaction Volume"
-    )
-    
-    st.altair_chart(volume_chart, use_container_width=True)
-
 # VISUAL 3: Cohort Performance Analysis
-st.subheader("3. Cohort Performance Analysis")
+st.subheader("Cohort Performance Analysis")
 if df.empty:
     st.warning("No transaction data available")
 else:
