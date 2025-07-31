@@ -1,10 +1,11 @@
+# pages/cash_flow_forecast.py
 from utils.imports import *
 from utils.config import (
     inject_global_styles,
     inject_logo,
     get_supabase_client,
 )
-from cash_flow_forecast import create_cash_flow_forecast
+from utils.cash_flow_forecast import create_cash_flow_forecast
 
 # Page config & branding
 st.set_page_config(
