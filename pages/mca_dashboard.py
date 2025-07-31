@@ -511,7 +511,10 @@ st.dataframe(
         "Performance Ratio": st.column_config.NumberColumn("Performance Ratio", format="%.2f"),
         "Expected Payments to Date ($)": st.column_config.NumberColumn("Expected Payments to Date ($)", format="$%.0f", help="Total payments expected by today based on repayment schedule"),
         "Payment Delta ($)": st.column_config.NumberColumn("Payment Delta ($)", format="$%.0f", help="Variance between actual and expected payments. Positive = ahead, negative = behind"),
-        "Projected Status": st.column_config.TextColumn("Projected Status", help="Current, Not Current, or Matured based on payment performance vs. expected schedule")
+        "Projected Status": st.column_config.TextColumn("Projected Status", help=( "Status based on how actual payments compare to expected schedule:\n"
+                                                                                    "- 'Current': Payments are on track\n"
+                                                                                    "- 'Not Current': ≥10% behind or under 90% of expected payments\n"
+                                                                                    "- 'Matured': Deal is complete")
     }
 )
 
