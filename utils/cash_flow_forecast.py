@@ -35,6 +35,11 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
         date_cols=["date_created"],
         num_cols=["amount"]
     )
+
+    st.write("🔢 Row counts →",
+         {"closed_won_df": len(closed_won_df),
+          "qbo_df": len(qbo_df) if qbo_df is not None else 0})
+
     if qbo_df is not None:
         qbo_df = _sanitize(
             qbo_df,
@@ -561,7 +566,11 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                 })
             
             forecast_df = pd.DataFrame(forecast_data)
-            
+
+            with st.expander("🧮 Forecast DF preview"):
+                st.dataframe(forecast_df.head())
+                st.write("rows:", len(forecast_df))
+        
             # Cash position chart
             date_format = "%b %d" if forecast_period == "Weekly" else "%b %Y"
             
