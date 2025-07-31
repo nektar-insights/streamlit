@@ -533,6 +533,7 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                 })
             
             forecast_df = pd.DataFrame(forecast_data)
+            forecast_df["Date"] = pd.to_datetime(forecast_df["Date"])
             
             # Debug info
             st.write(f"Debug: Created {len(forecast_df)} forecast periods")
@@ -577,7 +578,32 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                 st.altair_chart(combined_chart, use_container_width=True)
             else:
                 st.warning("No forecast data to display")
-            
+
+                cash_line = (
+        alt.Chart(forecast_df)
+           .mark_line(strokeWidth=3)
+           .encode(
+               x=alt.X("Date:T", axis=alt.Axis(format=date_fmt, labelAngle=-45)),
+               y=alt.Y("Cash Position:Q", axis=alt.Axis(format="$,.0f")),
+               tooltip=[
+                   alt.Tooltip("Date:T", format="%b %d, %Y"),
+                   alt.Tooltip("Cash Position:Q", format="$,.0f"),
+                   alt.Tooltip("Net Flow:Q", format="$+,.0f")
+               ]
+           )
+    )
+    threshold = (
+        alt.Chart(pd.DataFrame({"y":[min_cash_threshold]}))
+           .mark_rule(color="red", strokeDash=[5,5], strokeWidth=2)
+           .encode(y="y:Q", tooltip=alt.Tooltip("y:Q", format="$,.0f"))
+    )
+    st.subheader("Cash Flow Projection")
+    st.altair_chart(
+        (cash_line + threshold)
+          .properties(title="Projected Cash Position", height=400),
+        use_container_width=True
+    )
+    
             # Flow components chart
             st.subheader("Cash Flow Components")
             
@@ -656,6 +682,32 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                 })
             
             forecast_df = pd.DataFrame(forecast_data)
+
+                st.subheader("Cash Flow Components")
+    flow = forecast_df.loc[forecast_df["Period"]>0, ["Date","Inflows","Deployment","OpEx"]].copy()
+    flow["Deployment"] *= -1
+    flow["OpEx"]       *= -1
+    flow_long = flow.melt(
+        id_vars=["Date"],
+        value_vars=["Inflows","Deployment","OpEx"],
+        var_name="Component", value_name="Amount"
+    )
+    flow_chart = (
+        alt.Chart(flow_long)
+           .mark_bar()
+           .encode(
+               x=alt.X("Date:T", axis=alt.Axis(format=date_fmt, labelAngle=-45)),
+               y=alt.Y("Amount:Q", stack="zero", axis=alt.Axis(format="$,.0f")),
+               color=alt.Color("Component:N", legend=alt.Legend(title="Component")),
+               tooltip=[
+                   alt.Tooltip("Date:T", format="%b %d, %Y"),
+                   alt.Tooltip("Component:N"),
+                   alt.Tooltip("Amount:Q", format="$+,.0f")
+               ]
+           )
+           .properties(title="Cash Flow Components by Period", height=300)
+    )
+    st.altair_chart(flow_chart, use_container_width=True)
             
             # Capital depletion chart with proper date formatting
             date_format = "%b %d" if forecast_period == "Weekly" else "%b %Y"
