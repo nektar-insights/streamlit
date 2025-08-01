@@ -183,10 +183,9 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                 else:
                     target_deals_per_period = st.number_input(
                         "Target Deals per Month",
-                        min_value=0.0,
-                        value=deals_per_month,
-                        step=1.0,
-                        format="%.1f",
+                        min_value=0,
+                        value=round(deals_per_month),
+                        step=1,
                         help="How many deals to participate in per month"
                     )
                 
