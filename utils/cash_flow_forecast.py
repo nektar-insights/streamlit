@@ -219,6 +219,18 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                                 step=50000,
                                 format="%d"
                             )
+                    
+                    # Growth rate for inflows
+                    st.write("**Inflow Growth Assumptions**")
+                    monthly_growth_rate = st.slider(
+                        "Monthly Inflow Growth Rate",
+                        min_value=-10.0,
+                        max_value=10.0,
+                        value=2.0,
+                        step=0.5,
+                        format="%.1f%%",
+                        help="Expected monthly growth in loan repayments (compound)"
+                    ) / 100  # Convert percentage to decimal
                 else:
                     st.info("Enable QBO integration for repayment forecasting")
             
@@ -245,20 +257,20 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                         help="Your average monthly operating costs"
                     )
                 
-                # Forecast horizon
+                # Forecast horizon - limited to 6 months
                 if forecast_period == "Weekly":
                     forecast_horizon = st.slider(
                         "Forecast Horizon (weeks)",
                         min_value=4,
-                        max_value=52,
-                        value=26
+                        max_value=26,  # 6 months
+                        value=13  # 3 months default
                     )
                 else:
                     forecast_horizon = st.slider(
                         "Forecast Horizon (months)",
-                        min_value=3,
-                        max_value=24,
-                        value=12
+                        min_value=1,
+                        max_value=6,
+                        value=3
                     )
             
             # Calculate rates based on selections
@@ -296,8 +308,13 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                     inflow_rate = base_inflow * 1.25
                 else:
                     inflow_rate = custom_inflow
+                    
+                # Get growth rate (default to 0 if not defined)
+                if 'monthly_growth_rate' not in locals():
+                    monthly_growth_rate = 0
             else:
                 inflow_rate = 0
+                monthly_growth_rate = 0
             
             # Use manual OpEx input
             opex_rate = opex_input
@@ -310,13 +327,23 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             st.subheader("Forecast Results")
             
             # Show parameters
-            st.info(f"""
-            **Forecast Parameters:**
-            - Capital Deployment: ${deployment_rate:,.0f} per {time_unit}
-            - Loan Repayments: ${inflow_rate:,.0f} per {time_unit}
-            - Operating Expenses: ${opex_rate:,.0f} per {time_unit}
-            - **Net Cash Flow: ${net_flow_per_period:,.0f} per {time_unit}**
-            """)
+            if has_qbo_data and monthly_growth_rate != 0:
+                st.info(f"""
+                **Forecast Parameters:**
+                - Capital Deployment: ${deployment_rate:,.0f} per {time_unit}
+                - Loan Repayments: ${inflow_rate:,.0f} per {time_unit} (starting)
+                - Inflow Growth Rate: {monthly_growth_rate*100:.1f}% monthly
+                - Operating Expenses: ${opex_rate:,.0f} per {time_unit}
+                - **Net Cash Flow: ${net_flow_per_period:,.0f} per {time_unit}** (starting)
+                """)
+            else:
+                st.info(f"""
+                **Forecast Parameters:**
+                - Capital Deployment: ${deployment_rate:,.0f} per {time_unit}
+                - Loan Repayments: ${inflow_rate:,.0f} per {time_unit}
+                - Operating Expenses: ${opex_rate:,.0f} per {time_unit}
+                - **Net Cash Flow: ${net_flow_per_period:,.0f} per {time_unit}**
+                """)
             
             # Add warning if net flow is very negative
             if net_flow_per_period < -50000:
@@ -441,7 +468,16 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                 
                 # Calculate flows for this period
                 period_deployment = deployment_rate
-                period_inflows = inflow_rate
+                
+                # Apply growth to inflows
+                if forecast_period == "Weekly":
+                    # Convert monthly growth to weekly
+                    weekly_growth_rate = (1 + monthly_growth_rate) ** (1/4.33) - 1
+                    period_inflows = inflow_rate * ((1 + weekly_growth_rate) ** (i - 1))
+                else:
+                    # Apply monthly growth directly
+                    period_inflows = inflow_rate * ((1 + monthly_growth_rate) ** (i - 1))
+                
                 period_opex = opex_rate
                 
                 # Calculate net flow
