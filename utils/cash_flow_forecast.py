@@ -147,18 +147,52 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                 # Deployment rate
                 deployment_method = st.selectbox(
                     "Deployment Rate",
-                    ["Historical Average", "Conservative (75%)", "Aggressive (125%)", "Custom"],
-                    help="How much capital to deploy"
+                    ["Historical Average", "Conservative (75%)", "Aggressive (125%)", "Deal-Based", "Custom Amount"],
+                    help="How to calculate deployment rate"
                 )
                 
-                if deployment_method == "Custom":
+                if deployment_method == "Deal-Based":
+                    # Key lever: Number of deals
+                    st.write("**Deal Participation Levers**")
+                    if forecast_period == "Weekly":
+                        target_deals_per_period = st.number_input(
+                            "Target Deals per Week",
+                            min_value=0,
+                            value=round(deals_per_week),
+                            step=1,
+                            format="%d",
+                            help="How many deals to participate in per week"
+                        )
+                    else:
+                        target_deals_per_period = st.number_input(
+                            "Target Deals per Month",
+                            min_value=0,
+                            value=round(deals_per_month),
+                            step=1,
+                            format="%d",
+                            help="How many deals to participate in per month"
+                        )
+                    
+                    # Key lever: Average participation amount - round up to nearest 500
+                    rounded_avg_deal = int(np.ceil(avg_deal_size / 500) * 500)
+                    avg_participation = st.number_input(
+                        "Avg Participation per Deal",
+                        min_value=0,
+                        value=rounded_avg_deal,
+                        step=5000,
+                        format="%d",
+                        help="Average amount to invest per deal (rounded to nearest $500)"
+                    )
+                    
+                elif deployment_method == "Custom Amount":
                     if forecast_period == "Weekly":
                         custom_deployment = st.number_input(
                             "Custom Weekly Deployment",
                             min_value=0,
                             value=int(weekly_deployment_rate),
                             step=10000,
-                            format="%d"
+                            format="%d",
+                            help="Enter exact weekly deployment amount"
                         )
                     else:
                         custom_deployment = st.number_input(
@@ -166,40 +200,9 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                             min_value=0,
                             value=int(monthly_deployment_rate),
                             step=50000,
-                            format="%d"
+                            format="%d",
+                            help="Enter exact monthly deployment amount"
                         )
-                
-                # Key lever: Number of deals
-                st.write("**Deal Participation Levers**")
-                if forecast_period == "Weekly":
-                    target_deals_per_period = st.number_input(
-                        "Target Deals per Week",
-                        min_value=0,
-                        value=round(deals_per_week),
-                        step=1,
-                        format="%d",
-                        help="How many deals to participate in per week"
-                    )
-                else:
-                    target_deals_per_period = st.number_input(
-                        "Target Deals per Month",
-                        min_value=0,
-                        value=round(deals_per_month),
-                        step=1,
-                        format="%d",
-                        help="How many deals to participate in per month"
-                    )
-                
-                # Key lever: Average participation amount - round up to nearest 500
-                rounded_avg_deal = int(np.ceil(avg_deal_size / 500) * 500)
-                avg_participation = st.number_input(
-                    "Avg Participation per Deal",
-                    min_value=0,
-                    value=rounded_avg_deal,
-                    step=5000,
-                    format="%d",
-                    help="Average amount to invest per deal (rounded to nearest $500)"
-                )
                 
                 # Inflow assumptions
                 if has_qbo_data:
@@ -278,20 +281,20 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                 base_inflow = monthly_inflow_rate
                 time_unit = "month"
             
-            # Calculate deployment from levers FIRST
-            lever_based_deployment = target_deals_per_period * avg_participation
-            
-            # Adjust deployment rate - now includes lever-based calculation
+            # Adjust deployment rate based on method
             if deployment_method == "Historical Average":
                 deployment_rate = base_deployment
             elif deployment_method == "Conservative (75%)":
                 deployment_rate = base_deployment * 0.75
             elif deployment_method == "Aggressive (125%)":
                 deployment_rate = base_deployment * 1.25
-            else:  # Custom
-                # Use the lever-based deployment (deals * avg participation)
-                deployment_rate = lever_based_deployment
-                st.info(f"Deployment rate based on {target_deals_per_period:d} deals × ${avg_participation:,.0f} = ${deployment_rate:,.0f} per {time_unit}")
+            elif deployment_method == "Deal-Based":
+                # Calculate from deals × participation
+                deployment_rate = target_deals_per_period * avg_participation
+                st.info(f"Deployment rate: {target_deals_per_period:d} deals × ${avg_participation:,.0f} = ${deployment_rate:,.0f} per {time_unit}")
+            else:  # Custom Amount
+                deployment_rate = custom_deployment
+                st.info(f"Custom deployment rate: ${deployment_rate:,.0f} per {time_unit}")
             
             # Adjust inflow rate
             if has_qbo_data:
