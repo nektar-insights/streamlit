@@ -459,11 +459,6 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             # Cash position chart
             date_format = "%b %d" if forecast_period == "Weekly" else "%b %Y"
             
-            # Debug: Check the data
-            st.write("**Chart Debug:**")
-            st.write(f"Forecast DataFrame shape: {forecast_df.shape}")
-            st.write(f"Ending Cash range: ${forecast_df['Ending Cash'].min():,.0f} to ${forecast_df['Ending Cash'].max():,.0f}")
-            
             # Create the chart with ending cash positions
             y_min = min(forecast_df["Ending Cash"].min(), min_cash_threshold) - 50000
             y_max = forecast_df["Ending Cash"].max() + 50000
@@ -474,73 +469,81 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                 y_min = y_range_center - 100000
                 y_max = y_range_center + 100000
             
-            # Simple test chart first
-            st.write("**Test Chart:**")
-            test_data = forecast_df[['Date', 'Ending Cash']].copy()
-            test_chart = alt.Chart(test_data).mark_line(point=True).encode(
-                x='Date:T',
-                y='Ending Cash:Q'
-            ).properties(
-                width=700,
-                height=300,
-                title="Test: Basic Line Chart"
-            )
-            st.altair_chart(test_chart, use_container_width=True)
-            
-            # Main chart with explicit configuration
-            cash_line = alt.Chart(forecast_df).mark_line(
+            # Main cash position chart
+            cash_chart = alt.Chart(forecast_df).mark_line(
+                point=True,
                 strokeWidth=3,
                 color="#2E8B57"
             ).encode(
                 x=alt.X('Date:T', 
-                       title='Date',
-                       axis=alt.Axis(format=date_format, labelAngle=-45)),
-                y=alt.Y('Ending Cash:Q', 
-                       title='Cash Position ($)',
+                       axis=alt.Axis(format=date_format, labelAngle=-45),
+                       title='Date'),
+                y=alt.Y('Ending Cash:Q',
+                       scale=alt.Scale(domain=[y_min, y_max]),
                        axis=alt.Axis(format='$,.0f'),
-                       scale=alt.Scale(domain=[y_min, y_max])),
+                       title='Cash Position ($)'),
                 tooltip=[
                     alt.Tooltip('Date:T', format='%b %d, %Y'),
                     alt.Tooltip('Starting Cash:Q', format='$,.0f'),
+                    alt.Tooltip('Inflows:Q', format='$,.0f'),
+                    alt.Tooltip('Deployment:Q', format='$,.0f'),
+                    alt.Tooltip('OpEx:Q', format='$,.0f'),
                     alt.Tooltip('Net Flow:Q', format='$+,.0f'),
                     alt.Tooltip('Ending Cash:Q', format='$,.0f')
                 ]
+            ).properties(
+                width=700,
+                height=400,
+                title="Projected Cash Position Over Time"
             )
             
-            # Add points to the line
-            cash_points = alt.Chart(forecast_df).mark_circle(
-                size=80,
-                color="#2E8B57"
-            ).encode(
-                x='Date:T',
-                y='Ending Cash:Q',
-                tooltip=[
-                    alt.Tooltip('Date:T', format='%b %d, %Y'),
-                    alt.Tooltip('Ending Cash:Q', format='$,.0f')
-                ]
-            )
-            
-            # Minimum threshold line - using a dataframe approach
-            threshold_data = pd.DataFrame({
-                'Threshold': [min_cash_threshold]
-            })
-            
-            min_threshold_line = alt.Chart(threshold_data).mark_rule(
+            # Add minimum cash reserve horizontal line
+            reserve_line = alt.Chart(pd.DataFrame({
+                'y': [min_cash_threshold],
+                'label': [f'Minimum Reserve: ${min_cash_threshold:,.0f}']
+            })).mark_rule(
                 color='red',
                 strokeDash=[5, 5],
                 strokeWidth=2
             ).encode(
-                y='Threshold:Q'
+                y='y:Q'
             )
             
-            # Combine all layers
-            combined_chart = (cash_line + cash_points + min_threshold_line).properties(
-                width=700,
-                height=500,
-                title="Projected Cash Position"
-            ).configure_axis(
-                grid=True
+            # Add text label for the reserve line
+            reserve_label = alt.Chart(pd.DataFrame({
+                'y': [min_cash_threshold],
+                'x': [forecast_df['Date'].iloc[-1]],  # Position at end of chart
+                'label': [f'Min Reserve: ${min_cash_threshold:,.0f}']
+            })).mark_text(
+                align='right',
+                baseline='bottom',
+                dx=-5,
+                dy=-5,
+                color='red',
+                fontSize=12
+            ).encode(
+                x='x:T',
+                y='y:Q',
+                text='label:N'
             )
+            
+            # Add zero line if cash goes negative
+            if forecast_df["Ending Cash"].min() < 0:
+                zero_line = alt.Chart(pd.DataFrame({
+                    'y': [0]
+                })).mark_rule(
+                    color='black',
+                    strokeDash=[3, 3],
+                    strokeWidth=1
+                ).encode(
+                    y='y:Q'
+                )
+                
+                # Combine all elements
+                combined_chart = alt.layer(cash_chart, reserve_line, reserve_label, zero_line)
+            else:
+                # Combine without zero line
+                combined_chart = alt.layer(cash_chart, reserve_line, reserve_label)
             
             st.altair_chart(combined_chart, use_container_width=True)
             
