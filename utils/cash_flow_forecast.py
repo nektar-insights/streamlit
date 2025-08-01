@@ -332,7 +332,6 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             st.markdown("---")
             st.subheader("Forecast Results")
             st.info("📊 **Note**: The summary metrics below are calculated using starting flow rates for simplicity. The actual forecast chart and detailed table include the {:.1f}% monthly growth in loan repayments, which extends your runway and improves cash position over time.".format(monthly_growth_rate * 100))
-            st.markdown("---")
             
             # Show parameters
             if has_qbo_data and monthly_growth_rate != 0:
