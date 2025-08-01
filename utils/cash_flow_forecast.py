@@ -432,6 +432,57 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             
             forecast_df = pd.DataFrame(forecast_data)
             
+            # Comprehensive data inspection
+            st.markdown("---")
+            st.subheader("📊 Data Inspection")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write("**Forecast DataFrame Info:**")
+                st.write(f"- Shape: {forecast_df.shape}")
+                st.write(f"- Columns: {list(forecast_df.columns)}")
+                st.write(f"- Date range: {forecast_df['Date'].min()} to {forecast_df['Date'].max()}")
+                st.write(f"- Cash range: ${forecast_df['Cash Position'].min():,.0f} to ${forecast_df['Cash Position'].max():,.0f}")
+                
+                # Check for NaN values
+                nan_counts = forecast_df.isna().sum()
+                if nan_counts.any():
+                    st.warning("NaN values found:")
+                    st.write(nan_counts[nan_counts > 0])
+            
+            with col2:
+                st.write("**Date Column Analysis:**")
+                st.write(f"- Type: {forecast_df['Date'].dtype}")
+                st.write(f"- First date: {forecast_df['Date'].iloc[0]}")
+                st.write(f"- Last date: {forecast_df['Date'].iloc[-1]}")
+                st.write(f"- Unique dates: {len(forecast_df['Date'].unique())}")
+            
+            # Show the actual data
+            st.write("**Full Forecast Data:**")
+            st.dataframe(forecast_df)
+            
+            # Show what's going into the chart
+            st.write("**Chart Data Check:**")
+            chart_data = forecast_df[['Date', 'Cash Position']].copy()
+            st.write(f"- Chart data shape: {chart_data.shape}")
+            st.write(f"- Chart data types: {chart_data.dtypes.to_dict()}")
+            st.dataframe(chart_data.head(10))
+            
+            # Test with a simple chart first
+            st.write("**Simple Test Chart:**")
+            test_chart = alt.Chart(forecast_df).mark_circle(size=100).encode(
+                x='Date:T',
+                y='Cash Position:Q',
+                tooltip=['Date:T', 'Cash Position:Q']
+            ).properties(
+                height=200,
+                title="Test: Cash Position Points"
+            )
+            st.altair_chart(test_chart, use_container_width=True)
+            
+            st.markdown("---")
+            
             # Cash position chart
             date_format = "%b %d" if forecast_period == "Weekly" else "%b %Y"
             
@@ -439,6 +490,20 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             y_min = min(forecast_df["Cash Position"].min(), min_cash_threshold) * 0.9
             y_max = forecast_df["Cash Position"].max() * 1.1
             
+            st.write(f"**Chart Y-axis range: ${y_min:,.0f} to ${y_max:,.0f}**")
+            
+            # Try a basic line chart first
+            basic_chart = alt.Chart(forecast_df).mark_line(point=True).encode(
+                x='Date:T',
+                y=alt.Y('Cash Position:Q', scale=alt.Scale(domain=[y_min, y_max]))
+            ).properties(
+                height=400,
+                title="Basic Line Chart Test"
+            )
+            
+            st.altair_chart(basic_chart, use_container_width=True)
+            
+            # Now try the full chart
             cash_line = alt.Chart(forecast_df).mark_line(
                 strokeWidth=3,
                 color="#2E8B57",
@@ -482,6 +547,31 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             
             # Cash flow components
             st.subheader("Cash Flow Components")
+            
+            # Prepare data for visualization - skip first period
+            components_data = []
+            for _, row in forecast_df.iloc[1:].iterrows():
+                components_data.extend([
+                    {"Date": row["Date"], "Type": "Inflows", "Amount": row["Inflows"]},
+                    {"Date": row["Date"], "Type": "Deployment", "Amount": -row["Deployment"]},
+                    {"Date": row["Date"], "Type": "OpEx", "Amount": -row["OpEx"]}
+                ])
+            
+            components_df = pd.DataFrame(components_data)
+            
+            # Inspect components data
+            st.write("**Components Data Inspection:**")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write(f"- Components shape: {components_df.shape}")
+                st.write(f"- Types: {components_df['Type'].unique()}")
+                st.write(f"- Amount range: ${components_df['Amount'].min():,.0f} to ${components_df['Amount'].max():,.0f}")
+            with col2:
+                st.write(f"- Data types: {components_df.dtypes.to_dict()}")
+                st.write(f"- Any NaN: {components_df.isna().any().any()}")
+            
+            st.write("**Sample Components Data:**")
+            st.dataframe(components_df.head(12))  # Show 4 periods × 3 types
             
             # Prepare data for visualization - skip first period
             components_data = []
