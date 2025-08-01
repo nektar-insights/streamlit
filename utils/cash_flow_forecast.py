@@ -468,19 +468,20 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             
             forecast_df = pd.DataFrame(forecast_data)
             
-            # Show calculation breakdown for first few periods
-            st.write("**Cash Flow Calculation Breakdown (First 3 Periods):**")
-            for i in range(min(3, len(forecast_df)-1)):
-                row = forecast_df.iloc[i+1]
-                st.write(f"""
-                Period {i+1} ({row['Date'].strftime('%b %d, %Y')}):
-                - Starting Cash: ${row['Starting Cash']:,.0f}
-                - Inflows: +${row['Inflows']:,.0f}
-                - Deployment: -${row['Deployment']:,.0f}
-                - OpEx: -${row['OpEx']:,.0f}
-                - Net Flow: ${row['Net Flow']:,.0f}
-                - **Ending Cash: ${row['Ending Cash']:,.0f}**
-                """)
+            # Show calculation breakdown in expander
+            with st.expander("View Cash Flow Calculation Details"):
+                st.write("**First 3 Periods Breakdown:**")
+                for i in range(min(3, len(forecast_df)-1)):
+                    row = forecast_df.iloc[i+1]
+                    st.write(f"""
+                    Period {i+1} ({row['Date'].strftime('%b %d, %Y')}):
+                    - Starting Cash: ${row['Starting Cash']:,.0f}
+                    - Inflows: +${row['Inflows']:,.0f}
+                    - Deployment: -${row['Deployment']:,.0f}
+                    - OpEx: -${row['OpEx']:,.0f}
+                    - Net Flow: ${row['Net Flow']:,.0f}
+                    - **Ending Cash: ${row['Ending Cash']:,.0f}**
+                    """)
             
             # Cash position chart
             date_format = "%b %d" if forecast_period == "Weekly" else "%b %Y"
@@ -523,44 +524,6 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             combined_chart = cash_chart + reserve_line
             
             st.altair_chart(combined_chart, use_container_width=True)
-            
-            # Cash flow components
-            st.subheader("Cash Flow Components")
-            
-            # Prepare data for visualization - skip first period
-            components_data = []
-            for _, row in forecast_df.iloc[1:].iterrows():
-                components_data.extend([
-                    {"Date": row["Date"], "Type": "Inflows", "Amount": row["Inflows"]},
-                    {"Date": row["Date"], "Type": "Deployment", "Amount": -row["Deployment"]},
-                    {"Date": row["Date"], "Type": "OpEx", "Amount": -row["OpEx"]}
-                ])
-            
-            components_df = pd.DataFrame(components_data)
-            
-            flow_chart = alt.Chart(components_df).mark_bar().encode(
-                x=alt.X("Date:T",
-                       title="Date",
-                       axis=alt.Axis(format=date_format, labelAngle=-45)),
-                y=alt.Y("Amount:Q",
-                       title="Cash Flow ($)",
-                       axis=alt.Axis(format="$,.0f")),
-                color=alt.Color("Type:N",
-                              scale=alt.Scale(
-                                  domain=["Inflows", "Deployment", "OpEx"],
-                                  range=["#27AE60", "#E74C3C", "#F39C12"]
-                              )),
-                tooltip=[
-                    alt.Tooltip("Date:T", format="%b %d, %Y"),
-                    alt.Tooltip("Type:N"),
-                    alt.Tooltip("Amount:Q", format="$+,.0f")
-                ]
-            ).properties(
-                height=300,
-                title="Cash Flow Components by Period"
-            )
-            
-            st.altair_chart(flow_chart, use_container_width=True)
             
             # Summary table
             st.subheader("Detailed Cash Flow Summary")
