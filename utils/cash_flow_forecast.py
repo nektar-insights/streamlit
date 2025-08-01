@@ -43,6 +43,14 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                 total_inflows = customer_payments["total_amount"].abs().sum()
                 weekly_inflow_rate = total_inflows / (total_days / 7)
                 monthly_inflow_rate = total_inflows / (total_days / 30.44)
+                
+                # Debug info
+                st.write("**QBO Debug Info:**")
+                st.write(f"- Total customer payments found: {len(customer_payments)}")
+                st.write(f"- Date range: {min_date.strftime('%Y-%m-%d')} to {max_date.strftime('%Y-%m-%d')} ({total_days} days)")
+                st.write(f"- Total inflows: ${total_inflows:,.0f}")
+                st.write(f"- Weekly rate: ${weekly_inflow_rate:,.0f}")
+                st.write(f"- Monthly rate: ${monthly_inflow_rate:,.0f}")
     
     # Process deals data
     if not closed_won_df.empty and "date_created" in closed_won_df.columns:
@@ -71,6 +79,16 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             median_deal_size = closed_won_df["amount"].median()
             deals_per_week = deal_count / (deal_total_days / 7) if deal_total_days > 0 else 0
             deals_per_month = deal_count / (deal_total_days / 30.44) if deal_total_days > 0 else 0
+            
+            # Debug info
+            st.write("**Deals Debug Info:**")
+            st.write(f"- Total deals: {deal_count}")
+            st.write(f"- Date range: {deal_min_date.strftime('%Y-%m-%d')} to {deal_max_date.strftime('%Y-%m-%d')} ({deal_total_days} days)")
+            st.write(f"- Total deployed: ${total_deployed:,.0f}")
+            st.write(f"- Weekly deployment rate: ${weekly_deployment_rate:,.0f}")
+            st.write(f"- Monthly deployment rate: ${monthly_deployment_rate:,.0f}")
+            
+            st.markdown("---")
             
             # Display historical metrics
             st.subheader("Historical Analysis")
@@ -190,13 +208,13 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             with col3:
                 st.write("**Operating Expenses**")
                 
-                # Manual OpEx input
+                # Manual OpEx input with better defaults
                 if forecast_period == "Weekly":
                     opex_input = st.number_input(
                         "Weekly Operating Expenses",
                         min_value=0,
-                        value=25000,
-                        step=5000,
+                        value=2500,  # ~$10k/month
+                        step=500,
                         format="%d",
                         help="Your average weekly operating costs"
                     )
@@ -204,8 +222,8 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                     opex_input = st.number_input(
                         "Monthly Operating Expenses",
                         min_value=0,
-                        value=100000,
-                        step=10000,
+                        value=10000,  # $10k/month as requested
+                        step=1000,
                         format="%d",
                         help="Your average monthly operating costs"
                     )
@@ -278,6 +296,17 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             - **Net Cash Flow: ${net_flow_per_period:,.0f} per {time_unit}**
             """)
             
+            # Calculate runway ending date
+            runway_ending_date = None
+            if net_flow_per_period < 0:
+                usable_cash = starting_cash - min_cash_threshold
+                if usable_cash > 0:
+                    runway_periods = usable_cash / abs(net_flow_per_period)
+                    if forecast_period == "Weekly":
+                        runway_ending_date = datetime.now() + timedelta(weeks=runway_periods)
+                    else:
+                        runway_ending_date = datetime.now() + timedelta(days=runway_periods * 30.44)
+            
             # Key metrics
             col1, col2, col3, col4 = st.columns(4)
             
@@ -301,13 +330,14 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                     )
             
             with col2:
-                if avg_deal_size > 0:
-                    deals_possible = (starting_cash - min_cash_threshold) / avg_deal_size
+                if runway_ending_date:
                     st.metric(
-                        "Deals Possible",
-                        f"{max(0, deals_possible):.0f}",
-                        help="Based on avg deal size"
+                        "Runway Ends",
+                        runway_ending_date.strftime("%b %d, %Y"),
+                        help="Date when cash reaches minimum"
                     )
+                else:
+                    st.metric("Runway", "Indefinite", help="Positive cash flow")
             
             with col3:
                 ending_cash = starting_cash + (net_flow_per_period * forecast_horizon)
@@ -329,16 +359,27 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             st.markdown("---")
             st.subheader("Cash Flow Projection")
             
-            # Create forecast periods
+            # Create forecast periods - include starting point
             if forecast_period == "Weekly":
-                dates = pd.date_range(start=datetime.now(), periods=forecast_horizon, freq='W')
+                dates = pd.date_range(start=datetime.now(), periods=forecast_horizon + 1, freq='W')
             else:
-                dates = pd.date_range(start=datetime.now(), periods=forecast_horizon, freq='M')
+                dates = pd.date_range(start=datetime.now(), periods=forecast_horizon + 1, freq='M')
             
             forecast_data = []
             current_cash = starting_cash
             
-            for i, date in enumerate(dates):
+            # Add starting point
+            forecast_data.append({
+                "Date": datetime.now(),
+                "Cash Position": starting_cash,
+                "Deployment": 0,
+                "Inflows": 0,
+                "OpEx": 0,
+                "Net Flow": 0
+            })
+            
+            # Add forecast periods
+            for date in dates[1:]:
                 # Calculate flows
                 period_deployment = deployment_rate
                 period_inflows = inflow_rate
@@ -363,13 +404,25 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             
             forecast_df = pd.DataFrame(forecast_data)
             
+            # Debug forecast data
+            st.write("**Forecast Data Debug:**")
+            st.write(f"- Number of periods: {len(forecast_df)}")
+            st.write(f"- Date range: {forecast_df['Date'].min()} to {forecast_df['Date'].max()}")
+            st.write(f"- Starting cash: ${forecast_df['Cash Position'].iloc[0]:,.0f}")
+            st.write(f"- Ending cash: ${forecast_df['Cash Position'].iloc[-1]:,.0f}")
+            
+            # Show first few rows
+            st.write("First 5 rows of forecast data:")
+            st.dataframe(forecast_df.head())
+            
             # Cash position chart
             date_format = "%b %d" if forecast_period == "Weekly" else "%b %Y"
             
             # Create the chart
             cash_line = alt.Chart(forecast_df).mark_line(
                 strokeWidth=3,
-                color="#2E8B57"
+                color="#2E8B57",
+                point=True
             ).encode(
                 x=alt.X("Date:T", 
                        title="Date",
@@ -385,19 +438,24 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             )
             
             # Add minimum threshold line
-            threshold_line = alt.Chart(
-                pd.DataFrame({"y": [min_cash_threshold]})
-            ).mark_rule(
-                color="red",
+            threshold_df = pd.DataFrame({
+                "Date": [forecast_df["Date"].min(), forecast_df["Date"].max()],
+                "Threshold": [min_cash_threshold, min_cash_threshold]
+            })
+            
+            threshold_line = alt.Chart(threshold_df).mark_line(
                 strokeDash=[5, 5],
+                color="red",
                 strokeWidth=2
             ).encode(
-                y="y:Q"
+                x="Date:T",
+                y=alt.Y("Threshold:Q", title="")
             )
             
-            combined_chart = (cash_line + threshold_line).properties(
+            combined_chart = alt.layer(cash_line, threshold_line).properties(
                 height=400,
-                title="Projected Cash Position"
+                title="Projected Cash Position",
+                width=700
             )
             
             st.altair_chart(combined_chart, use_container_width=True)
@@ -405,9 +463,9 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             # Cash flow components
             st.subheader("Cash Flow Components")
             
-            # Prepare data for visualization
+            # Prepare data for visualization - skip first period
             components_data = []
-            for _, row in forecast_df.iterrows():
+            for _, row in forecast_df.iloc[1:].iterrows():
                 components_data.extend([
                     {"Date": row["Date"], "Type": "Inflows", "Amount": row["Inflows"]},
                     {"Date": row["Date"], "Type": "Deployment", "Amount": -row["Deployment"]},
@@ -435,7 +493,8 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                 ]
             ).properties(
                 height=300,
-                title="Cash Flow Components by Period"
+                title="Cash Flow Components by Period",
+                width=700
             )
             
             st.altair_chart(flow_chart, use_container_width=True)
@@ -443,7 +502,7 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             # Summary table
             st.subheader("Detailed Cash Flow Summary")
             
-            summary_df = forecast_df.copy()
+            summary_df = forecast_df.iloc[1:].copy()  # Skip first row (starting point)
             summary_df["Date"] = summary_df["Date"].dt.strftime(date_format)
             
             st.dataframe(
@@ -507,6 +566,17 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             - Net Flow: ${net_flow_per_period:,.0f} → ${adjusted_net_flow:,.0f} per {time_unit}
             """)
             
+            # Calculate adjusted runway ending date
+            adjusted_runway_date = None
+            if adjusted_net_flow < 0:
+                usable_cash = starting_cash - min_cash_threshold
+                if usable_cash > 0:
+                    adjusted_runway_periods = usable_cash / abs(adjusted_net_flow)
+                    if forecast_period == "Weekly":
+                        adjusted_runway_date = datetime.now() + timedelta(weeks=adjusted_runway_periods)
+                    else:
+                        adjusted_runway_date = datetime.now() + timedelta(days=adjusted_runway_periods * 30.44)
+            
             # Adjusted metrics
             col1, col2, col3 = st.columns(3)
             
@@ -529,21 +599,28 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                     st.metric("Adjusted Status", "Cash Positive", delta="✓")
             
             with col2:
+                if adjusted_runway_date and runway_ending_date:
+                    days_diff = (adjusted_runway_date - runway_ending_date).days
+                    st.metric(
+                        "Adjusted End Date",
+                        adjusted_runway_date.strftime("%b %d, %Y"),
+                        delta=f"{days_diff:+d} days"
+                    )
+                elif adjusted_runway_date:
+                    st.metric(
+                        "Runway End Date",
+                        adjusted_runway_date.strftime("%b %d, %Y")
+                    )
+                else:
+                    st.metric("Adjusted Runway", "Indefinite")
+            
+            with col3:
                 adjusted_ending = starting_cash + (adjusted_net_flow * forecast_horizon)
                 delta_ending = adjusted_ending - ending_cash
                 st.metric(
                     f"Adjusted Ending Cash",
                     f"${max(0, adjusted_ending):,.0f}",
                     delta=f"{delta_ending:+,.0f}"
-                )
-            
-            with col3:
-                adjusted_breakeven = adjusted_inflows - opex_rate
-                delta_breakeven = adjusted_breakeven - breakeven_deployment
-                st.metric(
-                    "Adjusted Break-even",
-                    f"${max(0, adjusted_breakeven):,.0f}",
-                    delta=f"{delta_breakeven:+,.0f}"
                 )
         
         else:
