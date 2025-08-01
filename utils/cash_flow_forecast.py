@@ -201,9 +201,6 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                     help="Average amount to invest per deal (rounded to nearest $500)"
                 )
                 
-                # Calculate deployment from levers
-                lever_based_deployment = target_deals_per_period * avg_participation
-                
                 # Inflow assumptions
                 if has_qbo_data:
                     inflow_method = st.selectbox(
@@ -280,6 +277,9 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                 base_deployment = monthly_deployment_rate
                 base_inflow = monthly_inflow_rate
                 time_unit = "month"
+            
+            # Calculate deployment from levers FIRST
+            lever_based_deployment = target_deals_per_period * avg_participation
             
             # Adjust deployment rate - now includes lever-based calculation
             if deployment_method == "Historical Average":
