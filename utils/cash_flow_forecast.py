@@ -418,7 +418,7 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                         delta=f"+${net_flow_per_period:,.0f}/{time_unit}"
                     )
                 
-                ending_cash = forecast_df.iloc[-1]["Ending Cash"]
+                ending_cash = starting_cash + (net_flow_per_period * forecast_horizon)
                 st.metric(
                     f"Cash in {forecast_horizon} {time_unit}s",
                     f"${ending_cash:,.0f}" if ending_cash >= 0 else f"-${abs(ending_cash):,.0f}",
