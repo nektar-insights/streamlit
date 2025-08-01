@@ -469,19 +469,41 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             forecast_df = pd.DataFrame(forecast_data)
             
             # Show calculation breakdown in expander
-            with st.expander("View Cash Flow Calculation Details"):
-                st.write("**First 3 Periods Breakdown:**")
-                for i in range(min(3, len(forecast_df)-1)):
-                    row = forecast_df.iloc[i+1]
-                    st.write(f"""
-                    Period {i+1} ({row['Date'].strftime('%b %d, %Y')}):
-                    - Starting Cash: ${row['Starting Cash']:,.0f}
-                    - Inflows: +${row['Inflows']:,.0f}
-                    - Deployment: -${row['Deployment']:,.0f}
-                    - OpEx: -${row['OpEx']:,.0f}
-                    - Net Flow: ${row['Net Flow']:,.0f}
-                    - **Ending Cash: ${row['Ending Cash']:,.0f}**
-                    """)
+            with st.expander("View Cash Flow Details"):
+                tab1, tab2 = st.tabs(["Calculation Breakdown", "Detailed Summary"])
+                
+                with tab1:
+                    st.write("**First 3 Periods Breakdown:**")
+                    for i in range(min(3, len(forecast_df)-1)):
+                        row = forecast_df.iloc[i+1]
+                        st.write(f"""
+                        Period {i+1} ({row['Date'].strftime('%b %d, %Y')}):
+                        - Starting Cash: ${row['Starting Cash']:,.0f}
+                        - Inflows: +${row['Inflows']:,.0f}
+                        - Deployment: -${row['Deployment']:,.0f}
+                        - OpEx: -${row['OpEx']:,.0f}
+                        - Net Flow: ${row['Net Flow']:,.0f}
+                        - **Ending Cash: ${row['Ending Cash']:,.0f}**
+                        """)
+                
+                with tab2:
+                    summary_df = forecast_df.iloc[1:].copy()  # Skip first row (starting point)
+                    summary_df["Date"] = summary_df["Date"].dt.strftime(date_format)
+                    
+                    st.dataframe(
+                        summary_df[["Date", "Starting Cash", "Inflows", "Deployment", "OpEx", "Net Flow", "Ending Cash"]],
+                        use_container_width=True,
+                        column_config={
+                            "Date": st.column_config.TextColumn("Period"),
+                            "Starting Cash": st.column_config.NumberColumn("Starting Cash", format="$%.0f"),
+                            "Inflows": st.column_config.NumberColumn("Inflows", format="$%.0f"),
+                            "Deployment": st.column_config.NumberColumn("Deployment", format="$%.0f"),
+                            "OpEx": st.column_config.NumberColumn("OpEx", format="$%.0f"),
+                            "Net Flow": st.column_config.NumberColumn("Net Flow", format="$%+.0f"),
+                            "Ending Cash": st.column_config.NumberColumn("Ending Cash", format="$%.0f")
+                        },
+                        hide_index=True
+                    )
             
             # Cash position chart
             date_format = "%b %d" if forecast_period == "Weekly" else "%b %Y"
@@ -524,27 +546,6 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             combined_chart = cash_chart + reserve_line
             
             st.altair_chart(combined_chart, use_container_width=True)
-            
-            # Summary table
-            st.subheader("Detailed Cash Flow Summary")
-            
-            summary_df = forecast_df.iloc[1:].copy()  # Skip first row (starting point)
-            summary_df["Date"] = summary_df["Date"].dt.strftime(date_format)
-            
-            st.dataframe(
-                summary_df[["Date", "Starting Cash", "Inflows", "Deployment", "OpEx", "Net Flow", "Ending Cash"]],
-                use_container_width=True,
-                column_config={
-                    "Date": st.column_config.TextColumn("Period"),
-                    "Starting Cash": st.column_config.NumberColumn("Starting Cash", format="$%.0f"),
-                    "Inflows": st.column_config.NumberColumn("Inflows", format="$%.0f"),
-                    "Deployment": st.column_config.NumberColumn("Deployment", format="$%.0f"),
-                    "OpEx": st.column_config.NumberColumn("OpEx", format="$%.0f"),
-                    "Net Flow": st.column_config.NumberColumn("Net Flow", format="$%+.0f"),
-                    "Ending Cash": st.column_config.NumberColumn("Ending Cash", format="$%.0f")
-                },
-                hide_index=True
-            )
             
             # Warnings
             if forecast_df["Ending Cash"].min() < min_cash_threshold:
