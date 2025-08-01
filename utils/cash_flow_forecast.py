@@ -22,6 +22,9 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
     
     # Process QBO data if available
     if qbo_df is not None and not qbo_df.empty and "txn_date" in qbo_df.columns:
+        # Create explicit copy to avoid SettingWithCopyWarning
+        qbo_df = qbo_df.copy()
+        
         # Ensure data types
         qbo_df["txn_date"] = pd.to_datetime(qbo_df["txn_date"], errors="coerce")
         qbo_df["total_amount"] = pd.to_numeric(qbo_df["total_amount"], errors="coerce")
@@ -46,6 +49,9 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
     
     # Process deals data
     if not closed_won_df.empty and "date_created" in closed_won_df.columns:
+        # Create explicit copy to avoid SettingWithCopyWarning
+        closed_won_df = closed_won_df.copy()
+        
         # Ensure data types
         closed_won_df["date_created"] = pd.to_datetime(closed_won_df["date_created"], errors="coerce")
         closed_won_df["amount"] = pd.to_numeric(closed_won_df["amount"], errors="coerce")
