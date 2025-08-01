@@ -371,7 +371,7 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                 ending_cash = starting_cash + (net_flow_per_period * forecast_horizon)
                 st.metric(
                     f"Cash in {forecast_horizon} {time_unit}s",
-                    f"${max(0, ending_cash):,.0f}",
+                    f"${ending_cash:,.0f}" if ending_cash >= 0 else f"-${abs(ending_cash):,.0f}",
                     delta=f"{ending_cash - starting_cash:+,.0f}"
                 )
             
@@ -399,149 +399,124 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             # Add starting point
             forecast_data.append({
                 "Date": datetime.now(),
-                "Cash Position": starting_cash,
+                "Starting Cash": starting_cash,
                 "Deployment": 0,
                 "Inflows": 0,
                 "OpEx": 0,
-                "Net Flow": 0
+                "Net Flow": 0,
+                "Ending Cash": starting_cash
             })
             
             # Add forecast periods
-            for date in dates[1:]:
-                # Calculate flows
+            for i, date in enumerate(dates[1:], 1):
+                period_starting_cash = current_cash
+                
+                # Calculate flows for this period
                 period_deployment = deployment_rate
                 period_inflows = inflow_rate
                 period_opex = opex_rate
                 
-                # Constrain deployment if low on cash
-                if current_cash - period_deployment - period_opex < min_cash_threshold:
-                    period_deployment = max(0, current_cash - min_cash_threshold - period_opex)
-                
-                # Net flow and new position
+                # Calculate net flow
                 period_net_flow = period_inflows - period_deployment - period_opex
-                current_cash = current_cash + period_net_flow
                 
+                # Calculate ending cash for this period
+                period_ending_cash = period_starting_cash + period_net_flow
+                
+                # Store the period data
                 forecast_data.append({
                     "Date": date,
-                    "Cash Position": current_cash,
+                    "Starting Cash": period_starting_cash,
                     "Deployment": period_deployment,
                     "Inflows": period_inflows,
                     "OpEx": period_opex,
-                    "Net Flow": period_net_flow
+                    "Net Flow": period_net_flow,
+                    "Ending Cash": period_ending_cash
                 })
+                
+                # Update current cash for next period
+                current_cash = period_ending_cash
             
             forecast_df = pd.DataFrame(forecast_data)
             
-            # Comprehensive data inspection
-            st.markdown("---")
-            st.subheader("📊 Data Inspection")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.write("**Forecast DataFrame Info:**")
-                st.write(f"- Shape: {forecast_df.shape}")
-                st.write(f"- Columns: {list(forecast_df.columns)}")
-                st.write(f"- Date range: {forecast_df['Date'].min()} to {forecast_df['Date'].max()}")
-                st.write(f"- Cash range: ${forecast_df['Cash Position'].min():,.0f} to ${forecast_df['Cash Position'].max():,.0f}")
-                
-                # Check for NaN values
-                nan_counts = forecast_df.isna().sum()
-                if nan_counts.any():
-                    st.warning("NaN values found:")
-                    st.write(nan_counts[nan_counts > 0])
-            
-            with col2:
-                st.write("**Date Column Analysis:**")
-                st.write(f"- Type: {forecast_df['Date'].dtype}")
-                st.write(f"- First date: {forecast_df['Date'].iloc[0]}")
-                st.write(f"- Last date: {forecast_df['Date'].iloc[-1]}")
-                st.write(f"- Unique dates: {len(forecast_df['Date'].unique())}")
-            
-            # Show the actual data
-            st.write("**Full Forecast Data:**")
-            st.dataframe(forecast_df)
-            
-            # Show what's going into the chart
-            st.write("**Chart Data Check:**")
-            chart_data = forecast_df[['Date', 'Cash Position']].copy()
-            st.write(f"- Chart data shape: {chart_data.shape}")
-            st.write(f"- Chart data types: {chart_data.dtypes.to_dict()}")
-            st.dataframe(chart_data.head(10))
-            
-            # Test with a simple chart first
-            st.write("**Simple Test Chart:**")
-            test_chart = alt.Chart(forecast_df).mark_circle(size=100).encode(
-                x='Date:T',
-                y='Cash Position:Q',
-                tooltip=['Date:T', 'Cash Position:Q']
-            ).properties(
-                height=200,
-                title="Test: Cash Position Points"
-            )
-            st.altair_chart(test_chart, use_container_width=True)
-            
-            st.markdown("---")
+            # Show calculation breakdown for first few periods
+            st.write("**Cash Flow Calculation Breakdown (First 3 Periods):**")
+            for i in range(min(3, len(forecast_df)-1)):
+                row = forecast_df.iloc[i+1]
+                st.write(f"""
+                Period {i+1} ({row['Date'].strftime('%b %d, %Y')}):
+                - Starting Cash: ${row['Starting Cash']:,.0f}
+                - Inflows: +${row['Inflows']:,.0f}
+                - Deployment: -${row['Deployment']:,.0f}
+                - OpEx: -${row['OpEx']:,.0f}
+                - Net Flow: ${row['Net Flow']:,.0f}
+                - **Ending Cash: ${row['Ending Cash']:,.0f}**
+                """)
             
             # Cash position chart
             date_format = "%b %d" if forecast_period == "Weekly" else "%b %Y"
             
-            # Create the chart with proper y-axis scaling
-            y_min = min(forecast_df["Cash Position"].min(), min_cash_threshold) * 0.9
-            y_max = forecast_df["Cash Position"].max() * 1.1
+            # Create the chart with ending cash positions
+            y_min = min(forecast_df["Ending Cash"].min(), min_cash_threshold) - 50000
+            y_max = forecast_df["Ending Cash"].max() + 50000
             
-            st.write(f"**Chart Y-axis range: ${y_min:,.0f} to ${y_max:,.0f}**")
+            # Ensure we can see variation
+            if y_max - y_min < 100000:
+                y_range_center = (y_max + y_min) / 2
+                y_min = y_range_center - 100000
+                y_max = y_range_center + 100000
             
-            # Try a basic line chart first
-            basic_chart = alt.Chart(forecast_df).mark_line(point=True).encode(
-                x='Date:T',
-                y=alt.Y('Cash Position:Q', scale=alt.Scale(domain=[y_min, y_max]))
-            ).properties(
-                height=400,
-                title="Basic Line Chart Test"
-            )
-            
-            st.altair_chart(basic_chart, use_container_width=True)
-            
-            # Now try the full chart
             cash_line = alt.Chart(forecast_df).mark_line(
                 strokeWidth=3,
                 color="#2E8B57",
-                point=True
+                point=alt.OverlayMarkDef(size=80, filled=True, color="#2E8B57")
             ).encode(
                 x=alt.X("Date:T", 
                        title="Date",
                        axis=alt.Axis(format=date_format, labelAngle=-45)),
-                y=alt.Y("Cash Position:Q", 
+                y=alt.Y("Ending Cash:Q", 
                        title="Cash Position ($)",
                        axis=alt.Axis(format="$,.0f"),
                        scale=alt.Scale(domain=[y_min, y_max])),
                 tooltip=[
                     alt.Tooltip("Date:T", format="%b %d, %Y"),
-                    alt.Tooltip("Cash Position:Q", format="$,.0f"),
-                    alt.Tooltip("Net Flow:Q", format="$+,.0f")
+                    alt.Tooltip("Starting Cash:Q", format="$,.0f"),
+                    alt.Tooltip("Net Flow:Q", format="$+,.0f"),
+                    alt.Tooltip("Ending Cash:Q", format="$,.0f")
                 ]
             )
             
-            # Add minimum threshold line
-            threshold_df = pd.DataFrame({
-                "Date": [forecast_df["Date"].min(), forecast_df["Date"].max()],
-                "Threshold": [min_cash_threshold, min_cash_threshold]
-            })
-            
-            threshold_line = alt.Chart(threshold_df).mark_line(
+            # Add minimum threshold as horizontal line
+            min_threshold_line = alt.Chart(pd.DataFrame({
+                'Minimum Reserve': [min_cash_threshold]
+            })).mark_rule(
+                color='red',
                 strokeDash=[5, 5],
-                color="red",
                 strokeWidth=2
             ).encode(
-                x="Date:T",
-                y=alt.Y("Threshold:Q", title="", scale=alt.Scale(domain=[y_min, y_max]))
+                y='Minimum Reserve:Q'
             )
             
-            combined_chart = alt.layer(cash_line, threshold_line).properties(
-                height=400,
-                title="Projected Cash Position"
-            ).interactive()
+            # Add zero line if cash goes negative
+            if forecast_df["Ending Cash"].min() < 0:
+                zero_line = alt.Chart(pd.DataFrame({
+                    'Zero': [0]
+                })).mark_rule(
+                    color='black',
+                    strokeDash=[2, 2],
+                    strokeWidth=1
+                ).encode(
+                    y='Zero:Q'
+                )
+                
+                combined_chart = alt.layer(cash_line, min_threshold_line, zero_line).properties(
+                    height=500,
+                    title="Projected Cash Position"
+                ).interactive()
+            else:
+                combined_chart = alt.layer(cash_line, min_threshold_line).properties(
+                    height=500,
+                    title="Projected Cash Position"
+                ).interactive()
             
             st.altair_chart(combined_chart, use_container_width=True)
             
