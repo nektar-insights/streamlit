@@ -80,14 +80,6 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             deals_per_week = deal_count / (deal_total_days / 7) if deal_total_days > 0 else 0
             deals_per_month = deal_count / (deal_total_days / 30.44) if deal_total_days > 0 else 0
             
-            # Debug info
-            st.write("**Deals Debug Info:**")
-            st.write(f"- Total deals: {deal_count}")
-            st.write(f"- Date range: {deal_min_date.strftime('%Y-%m-%d')} to {deal_max_date.strftime('%Y-%m-%d')} ({deal_total_days} days)")
-            st.write(f"- Total deployed: ${total_deployed:,.0f}")
-            st.write(f"- Weekly deployment rate: ${weekly_deployment_rate:,.0f}")
-            st.write(f"- Monthly deployment rate: ${monthly_deployment_rate:,.0f}")
-            
             st.markdown("---")
             
             # Display historical metrics
@@ -177,6 +169,40 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                             format="%d"
                         )
                 
+                # Key lever: Number of deals
+                st.write("**Deal Participation Levers**")
+                if forecast_period == "Weekly":
+                    target_deals_per_period = st.number_input(
+                        "Target Deals per Week",
+                        min_value=0.0,
+                        value=deals_per_week,
+                        step=0.5,
+                        format="%.1f",
+                        help="How many deals to participate in per week"
+                    )
+                else:
+                    target_deals_per_period = st.number_input(
+                        "Target Deals per Month",
+                        min_value=0.0,
+                        value=deals_per_month,
+                        step=1.0,
+                        format="%.1f",
+                        help="How many deals to participate in per month"
+                    )
+                
+                # Key lever: Average participation amount
+                avg_participation = st.number_input(
+                    "Avg Participation per Deal",
+                    min_value=0,
+                    value=int(avg_deal_size),
+                    step=5000,
+                    format="%d",
+                    help="Average amount to invest per deal"
+                )
+                
+                # Calculate deployment from levers
+                lever_based_deployment = target_deals_per_period * avg_participation
+                
                 # Inflow assumptions
                 if has_qbo_data:
                     inflow_method = st.selectbox(
@@ -254,15 +280,17 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                 base_inflow = monthly_inflow_rate
                 time_unit = "month"
             
-            # Adjust deployment rate
+            # Adjust deployment rate - now includes lever-based calculation
             if deployment_method == "Historical Average":
                 deployment_rate = base_deployment
             elif deployment_method == "Conservative (75%)":
                 deployment_rate = base_deployment * 0.75
             elif deployment_method == "Aggressive (125%)":
                 deployment_rate = base_deployment * 1.25
-            else:
-                deployment_rate = custom_deployment
+            else:  # Custom
+                # Use the lever-based deployment (deals * avg participation)
+                deployment_rate = lever_based_deployment
+                st.info(f"Deployment rate based on {target_deals_per_period:.1f} deals × ${avg_participation:,.0f} = ${deployment_rate:,.0f} per {time_unit}")
             
             # Adjust inflow rate
             if has_qbo_data:
@@ -404,21 +432,13 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             
             forecast_df = pd.DataFrame(forecast_data)
             
-            # Debug forecast data
-            st.write("**Forecast Data Debug:**")
-            st.write(f"- Number of periods: {len(forecast_df)}")
-            st.write(f"- Date range: {forecast_df['Date'].min()} to {forecast_df['Date'].max()}")
-            st.write(f"- Starting cash: ${forecast_df['Cash Position'].iloc[0]:,.0f}")
-            st.write(f"- Ending cash: ${forecast_df['Cash Position'].iloc[-1]:,.0f}")
-            
-            # Show first few rows
-            st.write("First 5 rows of forecast data:")
-            st.dataframe(forecast_df.head())
-            
             # Cash position chart
             date_format = "%b %d" if forecast_period == "Weekly" else "%b %Y"
             
-            # Create the chart
+            # Create the chart with proper y-axis scaling
+            y_min = min(forecast_df["Cash Position"].min(), min_cash_threshold) * 0.9
+            y_max = forecast_df["Cash Position"].max() * 1.1
+            
             cash_line = alt.Chart(forecast_df).mark_line(
                 strokeWidth=3,
                 color="#2E8B57",
@@ -429,7 +449,8 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                        axis=alt.Axis(format=date_format, labelAngle=-45)),
                 y=alt.Y("Cash Position:Q", 
                        title="Cash Position ($)",
-                       axis=alt.Axis(format="$,.0f")),
+                       axis=alt.Axis(format="$,.0f"),
+                       scale=alt.Scale(domain=[y_min, y_max])),
                 tooltip=[
                     alt.Tooltip("Date:T", format="%b %d, %Y"),
                     alt.Tooltip("Cash Position:Q", format="$,.0f"),
@@ -449,14 +470,13 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                 strokeWidth=2
             ).encode(
                 x="Date:T",
-                y=alt.Y("Threshold:Q", title="")
+                y=alt.Y("Threshold:Q", title="", scale=alt.Scale(domain=[y_min, y_max]))
             )
             
             combined_chart = alt.layer(cash_line, threshold_line).properties(
                 height=400,
-                title="Projected Cash Position",
-                width=700
-            )
+                title="Projected Cash Position"
+            ).interactive()
             
             st.altair_chart(combined_chart, use_container_width=True)
             
