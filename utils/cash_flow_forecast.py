@@ -513,15 +513,37 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                     st.write("**First 3 Periods Breakdown:**")
                     for i in range(min(3, len(forecast_df)-1)):
                         row = forecast_df.iloc[i+1]
+                        
+                        # Calculate growth factor for this period
+                        if forecast_period == "Weekly":
+                            weekly_growth_rate = (1 + monthly_growth_rate) ** (1/4.33) - 1
+                            growth_factor = (1 + weekly_growth_rate) ** i
+                        else:
+                            growth_factor = (1 + monthly_growth_rate) ** i
+                        
                         st.write(f"""
                         Period {i+1} ({row['Date'].strftime('%b %d, %Y')}):
                         - Starting Cash: ${row['Starting Cash']:,.0f}
-                        - Inflows: +${row['Inflows']:,.0f}
+                        - Inflows: +${row['Inflows']:,.0f} (Growth factor: {growth_factor:.3f})
                         - Deployment: -${row['Deployment']:,.0f}
                         - OpEx: -${row['OpEx']:,.0f}
                         - Net Flow: ${row['Net Flow']:,.0f}
                         - **Ending Cash: ${row['Ending Cash']:,.0f}**
                         """)
+                    
+                    # Show inflow progression
+                    if has_qbo_data and monthly_growth_rate != 0:
+                        st.write("\n**Inflow Growth Progression:**")
+                        st.write(f"- Base inflow rate: ${inflow_rate:,.0f}")
+                        st.write(f"- Monthly growth rate: {monthly_growth_rate*100:.1f}%")
+                        if forecast_period == "Weekly":
+                            weekly_rate = (1 + monthly_growth_rate) ** (1/4.33) - 1
+                            st.write(f"- Weekly growth rate: {weekly_rate*100:.2f}%")
+                        
+                        # Show first 5 periods
+                        for i in range(min(5, len(forecast_df)-1)):
+                            row = forecast_df.iloc[i+1]
+                            st.write(f"- Period {i+1}: ${row['Inflows']:,.0f}")
                 
                 with tab2:
                     summary_df = forecast_df.iloc[1:].copy()  # Skip first row (starting point)
