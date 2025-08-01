@@ -583,8 +583,13 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             )
             
             # Warnings
-            if forecast_df["Cash Position"].min() < min_cash_threshold:
-                st.error(f"⚠️ Warning: Cash will fall below minimum reserve of ${min_cash_threshold:,.0f}")
+            if forecast_df["Ending Cash"].min() < min_cash_threshold:
+                periods_below = len(forecast_df[forecast_df["Ending Cash"] < min_cash_threshold])
+                st.error(f"⚠️ Warning: Cash will fall below minimum reserve of ${min_cash_threshold:,.0f} in {periods_below} periods")
+            
+            if forecast_df["Ending Cash"].min() < 0:
+                first_negative = forecast_df[forecast_df["Ending Cash"] < 0].iloc[0]
+                st.error(f"💸 Cash goes negative on {first_negative['Date'].strftime('%b %d, %Y')}")
             
             if net_flow_per_period < 0:
                 monthly_burn = net_flow_per_period * (4.33 if forecast_period == "Weekly" else 1)
