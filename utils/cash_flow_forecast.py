@@ -43,20 +43,6 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             num_cols=["total_amount"]
         )
 
-    # ---------- 2) Quick visual check ----------
-    with st.expander("🔍  Debug – raw data & dtypes"):
-        st.write("**closed_won_df (top 5 rows)**")
-        st.dataframe(closed_won_df.head(20))
-        st.write(closed_won_df.dtypes)
-
-        if qbo_df is not None:
-            st.write("**qbo_df (top 5 rows)**")
-            st.dataframe(qbo_df.head(20))
-            st.write(qbo_df.dtypes)
-        else:
-            st.info("`qbo_df` is None – forecasting will run in *simple* mode")
-
-    # ---------- 3) ...rest of your existing code ----------
     # (historical metrics, forecast config, charts, etc.)
     
     st.header("Capital Deployment Forecast")
