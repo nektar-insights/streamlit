@@ -72,8 +72,6 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             deals_per_week = deal_count / (deal_total_days / 7) if deal_total_days > 0 else 0
             deals_per_month = deal_count / (deal_total_days / 30.44) if deal_total_days > 0 else 0
             
-            st.markdown("---")
-            
             # Display historical metrics
             st.subheader("Historical Analysis")
             
