@@ -390,8 +390,8 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                     else:
                         runway_ending_date = datetime.now() + timedelta(days=runway_periods * 30.44)
             
-            # Key metrics
-            col1, col2, col3, col4 = st.columns(4)
+            # Key metrics in 2x2 format
+            col1, col2 = st.columns(2)
             
             with col1:
                 if net_flow_per_period < 0:
@@ -411,6 +411,13 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                         "Positive",
                         delta=f"+${net_flow_per_period:,.0f}/{time_unit}"
                     )
+                
+                ending_cash = starting_cash + (net_flow_per_period * forecast_horizon)
+                st.metric(
+                    f"Cash in {forecast_horizon} {time_unit}s",
+                    f"${ending_cash:,.0f}" if ending_cash >= 0 else f"-${abs(ending_cash):,.0f}",
+                    delta=f"{ending_cash - starting_cash:+,.0f}"
+                )
             
             with col2:
                 if runway_ending_date:
@@ -421,16 +428,7 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                     )
                 else:
                     st.metric("Runway", "Indefinite", help="Positive cash flow")
-            
-            with col3:
-                ending_cash = starting_cash + (net_flow_per_period * forecast_horizon)
-                st.metric(
-                    f"Cash in {forecast_horizon} {time_unit}s",
-                    f"${ending_cash:,.0f}" if ending_cash >= 0 else f"-${abs(ending_cash):,.0f}",
-                    delta=f"{ending_cash - starting_cash:+,.0f}"
-                )
-            
-            with col4:
+                
                 breakeven_deployment = inflow_rate - opex_rate
                 st.metric(
                     "Break-even Deploy",
