@@ -468,6 +468,9 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             
             forecast_df = pd.DataFrame(forecast_data)
             
+            # Define date format before using it
+            date_format = "%b %d" if forecast_period == "Weekly" else "%b %Y"
+            
             # Show calculation breakdown in expander
             with st.expander("View Cash Flow Details"):
                 tab1, tab2 = st.tabs(["Calculation Breakdown", "Detailed Summary"])
@@ -506,7 +509,6 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                     )
             
             # Cash position chart
-            date_format = "%b %d" if forecast_period == "Weekly" else "%b %Y"
             
             # Create the chart with ending cash positions
             y_min = min(forecast_df["Ending Cash"].min(), min_cash_threshold) - 50000
@@ -559,102 +561,6 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             if net_flow_per_period < 0:
                 monthly_burn = net_flow_per_period * (4.33 if forecast_period == "Weekly" else 1)
                 st.warning(f"📉 Negative cash flow: Burning ${abs(monthly_burn):,.0f} per month")
-            
-            # Scenario Analysis
-            st.markdown("---")
-            st.subheader("Scenario Analysis")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                deployment_change = st.slider(
-                    "Adjust Deployment Rate",
-                    min_value=-50,
-                    max_value=50,
-                    value=0,
-                    step=10,
-                    format="%d%%"
-                )
-            
-            with col2:
-                inflow_change = st.slider(
-                    "Adjust Repayment Rate",
-                    min_value=-50,
-                    max_value=50,
-                    value=0,
-                    step=10,
-                    format="%d%%"
-                )
-            
-            # Calculate adjusted values
-            adjusted_deployment = deployment_rate * (1 + deployment_change / 100)
-            adjusted_inflows = inflow_rate * (1 + inflow_change / 100)
-            adjusted_net_flow = adjusted_inflows - adjusted_deployment - opex_rate
-            
-            # Show adjusted parameters
-            st.info(f"""
-            **Adjusted Scenario:**
-            - Deployment: ${deployment_rate:,.0f} → ${adjusted_deployment:,.0f} ({deployment_change:+d}%)
-            - Inflows: ${inflow_rate:,.0f} → ${adjusted_inflows:,.0f} ({inflow_change:+d}%)
-            - Net Flow: ${net_flow_per_period:,.0f} → ${adjusted_net_flow:,.0f} per {time_unit}
-            """)
-            
-            # Calculate adjusted runway ending date
-            adjusted_runway_date = None
-            if adjusted_net_flow < 0:
-                usable_cash = starting_cash - min_cash_threshold
-                if usable_cash > 0:
-                    adjusted_runway_periods = usable_cash / abs(adjusted_net_flow)
-                    if forecast_period == "Weekly":
-                        adjusted_runway_date = datetime.now() + timedelta(weeks=adjusted_runway_periods)
-                    else:
-                        adjusted_runway_date = datetime.now() + timedelta(days=adjusted_runway_periods * 30.44)
-            
-            # Adjusted metrics
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                if adjusted_net_flow < 0:
-                    usable_cash = starting_cash - min_cash_threshold
-                    if usable_cash > 0:
-                        adjusted_runway = usable_cash / abs(adjusted_net_flow)
-                        if net_flow_per_period < 0:
-                            original_runway = usable_cash / abs(net_flow_per_period)
-                            delta = adjusted_runway - original_runway
-                        else:
-                            delta = -adjusted_runway
-                        st.metric(
-                            "Adjusted Runway",
-                            f"{adjusted_runway:.1f} {time_unit}s",
-                            delta=f"{delta:+.1f}"
-                        )
-                else:
-                    st.metric("Adjusted Status", "Cash Positive", delta="✓")
-            
-            with col2:
-                if adjusted_runway_date and runway_ending_date:
-                    days_diff = (adjusted_runway_date - runway_ending_date).days
-                    st.metric(
-                        "Adjusted End Date",
-                        adjusted_runway_date.strftime("%b %d, %Y"),
-                        delta=f"{days_diff:+d} days"
-                    )
-                elif adjusted_runway_date:
-                    st.metric(
-                        "Runway End Date",
-                        adjusted_runway_date.strftime("%b %d, %Y")
-                    )
-                else:
-                    st.metric("Adjusted Runway", "Indefinite")
-            
-            with col3:
-                adjusted_ending = starting_cash + (adjusted_net_flow * forecast_horizon)
-                delta_ending = adjusted_ending - ending_cash
-                st.metric(
-                    f"Adjusted Ending Cash",
-                    f"${max(0, adjusted_ending):,.0f}",
-                    delta=f"{delta_ending:+,.0f}"
-                )
         
         else:
             st.error("No valid deal data available for forecasting")
