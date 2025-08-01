@@ -469,81 +469,32 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                 y_min = y_range_center - 100000
                 y_max = y_range_center + 100000
             
-            # Main cash position chart
-            cash_chart = alt.Chart(forecast_df).mark_line(
-                point=True,
-                strokeWidth=3,
-                color="#2E8B57"
-            ).encode(
-                x=alt.X('Date:T', 
-                       axis=alt.Axis(format=date_format, labelAngle=-45),
-                       title='Date'),
-                y=alt.Y('Ending Cash:Q',
-                       scale=alt.Scale(domain=[y_min, y_max]),
-                       axis=alt.Axis(format='$,.0f'),
-                       title='Cash Position ($)'),
-                tooltip=[
-                    alt.Tooltip('Date:T', format='%b %d, %Y'),
-                    alt.Tooltip('Starting Cash:Q', format='$,.0f'),
-                    alt.Tooltip('Inflows:Q', format='$,.0f'),
-                    alt.Tooltip('Deployment:Q', format='$,.0f'),
-                    alt.Tooltip('OpEx:Q', format='$,.0f'),
-                    alt.Tooltip('Net Flow:Q', format='$+,.0f'),
-                    alt.Tooltip('Ending Cash:Q', format='$,.0f')
-                ]
+            # Use the EXACT working test chart format
+            test_data = forecast_df[['Date', 'Ending Cash']].copy()
+            cash_chart = alt.Chart(test_data).mark_line(point=True).encode(
+                x='Date:T',
+                y='Ending Cash:Q'
             ).properties(
                 width=700,
                 height=400,
                 title="Projected Cash Position Over Time"
             )
             
-            # Add minimum cash reserve horizontal line
-            reserve_line = alt.Chart(pd.DataFrame({
-                'y': [min_cash_threshold],
-                'label': [f'Minimum Reserve: ${min_cash_threshold:,.0f}']
-            })).mark_rule(
+            # Create reserve line data
+            reserve_data = pd.DataFrame({
+                'Reserve': [min_cash_threshold]
+            })
+            
+            # Add simple reserve line
+            reserve_line = alt.Chart(reserve_data).mark_rule(
                 color='red',
-                strokeDash=[5, 5],
-                strokeWidth=2
+                strokeDash=[5, 5]
             ).encode(
-                y='y:Q'
+                y='Reserve:Q'
             )
             
-            # Add text label for the reserve line
-            reserve_label = alt.Chart(pd.DataFrame({
-                'y': [min_cash_threshold],
-                'x': [forecast_df['Date'].iloc[-1]],  # Position at end of chart
-                'label': [f'Min Reserve: ${min_cash_threshold:,.0f}']
-            })).mark_text(
-                align='right',
-                baseline='bottom',
-                dx=-5,
-                dy=-5,
-                color='red',
-                fontSize=12
-            ).encode(
-                x='x:T',
-                y='y:Q',
-                text='label:N'
-            )
-            
-            # Add zero line if cash goes negative
-            if forecast_df["Ending Cash"].min() < 0:
-                zero_line = alt.Chart(pd.DataFrame({
-                    'y': [0]
-                })).mark_rule(
-                    color='black',
-                    strokeDash=[3, 3],
-                    strokeWidth=1
-                ).encode(
-                    y='y:Q'
-                )
-                
-                # Combine all elements
-                combined_chart = alt.layer(cash_chart, reserve_line, reserve_label, zero_line)
-            else:
-                # Combine without zero line
-                combined_chart = alt.layer(cash_chart, reserve_line, reserve_label)
+            # Layer them together
+            combined_chart = cash_chart + reserve_line
             
             st.altair_chart(combined_chart, use_container_width=True)
             
