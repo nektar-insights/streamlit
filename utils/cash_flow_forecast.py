@@ -43,14 +43,6 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                 total_inflows = customer_payments["total_amount"].abs().sum()
                 weekly_inflow_rate = total_inflows / (total_days / 7)
                 monthly_inflow_rate = total_inflows / (total_days / 30.44)
-                
-                # Debug info
-                st.write("**QBO Debug Info:**")
-                st.write(f"- Total customer payments found: {len(customer_payments)}")
-                st.write(f"- Date range: {min_date.strftime('%Y-%m-%d')} to {max_date.strftime('%Y-%m-%d')} ({total_days} days)")
-                st.write(f"- Total inflows: ${total_inflows:,.0f}")
-                st.write(f"- Weekly rate: ${weekly_inflow_rate:,.0f}")
-                st.write(f"- Monthly rate: ${monthly_inflow_rate:,.0f}")
     
     # Process deals data
     if not closed_won_df.empty and "date_created" in closed_won_df.columns:
@@ -328,6 +320,40 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             - **Net Cash Flow: ${net_flow_per_period:,.0f} per {time_unit}**
             """)
             
+            # Add warning if net flow is very negative
+            if net_flow_per_period < -50000:
+                st.error(f"""
+                ⚠️ **Critical Cash Flow Warning**
+                
+                Your net cash flow is extremely negative (${net_flow_per_period:,.0f} per {time_unit}).
+                
+                **Current rates:**
+                - Deploying: ${deployment_rate:,.0f}
+                - Receiving: ${inflow_rate:,.0f}
+                - OpEx: ${opex_rate:,.0f}
+                
+                The forecast will automatically reduce deployment to preserve minimum cash.
+                Consider adjusting your deployment strategy or operating expenses.
+                """)
+            
+            # Show what's actually happening
+            if deployment_method == "Deal-Based":
+                st.success(f"""
+                **Deal-Based Deployment:**
+                - {target_deals_per_period:d} deals × ${avg_participation:,.0f} = ${deployment_rate:,.0f} per {time_unit}
+                """)
+            elif deployment_method == "Custom Amount":
+                st.success(f"""
+                **Custom Deployment:**
+                - Deployment rate: ${deployment_rate:,.0f} per {time_unit}
+                """)
+            else:
+                st.success(f"""
+                **{deployment_method} Deployment:**
+                - Historical rate: ${base_deployment:,.0f}
+                - Adjusted rate: ${deployment_rate:,.0f}
+                """)
+            
             # Calculate runway ending date
             runway_ending_date = None
             if net_flow_per_period < 0:
@@ -339,8 +365,8 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                     else:
                         runway_ending_date = datetime.now() + timedelta(days=runway_periods * 30.44)
             
-            # Key metrics in 2x2 format
-            col1, col2 = st.columns(2)
+            # Key metrics
+            col1, col2, col3, col4 = st.columns(4)
             
             with col1:
                 if net_flow_per_period < 0:
@@ -360,13 +386,6 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                         "Positive",
                         delta=f"+${net_flow_per_period:,.0f}/{time_unit}"
                     )
-                
-                ending_cash = starting_cash + (net_flow_per_period * forecast_horizon)
-                st.metric(
-                    f"Cash in {forecast_horizon} {time_unit}s",
-                    f"${ending_cash:,.0f}" if ending_cash >= 0 else f"-${abs(ending_cash):,.0f}",
-                    delta=f"{ending_cash - starting_cash:+,.0f}"
-                )
             
             with col2:
                 if runway_ending_date:
@@ -377,7 +396,16 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                     )
                 else:
                     st.metric("Runway", "Indefinite", help="Positive cash flow")
-                
+            
+            with col3:
+                ending_cash = starting_cash + (net_flow_per_period * forecast_horizon)
+                st.metric(
+                    f"Cash in {forecast_horizon} {time_unit}s",
+                    f"${ending_cash:,.0f}" if ending_cash >= 0 else f"-${abs(ending_cash):,.0f}",
+                    delta=f"{ending_cash - starting_cash:+,.0f}"
+                )
+            
+            with col4:
                 breakeven_deployment = inflow_rate - opex_rate
                 st.metric(
                     "Break-even Deploy",
@@ -510,31 +538,6 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             
             components_df = pd.DataFrame(components_data)
             
-            # Inspect components data
-            st.write("**Components Data Inspection:**")
-            col1, col2 = st.columns(2)
-            with col1:
-                st.write(f"- Components shape: {components_df.shape}")
-                st.write(f"- Types: {components_df['Type'].unique()}")
-                st.write(f"- Amount range: ${components_df['Amount'].min():,.0f} to ${components_df['Amount'].max():,.0f}")
-            with col2:
-                st.write(f"- Data types: {components_df.dtypes.to_dict()}")
-                st.write(f"- Any NaN: {components_df.isna().any().any()}")
-            
-            st.write("**Sample Components Data:**")
-            st.dataframe(components_df.head(12))  # Show 4 periods × 3 types
-            
-            # Prepare data for visualization - skip first period
-            components_data = []
-            for _, row in forecast_df.iloc[1:].iterrows():
-                components_data.extend([
-                    {"Date": row["Date"], "Type": "Inflows", "Amount": row["Inflows"]},
-                    {"Date": row["Date"], "Type": "Deployment", "Amount": -row["Deployment"]},
-                    {"Date": row["Date"], "Type": "OpEx", "Amount": -row["OpEx"]}
-                ])
-            
-            components_df = pd.DataFrame(components_data)
-            
             flow_chart = alt.Chart(components_df).mark_bar().encode(
                 x=alt.X("Date:T",
                        title="Date",
@@ -554,8 +557,7 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                 ]
             ).properties(
                 height=300,
-                title="Cash Flow Components by Period",
-                width=700
+                title="Cash Flow Components by Period"
             )
             
             st.altair_chart(flow_chart, use_container_width=True)
@@ -567,15 +569,16 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             summary_df["Date"] = summary_df["Date"].dt.strftime(date_format)
             
             st.dataframe(
-                summary_df,
+                summary_df[["Date", "Starting Cash", "Inflows", "Deployment", "OpEx", "Net Flow", "Ending Cash"]],
                 use_container_width=True,
                 column_config={
                     "Date": st.column_config.TextColumn("Period"),
-                    "Cash Position": st.column_config.NumberColumn("Cash Position", format="$%.0f"),
-                    "Deployment": st.column_config.NumberColumn("Deployment", format="$%.0f"),
+                    "Starting Cash": st.column_config.NumberColumn("Starting Cash", format="$%.0f"),
                     "Inflows": st.column_config.NumberColumn("Inflows", format="$%.0f"),
+                    "Deployment": st.column_config.NumberColumn("Deployment", format="$%.0f"),
                     "OpEx": st.column_config.NumberColumn("OpEx", format="$%.0f"),
-                    "Net Flow": st.column_config.NumberColumn("Net Flow", format="$%+.0f")
+                    "Net Flow": st.column_config.NumberColumn("Net Flow", format="$%+.0f"),
+                    "Ending Cash": st.column_config.NumberColumn("Ending Cash", format="$%.0f")
                 },
                 hide_index=True
             )
