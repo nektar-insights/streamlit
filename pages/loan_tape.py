@@ -22,12 +22,26 @@ def load_loan_summaries():
     res = supabase.table("loan_summaries").select("*").execute()
     return pd.DataFrame(res.data)
 
+@st.cache_data(ttl=3600)
+def load_deals():
+    res = supabase.table("deals").select("loan_id,name").execute()
+    return pd.DataFrame(res.data)
+
 # Main content
 st.title("Loan Tape")
 
-# Load loan data
-with st.spinner("Loading loan data..."):
+# Load loan data and deals data
+with st.spinner("Loading data..."):
     loans_df = load_loan_summaries()
+    deals_df = load_deals()
+    
+    # Merge the dataframes to get the deal names
+    if not loans_df.empty and not deals_df.empty:
+        loans_df = loans_df.merge(
+            deals_df[["loan_id", "name"]], 
+            on="loan_id", 
+            how="left"
+        )
 
 if loans_df.empty:
     st.warning("No loan data available.")
@@ -41,7 +55,7 @@ else:
     if selected_status != "All":
         filtered_df = filtered_df[filtered_df["loan_status"] == selected_status]
     
-    # Dashboard metrics - focusing on your priority columns
+    # Dashboard metrics
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("Total Loans", len(filtered_df))
@@ -58,7 +72,8 @@ else:
     
     # Select priority columns for display
     display_columns = [
-        "loan_id", 
+        "loan_id",
+        "name",  # Deal name from the deals table
         "loan_status", 
         "csl_participation_amount", 
         "participation_percentage", 
@@ -67,7 +82,7 @@ else:
         "payment_performance"
     ]
     
-    # Make a copy for display
+    # Make a copy for display with only selected columns
     display_df = filtered_df[display_columns].copy()
     
     # Format numeric columns
