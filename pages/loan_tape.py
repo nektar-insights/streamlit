@@ -24,7 +24,7 @@ def load_loan_summaries():
 
 @st.cache_data(ttl=3600)
 def load_deals():
-    res = supabase.table("deals").select("loan_id,deal_name,partner_source,industry").execute()
+    res = supabase.table("deals").select("loan_id,deal_name,partner_source,industry,commission").execute()
     return pd.DataFrame(res.data)
 
 # Main content
@@ -39,7 +39,7 @@ with st.spinner("Loading data..."):
         # Merge the dataframes to get the deal information
         if not deals_df.empty:
             loans_df = loans_df.merge(
-                deals_df[["loan_id", "deal_name", "partner_source", "industry"]], 
+                deals_df[["loan_id", "deal_name", "partner_source", "industry", "commission"]], 
                 on="loan_id", 
                 how="left"
             )
@@ -51,29 +51,64 @@ with st.spinner("Loading data..."):
 if loans_df.empty:
     st.warning("No loan data available.")
 else:
-    # Status filter
-    status_options = ["All"] + sorted(loans_df["loan_status"].unique().tolist())
-    selected_status = st.selectbox("Filter by Status:", status_options)
+    # Convert commission to numeric if it's not already
+    if 'commission' in loans_df.columns:
+        loans_df['commission'] = pd.to_numeric(loans_df['commission'], errors='coerce').fillna(0)
+    else:
+        loans_df['commission'] = 0
+        
+    # Calculate capital at risk metrics
+    loans_df['total_gross_csl_amount'] = loans_df['csl_participation_amount'] * (1 + loans_df['commission']) + (loans_df['csl_participation_amount'] * 1.03)
+    loans_df['gross_csl_amount_balance'] = loans_df['total_gross_csl_amount'] - loans_df['total_paid']
+    
+    # Flag for unpaid balances (non-paid off loans)
+    loans_df['is_unpaid'] = loans_df['loan_status'] != "Paid Off"
+    
+    # Status filter - multiple selection
+    all_statuses = sorted(loans_df["loan_status"].unique().tolist())
+    selected_statuses = st.multiselect("Filter by Status:", all_statuses, default=all_statuses)
     
     # Apply filters
-    filtered_df = loans_df
-    if selected_status != "All":
-        filtered_df = filtered_df[filtered_df["loan_status"] == selected_status]
+    if selected_statuses:
+        filtered_df = loans_df[loans_df["loan_status"].isin(selected_statuses)]
+    else:
+        filtered_df = loans_df
     
     # Dashboard metrics
-    col1, col2, col3, col4 = st.columns(4)
+    st.subheader("Portfolio Overview")
+    col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("Total Loans", len(filtered_df))
-    with col2:
         st.metric("Total Participation", f"${filtered_df['csl_participation_amount'].sum():,.2f}")
+    with col2:
+        st.metric("Total Gross CSL Amount", f"${filtered_df['total_gross_csl_amount'].sum():,.2f}")
+        st.metric("Total Paid Back", f"${filtered_df['total_paid'].sum():,.2f}")
     with col3:
-        st.metric("Total Paid", f"${filtered_df['total_paid'].sum():,.2f}")
-    with col4:
-        avg_on_time = filtered_df['on_time_rate'].mean() if 'on_time_rate' in filtered_df.columns else 0
-        st.metric("Avg On-Time Rate", f"{avg_on_time:.2%}")
+        st.metric("Gross CSL Amount Balance", f"${filtered_df['gross_csl_amount_balance'].sum():,.2f}")
+        unpaid_balance = filtered_df[filtered_df['is_unpaid']]['gross_csl_amount_balance'].sum()
+        st.metric("Unpaid Balance", f"${unpaid_balance:,.2f}")
     
-    # Data table
-    st.subheader("Loan Details")
+    # Top 5 largest outstanding positions
+    st.subheader("Top 5 Largest Outstanding Positions")
+    top_positions = (
+        filtered_df[filtered_df['is_unpaid']]
+        .sort_values('gross_csl_amount_balance', ascending=False)
+        .head(5)
+    )
+    
+    top_positions_display = top_positions[['loan_id', 'deal_name', 'loan_status', 'gross_csl_amount_balance']].copy()
+    top_positions_display['gross_csl_amount_balance'] = top_positions_display['gross_csl_amount_balance'].map(
+        lambda x: f"${x:,.2f}" if pd.notnull(x) else ""
+    )
+    
+    st.dataframe(
+        top_positions_display,
+        use_container_width=True,
+        hide_index=True
+    )
+    
+    # Data table with all loans
+    st.subheader("All Loan Details")
     
     # Select priority columns for display
     display_columns = [
@@ -89,8 +124,10 @@ else:
     display_columns.extend([
         "loan_status", 
         "csl_participation_amount", 
+        "total_gross_csl_amount",
+        "total_paid",
+        "gross_csl_amount_balance",
         "participation_percentage", 
-        "total_paid", 
         "on_time_rate",
         "payment_performance"
     ])
@@ -105,7 +142,7 @@ else:
     for col in display_df.select_dtypes(include=['float64', 'float32']).columns:
         if "rate" in col or "percentage" in col:
             display_df[col] = display_df[col].map(lambda x: f"{x:.2%}" if pd.notnull(x) else "")
-        elif "amount" in col or "paid" in col:
+        elif "amount" in col or "paid" in col or "balance" in col:
             display_df[col] = display_df[col].map(lambda x: f"${x:,.2f}" if pd.notnull(x) else "")
     
     # Display table with pagination
