@@ -192,9 +192,12 @@ col7, col8, col9 = st.columns(3)
 with col7:
     st.metric("Average Total Paid", f"${avg_total_paid:,.2f}")
 with col8:
-    # Added info icon with explanation for Average Payment Performance
-    col8.metric("Average Payment Performance", f"{avg_payment_performance:.2%}")
-    col8.info("Payment Performance measures the ratio of actual payments to expected payments. 100% means payments are on schedule.")
+    # Changed info message to tooltip on the metric
+    st.metric(
+        "Average Payment Performance", 
+        f"{avg_payment_performance:.2%}", 
+        help="Payment Performance measures the ratio of actual payments to expected payments. 100% means payments are on schedule."
+    )
 with col9:
     st.metric("Average Remaining Maturity", f"{avg_remaining_maturity:.1f} months")
 
@@ -349,10 +352,15 @@ if 'loan_status' in df.columns and not df['loan_status'].isna().all():
         # Add note about excluding Paid Off loans
         st.caption("Note: 'Paid Off' loans are excluded from this chart")
         
-        # Create pie chart
+        # Create pie chart - removed text labels, keeping legend and tooltip
         pie_chart = alt.Chart(status_summary).mark_arc().encode(
             theta=alt.Theta(field="percentage", type="quantitative"),
-            color=alt.Color(field="status", type="nominal", scale=alt.Scale(range=RISK_GRADIENT)),
+            color=alt.Color(
+                field="status", 
+                type="nominal", 
+                scale=alt.Scale(range=RISK_GRADIENT),
+                legend=alt.Legend(title="Loan Status")
+            ),
             tooltip=[
                 alt.Tooltip("status:N", title="Loan Status"),
                 alt.Tooltip("count:Q", title="Number of Loans"),
@@ -364,13 +372,7 @@ if 'loan_status' in df.columns and not df['loan_status'].isna().all():
             title="Distribution of Active Loan Status"
         )
         
-        # Add text labels
-        text = pie_chart.mark_text(radius=180, size=14).encode(
-            text=alt.Text("status:N"),
-            color=alt.value("black")
-        )
-        
-        st.altair_chart(pie_chart + text, use_container_width=True)
+        st.altair_chart(pie_chart, use_container_width=True)
     else:
         st.info("No active loans to display in status distribution chart.")
 
