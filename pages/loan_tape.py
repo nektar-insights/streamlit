@@ -58,11 +58,11 @@ else:
         loans_df['commission'] = 0
         
     # Calculate investment vs return metrics
-    # Total invested = participation amount + .03 + commission fee
+    # Total invested = participation amount + 3% platform fee + commission fee
     loans_df['total_invested'] = (
         loans_df['csl_participation_amount'] + 
-        .03 +                                                     # Need to fix platform fee coming in
-        loans_df['commission_fee']
+        (loans_df['csl_participation_amount'] * 0.03) +  # Fixed platform fee as 3%
+        (loans_df['csl_participation_amount'] * loans_df['commission_fee'])  # Commission fee as percentage
     )
     
     # Total returned = total_paid
