@@ -22,26 +22,37 @@ def load_loan_summaries():
     res = supabase.table("loan_summaries").select("*").execute()
     return pd.DataFrame(res.data)
 
-@st.cache_data(ttl=3600)
-def load_deals():
-    res = supabase.table("deals").select("loan_id,name").execute()
-    return pd.DataFrame(res.data)
-
 # Main content
 st.title("Loan Tape")
 
-# Load loan data and deals data
-with st.spinner("Loading data..."):
-    loans_df = load_loan_summaries()
-    deals_df = load_deals()
-    
-    # Merge the dataframes to get the deal names
-    if not loans_df.empty and not deals_df.empty:
-        loans_df = loans_df.merge(
-            deals_df[["loan_id", "name"]], 
-            on="loan_id", 
-            how="left"
-        )
+# Load loan data
+with st.spinner("Loading loan data..."):
+    try:
+        loans_df = load_loan_summaries()
+        
+        # Try to get deal names if available
+        try:
+            deals_response = supabase.table("deals").select("loan_id,name").execute()
+            deals_df = pd.DataFrame(deals_response.data)
+            
+            # Merge with loans if we have deals data
+            if not deals_df.empty:
+                loans_df = loans_df.merge(
+                    deals_df[["loan_id", "name"]], 
+                    on="loan_id", 
+                    how="left"
+                )
+                has_deal_names = True
+            else:
+                has_deal_names = False
+        except Exception as e:
+            st.warning(f"Note: Deal names could not be loaded. Using loan IDs only.")
+            has_deal_names = False
+            
+    except Exception as e:
+        st.error(f"Error loading loan data: {e}")
+        loans_df = pd.DataFrame()
+        has_deal_names = False
 
 if loans_df.empty:
     st.warning("No loan data available.")
@@ -72,17 +83,27 @@ else:
     
     # Select priority columns for display
     display_columns = [
-        "loan_id",
-        "name",  # Deal name from the deals table
+        "loan_id"
+    ]
+    
+    # Add name column if available
+    if has_deal_names and "name" in filtered_df.columns:
+        display_columns.append("name")
+        
+    # Add remaining columns
+    display_columns.extend([
         "loan_status", 
         "csl_participation_amount", 
         "participation_percentage", 
         "total_paid", 
         "on_time_rate",
         "payment_performance"
-    ]
+    ])
     
-    # Make a copy for display with only selected columns
+    # Filter to only include columns that exist in the dataframe
+    display_columns = [col for col in display_columns if col in filtered_df.columns]
+    
+    # Make a copy for display
     display_df = filtered_df[display_columns].copy()
     
     # Format numeric columns
