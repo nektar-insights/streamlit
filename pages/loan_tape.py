@@ -22,37 +22,31 @@ def load_loan_summaries():
     res = supabase.table("loan_summaries").select("*").execute()
     return pd.DataFrame(res.data)
 
+@st.cache_data(ttl=3600)
+def load_deals():
+    res = supabase.table("deals").select("loan_id,deal_name,partner_source,industry").execute()
+    return pd.DataFrame(res.data)
+
 # Main content
 st.title("Loan Tape")
 
 # Load loan data
-with st.spinner("Loading loan data..."):
+with st.spinner("Loading data..."):
     try:
         loans_df = load_loan_summaries()
+        deals_df = load_deals()
         
-        # Try to get deal names if available
-        try:
-            deals_response = supabase.table("deals").select("loan_id,name").execute()
-            deals_df = pd.DataFrame(deals_response.data)
-            
-            # Merge with loans if we have deals data
-            if not deals_df.empty:
-                loans_df = loans_df.merge(
-                    deals_df[["loan_id", "name"]], 
-                    on="loan_id", 
-                    how="left"
-                )
-                has_deal_names = True
-            else:
-                has_deal_names = False
-        except Exception as e:
-            st.warning(f"Note: Deal names could not be loaded. Using loan IDs only.")
-            has_deal_names = False
-            
+        # Merge the dataframes to get the deal information
+        if not deals_df.empty:
+            loans_df = loans_df.merge(
+                deals_df[["loan_id", "deal_name", "partner_source", "industry"]], 
+                on="loan_id", 
+                how="left"
+            )
     except Exception as e:
-        st.error(f"Error loading loan data: {e}")
-        loans_df = pd.DataFrame()
-        has_deal_names = False
+        st.warning(f"Note: Some data could not be loaded. {str(e)}")
+        if 'loans_df' not in locals():
+            loans_df = pd.DataFrame()
 
 if loans_df.empty:
     st.warning("No loan data available.")
@@ -86,9 +80,10 @@ else:
         "loan_id"
     ]
     
-    # Add name column if available
-    if has_deal_names and "name" in filtered_df.columns:
-        display_columns.append("name")
+    # Add deal columns if available
+    for col in ["deal_name", "partner_source", "industry"]:
+        if col in filtered_df.columns:
+            display_columns.append(col)
         
     # Add remaining columns
     display_columns.extend([
