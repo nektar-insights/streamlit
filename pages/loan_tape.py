@@ -192,7 +192,9 @@ col7, col8, col9 = st.columns(3)
 with col7:
     st.metric("Average Total Paid", f"${avg_total_paid:,.2f}")
 with col8:
-    st.metric("Average Payment Performance", f"{avg_payment_performance:.2%}")
+    # Added info icon with explanation for Average Payment Performance
+    col8.metric("Average Payment Performance", f"{avg_payment_performance:.2%}")
+    col8.info("Payment Performance measures the ratio of actual payments to expected payments. 100% means payments are on schedule.")
 with col9:
     st.metric("Average Remaining Maturity", f"{avg_remaining_maturity:.1f} months")
 
@@ -207,26 +209,36 @@ top_positions = (
 )
 
 if not top_positions.empty:
-    display_columns = ['loan_id', 'deal_name', 'loan_status', 'total_invested', 'total_paid', 'net_balance']
+    # Calculate total net balance of top 5 positions
+    top_5_total_balance = top_positions['net_balance'].sum()
+    # Calculate percentage of total net balance
+    top_5_pct_of_total = (top_5_total_balance / net_balance * 100) if net_balance > 0 else 0
+    
+    st.caption(f"Total Value: ${top_5_total_balance:,.2f} ({top_5_pct_of_total:.1f}% of total net balance)")
+    
+    display_columns = ['loan_id', 'deal_name', 'loan_status', 'total_invested', 'total_paid', 'net_balance', 'remaining_maturity_months']
     display_columns = [col for col in display_columns if col in top_positions.columns]
     
     top_positions_display = top_positions[display_columns].copy()
     
     # Format numeric columns
     for col in top_positions_display.select_dtypes(include=['float64', 'float32']).columns:
-        if "roi" in col or "rate" in col or "percentage" in col:
+        if col == 'remaining_maturity_months':
+            top_positions_display[col] = top_positions_display[col].map(lambda x: f"{x:.1f}" if pd.notnull(x) else "")
+        elif "roi" in col or "rate" in col or "percentage" in col:
             top_positions_display[col] = top_positions_display[col].map(lambda x: f"{x:.2%}" if pd.notnull(x) else "")
         elif "amount" in col or "paid" in col or "balance" in col or "invested" in col:
             top_positions_display[col] = top_positions_display[col].map(lambda x: f"${x:,.2f}" if pd.notnull(x) else "")
     
     # Rename columns for display only
     column_rename = {
-        "loan_id": "LoanID",
-        "deal_name": "DealName",
-        "loan_status": "LoanStatus",
-        "total_invested": "TotalInvested",
-        "total_paid": "TotalPaid",
-        "net_balance": "NetBalance",
+        "loan_id": "Loan ID",
+        "deal_name": "Deal Name",
+        "loan_status": "Loan Status",
+        "total_invested": "Total Invested",
+        "total_paid": "Total Paid",
+        "net_balance": "Net Balance",
+        "remaining_maturity_months": "Months to Maturity"
     }
     top_positions_display.rename(columns=column_rename, inplace=True)
     
@@ -273,24 +285,24 @@ display_columns = [col for col in display_columns if col in filtered_df.columns]
 # Make a copy for display
 loan_tape = filtered_df[display_columns].copy()
 
-# Rename columns to more user-friendly names
+# Rename columns to more user-friendly names with spaces
 column_rename = {
-    "loan_id": "LoanID",
-    "deal_name": "DealName",
-    "partner_source": "PartnerSource",
+    "loan_id": "Loan ID",
+    "deal_name": "Deal Name",
+    "partner_source": "Partner Source",
     "industry": "Industry",
-    "loan_status": "LoanStatus",
-    "funding_date": "FundingDate",
-    "maturity_date": "MaturityDate",
-    "csl_participation_amount": "CapitalDeployed",
-    "total_invested": "TotalInvested",
-    "total_paid": "TotalPaid",
-    "net_balance": "NetBalance",
-    "current_roi": "CurrentROI",
-    "participation_percentage": "ParticipationPercentage",
-    "on_time_rate": "OnTimeRate",
-    "payment_performance": "PaymentPerformance",
-    "remaining_maturity_months": "RemainingMaturityMonths"
+    "loan_status": "Loan Status",
+    "funding_date": "Funding Date",
+    "maturity_date": "Maturity Date",
+    "csl_participation_amount": "Capital Deployed",
+    "total_invested": "Total Invested",
+    "total_paid": "Total Paid",
+    "net_balance": "Net Balance",
+    "current_roi": "Current ROI",
+    "participation_percentage": "Participation Percentage",
+    "on_time_rate": "On Time Rate",
+    "payment_performance": "Payment Performance",
+    "remaining_maturity_months": "Remaining Maturity Months"
 }
 
 # Apply renaming for columns that exist
@@ -302,11 +314,11 @@ for col in loan_tape.select_dtypes(include=['float64', 'float32']).columns:
         loan_tape[col] = loan_tape[col].map(lambda x: f"{x:.2%}" if pd.notnull(x) else "")
     elif "Maturity" in col:
         loan_tape[col] = loan_tape[col].map(lambda x: f"{x:.1f}" if pd.notnull(x) else "")
-    elif col in ["CapitalDeployed", "TotalInvested", "TotalPaid", "NetBalance"]:
+    elif col in ["Capital Deployed", "Total Invested", "Total Paid", "Net Balance"]:
         loan_tape[col] = loan_tape[col].map(lambda x: f"${x:,.2f}" if pd.notnull(x) else "")
 
 # Convert dates to readable format
-for col in ["FundingDate", "MaturityDate"]:
+for col in ["Funding Date", "Maturity Date"]:
     if col in loan_tape.columns:
         loan_tape[col] = loan_tape[col].dt.strftime('%Y-%m-%d')
 
@@ -317,36 +329,50 @@ st.dataframe(
 )
 
 # ----------------------------
-# Status Distribution Chart
+# Status Distribution Chart (Pie Chart, excluding Paid Off)
 # ----------------------------
 if 'loan_status' in df.columns and not df['loan_status'].isna().all():
     st.subheader("Distribution of Loan Status")
     
-    # Calculate status percentages
-    status_counts = filtered_df["loan_status"].value_counts(normalize=True)
-    status_summary = pd.DataFrame({
-        "loan_status": status_counts.index.astype(str),
-        "percentage": status_counts.values,
-        "count": filtered_df["loan_status"].value_counts().values
-    })
+    # Create a copy of filtered_df without Paid Off loans
+    active_df = filtered_df[filtered_df["loan_status"] != "Paid Off"].copy()
     
-    # Status bar chart
-    status_chart = alt.Chart(status_summary).mark_bar().encode(
-        x=alt.X("loan_status:N", title="Loan Status", axis=alt.Axis(labelAngle=-45)),
-        y=alt.Y("percentage:Q", title="% of Total Loans", axis=alt.Axis(format=".0%")),
-        color=alt.Color("loan_status:N", scale=alt.Scale(range=RISK_GRADIENT), legend=None),
-        tooltip=[
-            alt.Tooltip("loan_status:N", title="Loan Status"),
-            alt.Tooltip("count:Q", title="Number of Loans"),
-            alt.Tooltip("percentage:Q", title="% of Total", format=".1%")
-        ]
-    ).properties(
-        width=700,
-        height=350,
-        title="Distribution of Loan Status"
-    )
-    
-    st.altair_chart(status_chart, use_container_width=True)
+    if not active_df.empty:
+        # Calculate status percentages for active loans
+        status_counts = active_df["loan_status"].value_counts(normalize=True)
+        status_summary = pd.DataFrame({
+            "status": status_counts.index.astype(str),
+            "percentage": status_counts.values,
+            "count": active_df["loan_status"].value_counts().values
+        })
+        
+        # Add note about excluding Paid Off loans
+        st.caption("Note: 'Paid Off' loans are excluded from this chart")
+        
+        # Create pie chart
+        pie_chart = alt.Chart(status_summary).mark_arc().encode(
+            theta=alt.Theta(field="percentage", type="quantitative"),
+            color=alt.Color(field="status", type="nominal", scale=alt.Scale(range=RISK_GRADIENT)),
+            tooltip=[
+                alt.Tooltip("status:N", title="Loan Status"),
+                alt.Tooltip("count:Q", title="Number of Loans"),
+                alt.Tooltip("percentage:Q", title="% of Active Loans", format=".1%")
+            ]
+        ).properties(
+            width=600,
+            height=400,
+            title="Distribution of Active Loan Status"
+        )
+        
+        # Add text labels
+        text = pie_chart.mark_text(radius=180, size=14).encode(
+            text=alt.Text("status:N"),
+            color=alt.value("black")
+        )
+        
+        st.altair_chart(pie_chart + text, use_container_width=True)
+    else:
+        st.info("No active loans to display in status distribution chart.")
 
 # ----------------------------
 # ROI Distribution Chart
