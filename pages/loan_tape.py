@@ -57,9 +57,19 @@ else:
     else:
         loans_df['commission'] = 0
         
-    # Calculate capital at risk metrics
-    loans_df['total_gross_csl_amount'] = loans_df['csl_participation_amount'] * (1 + loans_df['commission']) + (loans_df['csl_participation_amount'] * 1.03)
-    loans_df['gross_csl_amount_balance'] = loans_df['total_gross_csl_amount'] - loans_df['total_paid']
+    # Calculate investment vs return metrics
+    # Total invested = participation amount + .03 + commission fee
+    loans_df['total_invested'] = (
+        loans_df['csl_participation_amount'] + 
+        .03 +                                                     # Need to fix platform fee coming in
+        loans_df['commission_fee']
+    )
+    
+    # Total returned = total_paid
+    loans_df['net_balance'] = loans_df['total_invested'] - loans_df['total_paid']
+    
+    # ROI calculation (if positive, we've made money; if negative, we're still recouping)
+    loans_df['current_roi'] = (loans_df['total_paid'] / loans_df['total_invested']) - 1
     
     # Flag for unpaid balances (non-paid off loans)
     loans_df['is_unpaid'] = loans_df['loan_status'] != "Paid Off"
@@ -81,25 +91,32 @@ else:
         st.metric("Total Loans", len(filtered_df))
         st.metric("Total Participation", f"${filtered_df['csl_participation_amount'].sum():,.2f}")
     with col2:
-        st.metric("Total Gross CSL Amount", f"${filtered_df['total_gross_csl_amount'].sum():,.2f}")
-        st.metric("Total Paid Back", f"${filtered_df['total_paid'].sum():,.2f}")
+        st.metric("Total Invested (with fees)", f"${filtered_df['total_invested'].sum():,.2f}")
+        st.metric("Total Returned", f"${filtered_df['total_paid'].sum():,.2f}")
     with col3:
-        st.metric("Gross CSL Amount Balance", f"${filtered_df['gross_csl_amount_balance'].sum():,.2f}")
-        unpaid_balance = filtered_df[filtered_df['is_unpaid']]['gross_csl_amount_balance'].sum()
-        st.metric("Unpaid Balance", f"${unpaid_balance:,.2f}")
+        net_balance = filtered_df['net_balance'].sum()
+        roi_color = "normal" if net_balance <= 0 else "inverse"
+        st.metric("Net Balance", f"${net_balance:,.2f}", delta_color=roi_color)
+        
+        # Portfolio ROI
+        total_invested = filtered_df['total_invested'].sum()
+        total_returned = filtered_df['total_paid'].sum()
+        portfolio_roi = ((total_returned / total_invested) - 1) if total_invested > 0 else 0
+        st.metric("Portfolio ROI", f"{portfolio_roi:.2%}")
     
     # Top 5 largest outstanding positions
     st.subheader("Top 5 Largest Outstanding Positions")
     top_positions = (
         filtered_df[filtered_df['is_unpaid']]
-        .sort_values('gross_csl_amount_balance', ascending=False)
+        .sort_values('net_balance', ascending=False)
         .head(5)
     )
     
-    top_positions_display = top_positions[['loan_id', 'deal_name', 'loan_status', 'gross_csl_amount_balance']].copy()
-    top_positions_display['gross_csl_amount_balance'] = top_positions_display['gross_csl_amount_balance'].map(
-        lambda x: f"${x:,.2f}" if pd.notnull(x) else ""
-    )
+    top_positions_display = top_positions[['loan_id', 'deal_name', 'loan_status', 'total_invested', 'total_paid', 'net_balance']].copy()
+    for col in ['total_invested', 'total_paid', 'net_balance']:
+        top_positions_display[col] = top_positions_display[col].map(
+            lambda x: f"${x:,.2f}" if pd.notnull(x) else ""
+        )
     
     st.dataframe(
         top_positions_display,
@@ -124,9 +141,10 @@ else:
     display_columns.extend([
         "loan_status", 
         "csl_participation_amount", 
-        "total_gross_csl_amount",
+        "total_invested",
         "total_paid",
-        "gross_csl_amount_balance",
+        "net_balance",
+        "current_roi",
         "participation_percentage", 
         "on_time_rate",
         "payment_performance"
@@ -140,9 +158,9 @@ else:
     
     # Format numeric columns
     for col in display_df.select_dtypes(include=['float64', 'float32']).columns:
-        if "rate" in col or "percentage" in col:
+        if col == "current_roi" or "rate" in col or "percentage" in col:
             display_df[col] = display_df[col].map(lambda x: f"{x:.2%}" if pd.notnull(x) else "")
-        elif "amount" in col or "paid" in col or "balance" in col:
+        elif "amount" in col or "paid" in col or "balance" in col or "invested" in col:
             display_df[col] = display_df[col].map(lambda x: f"${x:,.2f}" if pd.notnull(x) else "")
     
     # Display table with pagination
