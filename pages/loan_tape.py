@@ -180,7 +180,7 @@ def display_capital_at_risk(df):
         return
     
     # Calculate remaining principal by loan status
-    status_principal = active_df.groupby('loan_status').agg(
+    status_principal = active_df.groupby('loan_status', observed=True).agg(
         remaining_principal=('csl_participation_amount', 'sum'),
         total_paid=('total_paid', 'sum'),
         count=('loan_id', 'count')
@@ -258,7 +258,11 @@ def display_capital_at_risk(df):
         lambda x: calculate_expected_payment_to_date(x), axis=1
     )
     active_df['payment_difference'] = active_df['actual_paid'] - active_df['expected_paid_to_date']
-    active_df['difference_pct'] = active_df['payment_difference'] / active_df['expected_paid_to_date']
+    
+    # Handle division by zero for difference percentage
+    active_df['difference_pct'] = 0.0
+    mask = active_df['expected_paid_to_date'] > 0
+    active_df.loc[mask, 'difference_pct'] = active_df.loc[mask, 'payment_difference'] / active_df.loc[mask, 'expected_paid_to_date']
     
     # Aggregate for visualization
     payment_summary = pd.DataFrame({
@@ -337,7 +341,7 @@ def display_capital_at_risk(df):
         ]
     )
     
-    diff_distribution = active_df.groupby('payment_diff_category').agg(
+    diff_distribution = active_df.groupby('payment_diff_category', observed=True).agg(
         loan_count=('loan_id', 'count'),
         total_difference=('payment_difference', 'sum'),
         avg_difference_pct=('difference_pct', 'mean')
@@ -1905,7 +1909,7 @@ def display_risk_analytics(df):
     # Risk Score Distribution
     st.subheader("Risk Score Distribution")
     
-    band_summary = risk_df.groupby("risk_band").agg(
+    band_summary = risk_df.groupby("risk_band", observed=True).agg(
         loan_count=("loan_id", "count"),
         net_balance=("net_balance", "sum")
     ).reset_index()
