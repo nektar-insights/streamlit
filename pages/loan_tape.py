@@ -10,28 +10,34 @@ def calculate_expected_payment_to_date(row):
     if pd.isna(row['funding_date']) or pd.isna(row['maturity_date']) or pd.isna(row['our_rtr']):
         return 0
         
-    funding_date = pd.to_datetime(row['funding_date'])
-    maturity_date = pd.to_datetime(row['maturity_date'])
-    current_date = pd.Timestamp.today()
-    
-    # If loan is past maturity, expected payment is full RTR
-    if current_date >= maturity_date:
-        return row['our_rtr']
+    try:
+        # Convert to timezone-naive dates for consistent comparison
+        funding_date = pd.to_datetime(row['funding_date']).tz_localize(None)
+        maturity_date = pd.to_datetime(row['maturity_date']).tz_localize(None)
+        current_date = pd.Timestamp.today().tz_localize(None)
         
-    # Calculate expected payment based on time elapsed
-    total_days = (maturity_date - funding_date).days
-    days_elapsed = (current_date - funding_date).days
-    
-    if total_days <= 0:
+        # If loan is past maturity, expected payment is full RTR
+        if current_date >= maturity_date:
+            return row['our_rtr']
+            
+        # Calculate expected payment based on time elapsed
+        total_days = (maturity_date - funding_date).days
+        days_elapsed = (current_date - funding_date).days
+        
+        if total_days <= 0:
+            return 0
+            
+        # Calculate expected percentage completion
+        expected_pct = min(1.0, max(0.0, days_elapsed / total_days))
+        
+        # Calculate expected payment
+        expected_payment = row['our_rtr'] * expected_pct
+        
+        return expected_payment
+    except Exception as e:
+        # Handle any timezone or conversion errors
+        st.warning(f"Error calculating expected payment: {str(e)}")
         return 0
-        
-    # Calculate expected percentage completion
-    expected_pct = min(1.0, max(0.0, days_elapsed / total_days))
-    
-    # Calculate expected payment
-    expected_payment = row['our_rtr'] * expected_pct
-    
-    return expected_payment
 
 def display_capital_at_risk(df):
     """
@@ -348,10 +354,15 @@ def prepare_loan_data(loans_df, deals_df):
     else:
         df = loans_df.copy()
     
-    # Convert dates
+    # Convert dates - handle timezone issues
     for date_col in ["funding_date", "maturity_date", "payoff_date"]:
         if date_col in df.columns:
-            df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+            try:
+                # Convert to datetime and handle timezone consistently
+                df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+            except Exception as e:
+                st.warning(f"Error converting {date_col}: {str(e)}")
+                df[date_col] = pd.NaT
     
     # Handle numeric fields
     df['commission'] = pd.to_numeric(df['commission'], errors='coerce').fillna(0)
@@ -375,19 +386,38 @@ def prepare_loan_data(loans_df, deals_df):
     
     # Add status flags and time calculations
     df['is_unpaid'] = df['loan_status'] != "Paid Off"
-    df["days_since_funding"] = (pd.Timestamp.today() - df["funding_date"]).dt.days
+    
+    # Calculate days since funding with timezone handling
+    try:
+        today = pd.Timestamp.today().tz_localize(None)
+        df["days_since_funding"] = df["funding_date"].apply(
+            lambda x: (today - pd.to_datetime(x).tz_localize(None)).days if pd.notnull(x) else 0
+        )
+    except Exception as e:
+        st.warning(f"Error calculating days since funding: {str(e)}")
+        df["days_since_funding"] = 0
     
     # Calculate remaining maturity in months (only for active loans)
     df["remaining_maturity_months"] = 0.0
-    active_loans_mask = (df['loan_status'] != "Paid Off") & (df['maturity_date'] > pd.Timestamp.today())
-    if 'maturity_date' in df.columns:
-        df.loc[active_loans_mask, "remaining_maturity_months"] = (
-            (df.loc[active_loans_mask, 'maturity_date'] - pd.Timestamp.today()).dt.days / 30
-        )
+    
+    try:
+        active_loans_mask = (df['loan_status'] != "Paid Off") & (df['maturity_date'] > pd.Timestamp.today())
+        if 'maturity_date' in df.columns:
+            today = pd.Timestamp.today().tz_localize(None)
+            df.loc[active_loans_mask, "remaining_maturity_months"] = df.loc[active_loans_mask, 'maturity_date'].apply(
+                lambda x: (pd.to_datetime(x).tz_localize(None) - today).days / 30 if pd.notnull(x) else 0
+            )
+    except Exception as e:
+        st.warning(f"Error calculating remaining maturity: {str(e)}")
     
     # Add cohort information
-    df['cohort'] = df['funding_date'].dt.to_period('Q').astype(str)
-    df['funding_month'] = df['funding_date'].dt.to_period('M')
+    try:
+        df['cohort'] = df['funding_date'].dt.to_period('Q').astype(str)
+        df['funding_month'] = df['funding_date'].dt.to_period('M')
+    except Exception as e:
+        st.warning(f"Error calculating cohort information: {str(e)}")
+        df['cohort'] = 'Unknown'
+        df['funding_month'] = pd.NaT
     
     # Extract NAICS sector if industry data exists
     if 'industry' in df.columns:
@@ -417,43 +447,49 @@ def calculate_irr(df):
         if pd.isna(row['funding_date']) or pd.isna(row['payoff_date']) or row['total_invested'] <= 0:
             return None
             
-        # Calculate days between funding and payoff
-        funding_date = pd.to_datetime(row['funding_date'])
-        payoff_date = pd.to_datetime(row['payoff_date'])
-        
-        if payoff_date <= funding_date:
-            # Can't calculate IRR if dates are invalid
-            return None
-            
-        # Calculate days and convert to years
-        days_to_payoff = (payoff_date - funding_date).days
-        years_to_payoff = days_to_payoff / 365.0
-        
-        # If years is too small, IRR calculation might be unstable
-        if years_to_payoff < 0.01:  # Less than ~3-4 days
-            # For very short periods, use simple return formula
-            simple_return = (row['total_paid'] / row['total_invested']) - 1
-            annualized = (1 + simple_return) ** (1 / years_to_payoff) - 1
-            return annualized
-            
-        # For normal periods, use financial IRR calculation
-        # This creates a cash flow series: [initial investment (negative), final payment (positive)]
+        # Calculate days between funding and payoff - ensure consistent timezone handling
         try:
-            irr = npf.irr([-row['total_invested'], row['total_paid']])
+            # Convert to timezone-naive dates for consistent comparison
+            funding_date = pd.to_datetime(row['funding_date']).tz_localize(None)
+            payoff_date = pd.to_datetime(row['payoff_date']).tz_localize(None)
             
-            # Check if IRR is reasonable (sometimes npf.irr can return unrealistic values)
-            if irr < -1 or irr > 10:  # -100% to 1000%
-                # Fallback to simple annualized return for extreme values
+            if payoff_date <= funding_date:
+                # Can't calculate IRR if dates are invalid
+                return None
+                
+            # Calculate days and convert to years
+            days_to_payoff = (payoff_date - funding_date).days
+            years_to_payoff = days_to_payoff / 365.0
+            
+            # If years is too small, IRR calculation might be unstable
+            if years_to_payoff < 0.01:  # Less than ~3-4 days
+                # For very short periods, use simple return formula
                 simple_return = (row['total_paid'] / row['total_invested']) - 1
                 annualized = (1 + simple_return) ** (1 / years_to_payoff) - 1
                 return annualized
                 
-            return irr
-        except:
-            # If IRR calculation fails, fall back to simple annualized return
-            simple_return = (row['total_paid'] / row['total_invested']) - 1
-            annualized = (1 + simple_return) ** (1 / years_to_payoff) - 1
-            return annualized
+            # For normal periods, use financial IRR calculation
+            # This creates a cash flow series: [initial investment (negative), final payment (positive)]
+            try:
+                irr = npf.irr([-row['total_invested'], row['total_paid']])
+                
+                # Check if IRR is reasonable (sometimes npf.irr can return unrealistic values)
+                if irr < -1 or irr > 10:  # -100% to 1000%
+                    # Fallback to simple annualized return for extreme values
+                    simple_return = (row['total_paid'] / row['total_invested']) - 1
+                    annualized = (1 + simple_return) ** (1 / years_to_payoff) - 1
+                    return annualized
+                    
+                return irr
+            except:
+                # If IRR calculation fails, fall back to simple annualized return
+                simple_return = (row['total_paid'] / row['total_invested']) - 1
+                annualized = (1 + simple_return) ** (1 / years_to_payoff) - 1
+                return annualized
+        except Exception as e:
+            # Handle any errors in date conversion or comparison
+            st.warning(f"Error calculating IRR: {str(e)}")
+            return None
     
     # Calculate Expected IRR based on maturity date and projected payment
     def calc_expected_irr(row):
@@ -464,57 +500,70 @@ def calculate_irr(df):
         if row['loan_status'] == 'Paid Off' and not pd.isna(row['realized_irr']):
             return row['realized_irr']
             
-        # Calculate days between funding and maturity
-        funding_date = pd.to_datetime(row['funding_date'])
-        maturity_date = pd.to_datetime(row['maturity_date'])
-        
-        if maturity_date <= funding_date:
-            # Can't calculate IRR if dates are invalid
-            return None
-            
-        # Expected payment at maturity (total RTR)
-        expected_payment = row['our_rtr'] if 'our_rtr' in row and pd.notnull(row['our_rtr']) else row['total_invested'] * (1 + row['roi'])
-        
-        # Calculate expected IRR based on expected payment at maturity
         try:
-            days_to_maturity = (maturity_date - funding_date).days
-            years_to_maturity = days_to_maturity / 365.0
+            # Calculate days between funding and maturity
+            funding_date = pd.to_datetime(row['funding_date']).tz_localize(None)
+            maturity_date = pd.to_datetime(row['maturity_date']).tz_localize(None)
             
-            # For very short periods, use simple return
-            if years_to_maturity < 0.01:
+            if maturity_date <= funding_date:
+                # Can't calculate IRR if dates are invalid
+                return None
+                
+            # Expected payment at maturity (total RTR)
+            expected_payment = row['our_rtr'] if 'our_rtr' in row and pd.notnull(row['our_rtr']) else row['total_invested'] * (1 + row['roi'])
+            
+            # Calculate expected IRR based on expected payment at maturity
+            try:
+                days_to_maturity = (maturity_date - funding_date).days
+                years_to_maturity = days_to_maturity / 365.0
+                
+                # For very short periods, use simple return
+                if years_to_maturity < 0.01:
+                    simple_return = (expected_payment / row['total_invested']) - 1
+                    annualized = (1 + simple_return) ** (1 / years_to_maturity) - 1
+                    return annualized
+                    
+                # Normal IRR calculation
+                irr = npf.irr([-row['total_invested'], expected_payment])
+                
+                # Check for reasonable values
+                if irr < -1 or irr > 10:
+                    simple_return = (expected_payment / row['total_invested']) - 1
+                    annualized = (1 + simple_return) ** (1 / years_to_maturity) - 1
+                    return annualized
+                    
+                return irr
+            except:
+                # Fallback calculation
                 simple_return = (expected_payment / row['total_invested']) - 1
                 annualized = (1 + simple_return) ** (1 / years_to_maturity) - 1
                 return annualized
-                
-            # Normal IRR calculation
-            irr = npf.irr([-row['total_invested'], expected_payment])
-            
-            # Check for reasonable values
-            if irr < -1 or irr > 10:
-                simple_return = (expected_payment / row['total_invested']) - 1
-                annualized = (1 + simple_return) ** (1 / years_to_maturity) - 1
-                return annualized
-                
-            return irr
-        except:
-            # Fallback calculation
-            simple_return = (expected_payment / row['total_invested']) - 1
-            annualized = (1 + simple_return) ** (1 / years_to_maturity) - 1
-            return annualized
+        except Exception as e:
+            # Handle any errors in date conversion or comparison
+            st.warning(f"Error calculating expected IRR: {str(e)}")
+            return None
     
-    # Apply IRR calculations
-    result_df['realized_irr'] = result_df.apply(calc_realized_irr, axis=1)
-    
-    # First calculate realized IRR, then use it for expected IRR calculation where applicable
-    result_df['expected_irr'] = result_df.apply(calc_expected_irr, axis=1)
-    
-    # Add annualized percentage fields for display purposes
-    result_df['realized_irr_pct'] = result_df['realized_irr'].apply(
-        lambda x: f"{x:.2%}" if pd.notnull(x) else "N/A"
-    )
-    result_df['expected_irr_pct'] = result_df['expected_irr'].apply(
-        lambda x: f"{x:.2%}" if pd.notnull(x) else "N/A"
-    )
+    # Apply IRR calculations with error handling
+    try:
+        result_df['realized_irr'] = result_df.apply(calc_realized_irr, axis=1)
+        
+        # First calculate realized IRR, then use it for expected IRR calculation where applicable
+        result_df['expected_irr'] = result_df.apply(calc_expected_irr, axis=1)
+        
+        # Add annualized percentage fields for display purposes
+        result_df['realized_irr_pct'] = result_df['realized_irr'].apply(
+            lambda x: f"{x:.2%}" if pd.notnull(x) else "N/A"
+        )
+        result_df['expected_irr_pct'] = result_df['expected_irr'].apply(
+            lambda x: f"{x:.2%}" if pd.notnull(x) else "N/A"
+        )
+    except Exception as e:
+        st.error(f"Error in IRR calculations: {str(e)}")
+        # Add empty columns to avoid errors downstream
+        result_df['realized_irr'] = None
+        result_df['expected_irr'] = None
+        result_df['realized_irr_pct'] = "N/A"
+        result_df['expected_irr_pct'] = "N/A"
     
     return result_df
 
