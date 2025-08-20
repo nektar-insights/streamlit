@@ -102,7 +102,7 @@ df['is_unpaid'] = df['loan_status'] != "Paid Off"
 df["days_since_funding"] = (pd.Timestamp.today() - df["funding_date"]).dt.days
 
 # Calculate remaining maturity in months (only for active loans)
-df["remaining_maturity_months"] = 0
+df["remaining_maturity_months"] = 0.0
 active_loans_mask = (df['loan_status'] != "Paid Off") & (df['maturity_date'] > pd.Timestamp.today())
 if 'maturity_date' in df.columns:
     df.loc[active_loans_mask, "remaining_maturity_months"] = (
