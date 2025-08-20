@@ -1041,152 +1041,164 @@ def plot_capital_waterfall(df):
     This function calculates the flow of capital from initial deployment through
     fees and returns to show the net gain or loss.
     """
-    # Summarize values - all values are calculated from filtered dataframe
-    total_capital_deployed = df['csl_participation_amount'].sum()
-    platform_fees = df['platform_fees'].sum()
-    commission_fees = df['commission_fees'].sum()
-    bad_debt_allowance = df['bad_debt_allowance'].sum() if 'bad_debt_allowance' in df.columns else 0
-    
-    # Net investment (after fees and allowances)
-    net_investment = total_capital_deployed # Don't subtract fees as they're included in total_invested
-    
-    # Total amount returned
-    capital_returned = df['total_paid'].sum()
-    
-    # Net gain or loss (returns minus deployed capital)
-    net_position = capital_returned - total_capital_deployed
-    
-    # Build waterfall data
-    waterfall_data = pd.DataFrame([
-        {"label": "Capital Deployed", "value": total_capital_deployed, "type": "start"},
-        {"label": "Platform Fees", "value": platform_fees, "type": "info"},
-        {"label": "Commission Fees", "value": commission_fees, "type": "info"},
-        {"label": "Bad Debt Allowance", "value": bad_debt_allowance, "type": "info"},
-        {"label": "Capital Returned", "value": capital_returned, "type": "end"},
-        {"label": "Net Position", "value": net_position, "type": "net"}
-    ])
-    
-    # Add percentage of capital deployed for fees
-    if total_capital_deployed > 0:
-        waterfall_data["pct_of_capital"] = waterfall_data["value"] / total_capital_deployed
-    else:
-        waterfall_data["pct_of_capital"] = 0
-    
-    # Compute cumulative position for visualization
-    waterfall_data["running_total"] = 0
-    waterfall_data.loc[0, "running_total"] = waterfall_data.loc[0, "value"]  # Start with capital deployed
-    waterfall_data.loc[4, "running_total"] = waterfall_data.loc[4, "value"]  # Capital returned
-    waterfall_data.loc[5, "running_total"] = waterfall_data.loc[0, "value"] + waterfall_data.loc[5, "value"]  # Net position
-    
-    # Format waterfall data for visualization
-    cumulative = []
-    for _, row in waterfall_data.iterrows():
-        if row['type'] == "start":
-            # Capital deployed (starting point)
-            cumulative.append({
-                "label": row['label'],
-                "start": 0,
-                "end": row['value'],
-                "color": "#1f77b4",  # Blue
-                "value": row['value'],
-                "pct": row['pct_of_capital']
-            })
-        elif row['type'] == "info":
-            # Fees (informational only, doesn't affect waterfall)
-            cumulative.append({
-                "label": row['label'],
-                "start": 0,
-                "end": row['value'],
-                "color": "#ff7f0e",  # Orange
-                "value": row['value'],
-                "pct": row['pct_of_capital']
-            })
-        elif row['type'] == "end":
-            # Capital returned 
-            cumulative.append({
-                "label": row['label'],
-                "start": 0,
-                "end": row['value'],
-                "color": "#2ca02c",  # Green
-                "value": row['value'],
-                "pct": row['pct_of_capital'] if total_capital_deployed > 0 else 0
-            })
-        elif row['type'] == "net":
-            # Net position (gain or loss)
-            cumulative.append({
-                "label": row['label'],
-                "start": total_capital_deployed,
-                "end": row['running_total'],
-                "color": "#2ca02c" if row['value'] >= 0 else "#d62728",  # Green if gain, red if loss
-                "value": row['value'],
-                "pct": row['pct_of_capital']
-            })
-    
-    wf_df = pd.DataFrame(cumulative)
-    
-    # Create bars
-    bars = alt.Chart(wf_df).mark_bar().encode(
-        x=alt.X('label:N', title="", axis=alt.Axis(labelAngle=0)),
-        y=alt.Y('start:Q', title="Amount ($)", axis=alt.Axis(format="$,.0f", grid=True)),
-        y2='end:Q',
-        color=alt.Color('color:N', scale=None, legend=None),
-        tooltip=[
-            alt.Tooltip('label:N', title="Category"),
-            alt.Tooltip('value:Q', title="Amount", format="$,.2f"),
-            alt.Tooltip('pct:Q', title="% of Capital Deployed", format=".1%")
-        ]
-    ).properties(
-        width=700,
-        height=400,
-        title={
-            "text": "Capital Flow Analysis",
-            "subtitle": "Breakdown of capital deployment, fees, and returns",
-            "fontSize": 16
-        }
-    )
-    
-    # Add labels
-    labels = alt.Chart(wf_df).mark_text(
-        dy=-10,
-        size=12,
-        fontWeight="bold"
-    ).encode(
-        x='label:N',
-        y='end:Q',
-        text=alt.Text('value:Q', format="$,.0f")
-    )
-    
-    # Add percentage labels for fees and returns
-    pct_labels = alt.Chart(wf_df.query("type != 'net'")).mark_text(
-        dy=10,
-        size=10,
-        color="white",
-        fontWeight="bold"
-    ).encode(
-        x='label:N',
-        y='end:Q',
-        text=alt.Text('pct:Q', format=".1%")
-    )
-    
-    st.altair_chart(bars + labels, use_container_width=True)
-    
-    # Create a summary table to explain the waterfall
-    st.subheader("Capital Flow Summary")
-    summary_df = pd.DataFrame({
-        "Category": waterfall_data["label"],
-        "Amount": waterfall_data["value"].map(lambda x: f"${x:,.2f}"),
-        "% of Capital": waterfall_data["pct_of_capital"].map(lambda x: f"{x:.2%}")
-    })
-    
-    st.dataframe(summary_df, use_container_width=True, hide_index=True)
-    
-    # Add explanatory note
-    st.caption(
-        "**How to read this chart:** The waterfall shows the flow of capital from initial deployment " +
-        "to final return. Blue represents initial capital deployed, orange shows fees (which are included " +
-        "in the total investment amount), green shows capital returned, and the final bar shows net gain/loss " +
-        "(green for gain, red for loss)."
-    )
+    try:
+        # Summarize values - all values are calculated from filtered dataframe
+        total_capital_deployed = df['csl_participation_amount'].sum()
+        platform_fees = df['platform_fees'].sum()
+        commission_fees = df['commission_fees'].sum()
+        bad_debt_allowance = df['bad_debt_allowance'].sum() if 'bad_debt_allowance' in df.columns else 0
+        
+        # Net investment (after fees and allowances)
+        net_investment = total_capital_deployed # Don't subtract fees as they're included in total_invested
+        
+        # Total amount returned
+        capital_returned = df['total_paid'].sum()
+        
+        # Net gain or loss (returns minus deployed capital)
+        net_position = capital_returned - total_capital_deployed
+        
+        # Build waterfall data
+        waterfall_data = pd.DataFrame([
+            {"label": "Capital Deployed", "value": total_capital_deployed, "category": "start"},
+            {"label": "Platform Fees", "value": platform_fees, "category": "info"},
+            {"label": "Commission Fees", "value": commission_fees, "category": "info"},
+            {"label": "Bad Debt Allowance", "value": bad_debt_allowance, "category": "info"},
+            {"label": "Capital Returned", "value": capital_returned, "category": "end"},
+            {"label": "Net Position", "value": net_position, "category": "net"}
+        ])
+        
+        # Add percentage of capital deployed for fees
+        if total_capital_deployed > 0:
+            waterfall_data["pct_of_capital"] = waterfall_data["value"] / total_capital_deployed
+        else:
+            waterfall_data["pct_of_capital"] = 0
+        
+        # Compute cumulative position for visualization
+        waterfall_data["running_total"] = 0
+        waterfall_data.loc[0, "running_total"] = waterfall_data.loc[0, "value"]  # Start with capital deployed
+        waterfall_data.loc[4, "running_total"] = waterfall_data.loc[4, "value"]  # Capital returned
+        waterfall_data.loc[5, "running_total"] = waterfall_data.loc[0, "value"] + waterfall_data.loc[5, "value"]  # Net position
+        
+        # Format waterfall data for visualization
+        cumulative = []
+        for _, row in waterfall_data.iterrows():
+            if row['category'] == "start":
+                # Capital deployed (starting point)
+                cumulative.append({
+                    "label": row['label'],
+                    "start": 0,
+                    "end": row['value'],
+                    "color": "#1f77b4",  # Blue
+                    "value": row['value'],
+                    "pct": row['pct_of_capital'],
+                    "category": row['category']
+                })
+            elif row['category'] == "info":
+                # Fees (informational only, doesn't affect waterfall)
+                cumulative.append({
+                    "label": row['label'],
+                    "start": 0,
+                    "end": row['value'],
+                    "color": "#ff7f0e",  # Orange
+                    "value": row['value'],
+                    "pct": row['pct_of_capital'],
+                    "category": row['category']
+                })
+            elif row['category'] == "end":
+                # Capital returned 
+                cumulative.append({
+                    "label": row['label'],
+                    "start": 0,
+                    "end": row['value'],
+                    "color": "#2ca02c",  # Green
+                    "value": row['value'],
+                    "pct": row['pct_of_capital'] if total_capital_deployed > 0 else 0,
+                    "category": row['category']
+                })
+            elif row['category'] == "net":
+                # Net position (gain or loss)
+                cumulative.append({
+                    "label": row['label'],
+                    "start": total_capital_deployed,
+                    "end": row['running_total'],
+                    "color": "#2ca02c" if row['value'] >= 0 else "#d62728",  # Green if gain, red if loss
+                    "value": row['value'],
+                    "pct": row['pct_of_capital'],
+                    "category": row['category']
+                })
+        
+        wf_df = pd.DataFrame(cumulative)
+        
+        # Create bars
+        bars = alt.Chart(wf_df).mark_bar().encode(
+            x=alt.X('label:N', title="", axis=alt.Axis(labelAngle=0)),
+            y=alt.Y('start:Q', title="Amount ($)", axis=alt.Axis(format="$,.0f", grid=True)),
+            y2='end:Q',
+            color=alt.Color('color:N', scale=None, legend=None),
+            tooltip=[
+                alt.Tooltip('label:N', title="Category"),
+                alt.Tooltip('value:Q', title="Amount", format="$,.2f"),
+                alt.Tooltip('pct:Q', title="% of Capital Deployed", format=".1%")
+            ]
+        ).properties(
+            width=700,
+            height=400,
+            title={
+                "text": "Capital Flow Analysis",
+                "subtitle": "Breakdown of capital deployment, fees, and returns",
+                "fontSize": 16
+            }
+        )
+        
+        # Add labels
+        labels = alt.Chart(wf_df).mark_text(
+            dy=-10,
+            size=12,
+            fontWeight="bold"
+        ).encode(
+            x='label:N',
+            y='end:Q',
+            text=alt.Text('value:Q', format="$,.0f")
+        )
+        
+        # Add percentage labels for fees and returns, but only for non-net categories
+        # Using .transform_filter instead of .query to avoid pandas query errors
+        pct_labels = alt.Chart(wf_df).transform_filter(
+            alt.datum.category != 'net'
+        ).mark_text(
+            dy=10,
+            size=10,
+            color="white",
+            fontWeight="bold"
+        ).encode(
+            x='label:N',
+            y='end:Q',
+            text=alt.Text('pct:Q', format=".1%")
+        )
+        
+        st.altair_chart(bars + labels + pct_labels, use_container_width=True)
+        
+        # Create a summary table to explain the waterfall
+        st.subheader("Capital Flow Summary")
+        summary_df = pd.DataFrame({
+            "Category": waterfall_data["label"],
+            "Amount": waterfall_data["value"].map(lambda x: f"${x:,.2f}"),
+            "% of Capital": waterfall_data["pct_of_capital"].map(lambda x: f"{x:.2%}")
+        })
+        
+        st.dataframe(summary_df, use_container_width=True, hide_index=True)
+        
+        # Add explanatory note
+        st.caption(
+            "**How to read this chart:** The waterfall shows the flow of capital from initial deployment " +
+            "to final return. Blue represents initial capital deployed, orange shows fees (which are included " +
+            "in the total investment amount), green shows capital returned, and the final bar shows net gain/loss " +
+            "(green for gain, red for loss)."
+        )
+    except Exception as e:
+        st.error(f"Error creating capital waterfall chart: {str(e)}")
+        st.info("Unable to generate capital waterfall chart due to an error in data processing.")
+
 
 def plot_risk_scatter(risk_df):
     """Create and display a scatter plot of risk factors."""
