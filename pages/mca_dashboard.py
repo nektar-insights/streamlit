@@ -49,7 +49,7 @@ df = combine_deals()
 # ----------------------------
 # Data type conversions and basic calculations
 # ----------------------------
-df["funding_date"] = pd.to_datetime(df["funding_date"], errors="coerce").dt.date
+df["funding_date"] = pd.to_datetime(df["funding_date_mca"], errors="coerce").dt.date
 
 # Convert all financial columns to numeric, handling any non-numeric values
 for col in ["purchase_price", "receivables_amount", "current_balance", "past_due_amount", 
