@@ -6,6 +6,7 @@ import altair as alt
 from datetime import datetime, timedelta
 import io
 import hashlib
+import numpy_financial as npf
 
 # Third-party libraries
 from numpy import busday_count
