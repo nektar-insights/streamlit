@@ -1457,69 +1457,280 @@ def display_capital_at_risk(df):
     with col2:
         st.altair_chart(diff_chart, use_container_width=True)
 
-def plot_sector_risk(df):
-    """Create and display a bar chart showing industry sector risk."""
-    if 'sector_code' not in df.columns or df['sector_code'].isna().all():
-        st.warning("Industry sector data not available for risk analysis.")
-        return
+def plot_fico_distribution(df):
+    """
+    Create and display visualizations of loan distribution by FICO score.
+    """
+    try:
+        # Check if FICO score data exists
+        if 'fico_score' not in df.columns or df['fico_score'].isna().all():
+            st.warning("FICO score data not available for analysis.")
+            return
+            
+        # Define FICO score bands
+        fico_bins = [0, 580, 620, 660, 700, 740, 850]
+        fico_labels = ['<580', '580-619', '620-659', '660-699', '700-739', '740+']
         
-    # Get sector risk data
-    sector_risk_df = load_naics_sector_risk()
-    
-    # Join with loan data
-    df_with_risk = df.merge(
-        sector_risk_df,
-        on='sector_code',
-        how='left'
-    )
-    
-    # Summary by sector
-    sector_summary = df_with_risk.groupby(['sector_name', 'risk_score']).agg(
-        loan_count=('loan_id', 'count'),
-        total_deployed=('csl_participation_amount', 'sum'),
-        avg_payment_performance=('payment_performance', 'mean')
-    ).reset_index()
-    
-    sector_summary = sector_summary.sort_values('loan_count', ascending=False)
-    
-    if sector_summary.empty:
-        st.info("No sector risk data available to display.")
-        return
+        # Create a copy to avoid modifying the original
+        fico_df = df.copy()
         
-    # Display data table
-    st.dataframe(
-        sector_summary.rename(columns={
-            'sector_name': 'Sector',
-            'risk_score': 'Risk Score',
-            'loan_count': 'Loan Count',
-            'total_deployed': 'Capital Deployed',
-            'avg_payment_performance': 'Avg Payment Performance'
-        }),
-        use_container_width=True,
-        column_config={
-            "Capital Deployed": st.column_config.NumberColumn(format="$%.0f"),
-            "Avg Payment Performance": st.column_config.NumberColumn(format="%.2f")
-        }
-    )
-    
-    # Visualization
-    chart = alt.Chart(sector_summary).mark_bar().encode(
-        x=alt.X('sector_name:N', sort='-y', title="Industry Sector"),
-        y=alt.Y('loan_count:Q', title="Number of Loans"),
-        color=alt.Color('risk_score:Q', title="Risk Score", scale=alt.Scale(scheme="orangered")),
-        tooltip=[
-            alt.Tooltip('sector_name:N', title="Sector"),
-            alt.Tooltip('loan_count:Q', title="Loans"),
-            alt.Tooltip('total_deployed:Q', title="Capital", format="$,.0f"),
-            alt.Tooltip('avg_payment_performance:Q', title="Avg Payment Performance", format=".2f")
+        # Convert FICO to numeric and handle any errors
+        fico_df['fico_score'] = pd.to_numeric(fico_df['fico_score'], errors='coerce')
+        
+        # Add FICO band column
+        fico_df['fico_band'] = pd.cut(
+            fico_df['fico_score'], 
+            bins=fico_bins, 
+            labels=fico_labels, 
+            right=False
+        )
+        
+        # Summary by FICO band - count of deals
+        fico_count = fico_df.groupby('fico_band').size().reset_index(name='count')
+        
+        # Summary by FICO band - outstanding balance
+        fico_balance = fico_df.groupby('fico_band')['net_balance'].sum().reset_index()
+        
+        # Create chart for count of deals by FICO
+        count_chart = alt.Chart(fico_count).mark_bar().encode(
+            x=alt.X('fico_band:N', title="FICO Score Band", sort=fico_labels),
+            y=alt.Y('count:Q', title="Number of Deals"),
+            color=alt.Color('fico_band:N', 
+                scale=alt.Scale(
+                    domain=fico_labels,
+                    range=['#d62728', '#ff7f0e', '#ffbb78', '#2ca02c', '#98df8a', '#1f77b4']
+                ),
+                legend=None
+            ),
+            tooltip=[
+                alt.Tooltip('fico_band:N', title="FICO Score Band"),
+                alt.Tooltip('count:Q', title="Number of Deals")
+            ]
+        ).properties(
+            width=600,
+            height=300,
+            title="Count of Deals by FICO Score Band"
+        )
+        
+        # Create chart for outstanding balance by FICO
+        balance_chart = alt.Chart(fico_balance).mark_bar().encode(
+            x=alt.X('fico_band:N', title="FICO Score Band", sort=fico_labels),
+            y=alt.Y('net_balance:Q', title="Outstanding Balance ($)", axis=alt.Axis(format="$,.0f")),
+            color=alt.Color('fico_band:N', 
+                scale=alt.Scale(
+                    domain=fico_labels,
+                    range=['#d62728', '#ff7f0e', '#ffbb78', '#2ca02c', '#98df8a', '#1f77b4']
+                ),
+                legend=None
+            ),
+            tooltip=[
+                alt.Tooltip('fico_band:N', title="FICO Score Band"),
+                alt.Tooltip('net_balance:Q', title="Outstanding Balance", format="$,.0f")
+            ]
+        ).properties(
+            width=600,
+            height=300,
+            title="CSL Principal Outstanding by FICO Score Band"
+        )
+        
+        # Display charts
+        st.altair_chart(count_chart, use_container_width=True)
+        st.altair_chart(balance_chart, use_container_width=True)
+        
+        # Add summary table
+        st.subheader("FICO Score Band Summary")
+        fico_summary = fico_df.groupby('fico_band').agg(
+            deal_count=('loan_id', 'count'),
+            capital_deployed=('csl_participation_amount', 'sum'),
+            outstanding_balance=('net_balance', 'sum'),
+        ).reset_index()
+        
+        # Format for display
+        display_df = fico_summary.copy()
+        display_df['capital_deployed'] = display_df['capital_deployed'].map(lambda x: f"${x:,.0f}")
+        display_df['outstanding_balance'] = display_df['outstanding_balance'].map(lambda x: f"${x:,.0f}")
+        
+        # Rename columns
+        display_df.columns = [
+            'FICO Score Band', 'Deal Count', 'Capital Deployed', 'Outstanding Balance'
         ]
-    ).properties(
-        width=800,
-        height=400,
-        title="Loan Count by Industry Sector and Risk"
-    )
-    
-    st.altair_chart(chart, use_container_width=True)
+        
+        # Display table
+        st.dataframe(display_df, use_container_width=True)
+        
+    except Exception as e:
+        st.error(f"Error creating FICO distribution visualization: {str(e)}")
+        st.info("Unable to generate FICO distribution chart due to an error in data processing.")
+
+def plot_tib_distribution(df):
+    """
+    Create and display visualizations of capital exposure by Time in Business.
+    """
+    try:
+        # Check if Time in Business data exists
+        if 'time_in_business' not in df.columns or df['time_in_business'].isna().all():
+            st.warning("Time in Business data not available for analysis.")
+            return
+            
+        # Define TIB bands
+        tib_bins = [0, 5, 10, 15, 20, 25, 100]
+        tib_labels = ['≤5', '5-10', '10-15', '15-20', '20-25', '25+']
+        
+        # Create a copy to avoid modifying the original
+        tib_df = df.copy()
+        
+        # Convert TIB to numeric and handle any errors
+        tib_df['time_in_business'] = pd.to_numeric(tib_df['time_in_business'], errors='coerce')
+        
+        # Add TIB band column
+        tib_df['tib_band'] = pd.cut(
+            tib_df['time_in_business'], 
+            bins=tib_bins, 
+            labels=tib_labels, 
+            right=False
+        )
+        
+        # Summary by TIB band
+        tib_summary = tib_df.groupby('tib_band').agg(
+            deal_count=('loan_id', 'count'),
+            capital_deployed=('csl_participation_amount', 'sum'),
+            outstanding_balance=('net_balance', 'sum'),
+        ).reset_index()
+        
+        # Create chart for outstanding balance by TIB
+        tib_chart = alt.Chart(tib_summary).mark_bar().encode(
+            x=alt.X('tib_band:N', title="Time in Business (Years)", sort=tib_labels),
+            y=alt.Y('outstanding_balance:Q', title="CSL Principal Outstanding ($)", axis=alt.Axis(format="$,.0f")),
+            color=alt.Color('tib_band:N', 
+                scale=alt.Scale(
+                    domain=tib_labels,
+                    range=['#fee08b', '#fc8d59', '#ffcc80', '#fdae61', '#d9ef8b', '#91cf60']
+                ),
+                legend=None
+            ),
+            tooltip=[
+                alt.Tooltip('tib_band:N', title="Time in Business"),
+                alt.Tooltip('outstanding_balance:Q', title="Outstanding Balance", format="$,.0f"),
+                alt.Tooltip('deal_count:Q', title="Number of Deals")
+            ]
+        ).properties(
+            width=800,
+            height=400,
+            title="CSL Principal Outstanding by Time in Business"
+        )
+        
+        # Display chart
+        st.altair_chart(tib_chart, use_container_width=True)
+        
+        # Add summary table
+        st.subheader("Time in Business Summary")
+        
+        # Format for display
+        display_df = tib_summary.copy()
+        display_df['capital_deployed'] = display_df['capital_deployed'].map(lambda x: f"${x:,.0f}")
+        display_df['outstanding_balance'] = display_df['outstanding_balance'].map(lambda x: f"${x:,.0f}")
+        
+        # Rename columns
+        display_df.columns = [
+            'TIB Band', 'Deal Count', 'CSL Capital Deployed', 'CSL Principal Outstanding'
+        ]
+        
+        # Display table
+        st.dataframe(display_df, use_container_width=True)
+        
+    except Exception as e:
+        st.error(f"Error creating Time in Business visualization: {str(e)}")
+        st.info("Unable to generate Time in Business chart due to an error in data processing.")
+
+def plot_industry_risk_summary(df):
+    """
+    Create and display a comprehensive industry risk summary visualization.
+    """
+    try:
+        # Only include active loans
+        active_df = df[df['loan_status'] != 'Paid Off'].copy()
+        
+        if 'industry' not in active_df.columns or active_df['industry'].isna().all():
+            st.warning("Industry data not available for sector risk analysis.")
+            return
+            
+        # Get sector risk data
+        sector_risk_df = load_naics_sector_risk()
+        
+        # Join with loan data
+        df_with_risk = active_df.merge(
+            sector_risk_df,
+            on='sector_code',
+            how='left'
+        )
+        
+        # Summary by sector
+        sector_summary = df_with_risk.groupby(['sector_name', 'risk_score']).agg(
+            loan_count=('loan_id', 'count'),
+            total_deployed=('csl_participation_amount', 'sum'),
+            net_balance=('net_balance', 'sum'),
+            avg_payment_performance=('payment_performance', 'mean')
+        ).reset_index()
+        
+        # Create a summary by risk score
+        risk_summary = df_with_risk.groupby('risk_score').agg(
+            loan_count=('loan_id', 'count'),
+            net_balance=('net_balance', 'sum')
+        ).reset_index()
+        
+        # Risk score summary chart
+        risk_chart = alt.Chart(risk_summary).mark_bar().encode(
+            x=alt.X('risk_score:O', title="Risk Score"),
+            y=alt.Y('net_balance:Q', title="CSL Principal Outstanding ($)", axis=alt.Axis(format="$,.0f")),
+            color=alt.Color('risk_score:O', 
+                scale=alt.Scale(scheme="orangered"),
+                legend=None
+            ),
+            tooltip=[
+                alt.Tooltip('risk_score:O', title="Industry Risk Score"),
+                alt.Tooltip('net_balance:Q', title="Outstanding Balance", format="$,.0f"),
+                alt.Tooltip('loan_count:Q', title="Number of Loans")
+            ]
+        ).properties(
+            width=800,
+            height=400,
+            title="CSL Principal Outstanding by Risk Score"
+        )
+        
+        # Display chart
+        st.subheader("CSL Capital Exposure by Industry")
+        st.caption("Risk scores are based on industry sector risk profiles from NAICS data. Risk Score 5 represents the highest industry risk (darkest red).")
+        st.altair_chart(risk_chart, use_container_width=True)
+        
+        # Display table
+        st.subheader("Portfolio Summary by Industry Sector")
+        
+        # Sort sector summary by net balance
+        sector_table = sector_summary.sort_values('net_balance', ascending=False)
+        
+        # Format for display
+        display_df = sector_table.copy()
+        display_df['total_deployed'] = display_df['total_deployed'].map(lambda x: f"${x:,.0f}")
+        display_df['net_balance'] = display_df['net_balance'].map(lambda x: f"${x:,.0f}")
+        display_df['avg_payment_performance'] = display_df['avg_payment_performance'].map(lambda x: f"{x:.2%}")
+        
+        # Calculate percentage of total
+        total_balance = display_df['net_balance'].sum() if 'net_balance' in display_df.columns else 0
+        display_df['pct_of_total'] = sector_table['net_balance'] / sector_table['net_balance'].sum() * 100 if sector_table['net_balance'].sum() > 0 else 0
+        display_df['pct_of_total'] = display_df['pct_of_total'].map(lambda x: f"{x:.1f}%")
+        
+        # Rename columns
+        display_df.columns = [
+            'Industry Sector', 'Risk Score', 'Count of Deals', 'Total Deployed', 
+            'Principal Outstanding', 'Avg Payment Performance', '% of Total'
+        ]
+        
+        # Display table
+        st.dataframe(display_df, use_container_width=True)
+        
+    except Exception as e:
+        st.error(f"Error creating industry risk summary: {str(e)}")
+        st.info("Unable to generate industry risk summary due to an error in data processing.")
 
 # ------------------------------
 # Dashboard Sections
@@ -1557,7 +1768,7 @@ def display_filters(df):
     return filtered_df
 
 def display_portfolio_metrics(df):
-    """Display portfolio overview metrics."""
+    """Display portfolio overview metrics in a 4x3 matrix layout."""
     st.subheader("Portfolio Overview")
     
     # Calculate portfolio metrics
@@ -1584,36 +1795,45 @@ def display_portfolio_metrics(df):
     active_loans_mask = (df['loan_status'] != "Paid Off") & (df['maturity_date'] > pd.Timestamp.today())
     avg_remaining_maturity = df.loc[active_loans_mask, 'remaining_maturity_months'].mean() if not df.loc[active_loans_mask].empty else 0
     
-    # First row: Position counts and capital metrics
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Total Positions", total_positions)
-    with col2:
-        st.metric("Total Capital Deployed", f"${total_capital_deployed:,.2f}")
-    with col3:
-        st.metric("Total Capital Returned", f"${total_capital_returned:,.2f}")
+    # New 4x3 matrix layout
+    # Row 1: Counts
+    row1_col1, row1_col2, row1_col3 = st.columns(3)
+    with row1_col1:
+        st.metric("Total Positions", f"{total_positions}")
+    with row1_col2:
+        st.metric("Total Paid Off", f"{total_paid_off}")
+    with row1_col3:
+        st.metric("Total Outstanding", f"{total_active}")
     
-    # Second row: Fee metrics
-    col4, col5, col6 = st.columns(3)
-    with col4:
+    # Row 2: Capital metrics
+    row2_col1, row2_col2, row2_col3 = st.columns(3)
+    with row2_col1:
+        st.metric("Total Capital Deployed", f"${total_capital_deployed:,.2f}")
+    with row2_col2:
+        st.metric("Total Capital Returned", f"${total_capital_returned:,.2f}")
+    with row2_col3:
+        st.metric("Total Capital Outstanding", f"${net_balance:,.2f}")
+    
+    # Row 3: Fee metrics
+    row3_col1, row3_col2, row3_col3 = st.columns(3)
+    with row3_col1:
         st.metric("Total Commission Fees", f"${total_commission_fees:,.2f}")
-    with col5:
+    with row3_col2:
         st.metric("Total Platform Fees", f"${total_platform_fees:,.2f}")
-    with col6:
+    with row3_col3:
         st.metric("Total Bad Debt Allowance", f"${total_bad_debt_allowance:,.2f}")
     
-    # Third row: Average metrics
-    col7, col8, col9 = st.columns(3)
-    with col7:
+    # Row 4: Average metrics
+    row4_col1, row4_col2, row4_col3 = st.columns(3)
+    with row4_col1:
         st.metric("Average Total Paid", f"${avg_total_paid:,.2f}")
-    with col8:
-        # Use tooltip on the metric for better explanation
+    with row4_col2:
         st.metric(
             "Average Payment Performance", 
             f"{avg_payment_performance:.2%}", 
             help="Payment Performance measures the ratio of actual payments to expected payments. 100% means payments are on schedule."
         )
-    with col9:
+    with row4_col3:
         st.metric("Average Remaining Maturity", f"{avg_remaining_maturity:.1f} months")
 
 def display_top_positions(df):
@@ -1857,7 +2077,9 @@ def display_cohort_analysis(df):
     st.dataframe(cohort_display.sort_values('Cohort'), use_container_width=True)
 
 def display_risk_analytics(df):
-    """Display risk analytics section."""
+    """
+    Display risk analytics section with comprehensive industry, FICO, and time in business analysis.
+    """
     st.header("Portfolio Risk Analytics")
     
     # Calculate risk scores for active loans
@@ -1967,9 +2189,19 @@ def display_risk_analytics(df):
     
     plot_risk_scatter(risk_df, df['payment_performance'].mean())
     
-    # Industry risk by dollar amounts
-    st.subheader("Industry Risk Composition")
-    plot_sector_risk_by_dollars(df)
+    # Industry risk analysis
+    st.markdown("---")
+    plot_industry_risk_summary(df)
+    
+    # FICO Score Distribution
+    st.markdown("---")
+    st.header("Portfolio Distribution by FICO Score")
+    plot_fico_distribution(df)
+    
+    # Time in Business Distribution
+    st.markdown("---")
+    st.header("Capital Exposure by Time in Business")
+    plot_tib_distribution(df)
 
 # ------------------------------
 # Main Application
@@ -2037,7 +2269,7 @@ def main():
         plot_capital_waterfall(filtered_df)
     
     with tabs[2]:
-        # Risk analytics section
+        # Risk analytics section with enhanced industry, FICO, and TIB analysis
         display_risk_analytics(filtered_df)
         
     with tabs[3]:
