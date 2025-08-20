@@ -429,112 +429,275 @@ st.download_button(
 )
 
 # ----------------------------
-# Capital Timeline Visualization
+# Capital Deployment vs Returns Over Time (Combined)
 # ----------------------------
-st.subheader("Capital Deployment Timeline")
+st.subheader("Capital Flow: Deployment vs. Returns")
 
-if 'funding_date' in df.columns and 'csl_participation_amount' in df.columns:
-    capital_df = df[['funding_date', 'csl_participation_amount']].dropna().copy()
-    capital_df = capital_df.sort_values('funding_date')
-    capital_df['cumulative_capital'] = capital_df['csl_participation_amount'].cumsum()
+# Convert funding_date to datetime if not already
+df['funding_date'] = pd.to_datetime(df['funding_date'], errors='coerce')
 
-    # Define thresholds and milestone dates
-    thresholds = [500_000, 1_000_000, 2_000_000, 3_000_000]
-    milestone_dates = {}
-    for threshold in thresholds:
-        milestone = capital_df[capital_df['cumulative_capital'] >= threshold]
-        if not milestone.empty:
-            milestone_dates[f"${threshold:,}"] = milestone.iloc[0]['funding_date']
+# Capital Deployed
+deploy_df = df[['funding_date', 'csl_participation_amount']].dropna().sort_values('funding_date')
+deploy_df = deploy_df.groupby('funding_date').sum().cumsum().reset_index()
+deploy_df.rename(columns={'csl_participation_amount': 'capital_deployed'}, inplace=True)
 
-    # Plot
-    base = alt.Chart(capital_df).mark_line().encode(
-        x=alt.X("funding_date:T", title="Funding Date"),
-        y=alt.Y("cumulative_capital:Q", title="Cumulative Capital Deployed ($)"),
-        tooltip=["funding_date", "cumulative_capital"]
-    )
+# Capital Returned
+return_df = df[['funding_date', 'total_paid']].dropna().sort_values('funding_date')
+return_df = return_df.groupby('funding_date').sum().cumsum().reset_index()
+return_df.rename(columns={'total_paid': 'capital_returned'}, inplace=True)
 
-    rules = [
-        alt.Chart(pd.DataFrame({'date': [d], 'label': [label]})).mark_rule(color="red").encode(
-            x='date:T',
-            tooltip=[alt.Tooltip('label:N'), alt.Tooltip('date:T')]
-        )
-        for label, d in milestone_dates.items()
+# Merge
+flow_df = pd.merge(deploy_df, return_df, on='funding_date', how='outer').sort_values('funding_date').fillna(method='ffill')
+
+# Milestone Annotations
+milestones = [500_000, 1_000_000, 2_000_000, 3_000_000]
+milestone_df = pd.DataFrame()
+for value in milestones:
+    row = flow_df[flow_df['capital_deployed'] >= value].head(1)
+    if not row.empty:
+        row = row.copy()
+        row['milestone'] = f"${value:,.0f}"
+        milestone_df = pd.concat([milestone_df, row])
+
+# Chart
+deploy_line = alt.Chart(flow_df).mark_line(color="red").encode(
+    x='funding_date:T',
+    y='capital_deployed:Q',
+    tooltip=['funding_date:T', alt.Tooltip('capital_deployed:Q', title="Capital Deployed", format="$,.0f")]
+)
+
+return_line = alt.Chart(flow_df).mark_line(color="green").encode(
+    x='funding_date:T',
+    y='capital_returned:Q',
+    tooltip=['funding_date:T', alt.Tooltip('capital_returned:Q', title="Capital Returned", format="$,.0f")]
+)
+
+milestone_points = alt.Chart(milestone_df).mark_point(filled=True, size=80, color="red").encode(
+    x='funding_date:T',
+    y='capital_deployed:Q',
+    tooltip=[alt.Tooltip('milestone:N', title="Milestone"), 'funding_date:T']
+)
+
+capital_chart = (deploy_line + return_line + milestone_points).properties(
+    width=800,
+    height=400,
+    title="Capital Deployed (Red) vs. Capital Returned (Green)"
+)
+
+st.altair_chart(capital_chart, use_container_width=True)
+
+# ----------------------------
+# IRR Calculation & Display
+# ----------------------------
+st.subheader("IRR Analysis for Paid-Off Loans")
+
+# Convert payoff_date to datetime
+df['payoff_date'] = pd.to_datetime(df['payoff_date'], errors='coerce')
+df['maturity_date'] = pd.to_datetime(df['maturity_date'], errors='coerce')
+
+paid_df = df[df['loan_status'] == "Paid Off"].copy()
+
+# Calculate Realized IRR and Expected IRR
+def calc_irr(row):
+    if pd.isna(row['funding_date']) or pd.isna(row['payoff_date']) or row['total_invested'] <= 0:
+        return None
+    return npf.irr([-row['total_invested'], row['total_paid']])
+
+def calc_expected_irr(row):
+    if pd.isna(row['funding_date']) or pd.isna(row['maturity_date']) or row['total_invested'] <= 0:
+        return None
+    return npf.irr([-row['total_invested'], row['total_paid']])
+
+paid_df['realized_irr'] = paid_df.apply(calc_irr, axis=1)
+paid_df['expected_irr'] = paid_df.apply(calc_expected_irr, axis=1)
+
+# Average IRRs
+avg_realized_irr = paid_df['realized_irr'].mean()
+avg_expected_irr = paid_df['expected_irr'].mean()
+
+col1, col2 = st.columns(2)
+with col1:
+    st.metric("Average Realized IRR", f"{avg_realized_irr:.2%}" if pd.notnull(avg_realized_irr) else "N/A")
+with col2:
+    st.metric("Average Expected IRR", f"{avg_expected_irr:.2%}" if pd.notnull(avg_expected_irr) else "N/A")
+
+# ----------------------------
+# IRR per Loan Table
+# ----------------------------
+st.subheader("IRR by Loan")
+
+irr_display = paid_df[[
+    'loan_id', 'deal_name', 'partner_source', 'funding_date', 'payoff_date',
+    'total_invested', 'total_paid', 'realized_irr', 'expected_irr'
+]].copy()
+
+irr_display['realized_irr'] = irr_display['realized_irr'].map(lambda x: f"{x:.2%}" if pd.notnull(x) else "")
+irr_display['expected_irr'] = irr_display['expected_irr'].map(lambda x: f"{x:.2%}" if pd.notnull(x) else "")
+irr_display['total_invested'] = irr_display['total_invested'].map(lambda x: f"${x:,.2f}")
+irr_display['total_paid'] = irr_display['total_paid'].map(lambda x: f"${x:,.2f}")
+
+st.dataframe(irr_display.sort_values(by='realized_irr', ascending=False), use_container_width=True)
+
+# ----------------------------
+# IRR by Partner
+# ----------------------------
+st.subheader("Average IRR by Partner")
+
+irr_by_partner = paid_df.groupby('partner_source').agg(
+    avg_irr=('realized_irr', 'mean'),
+    deal_count=('loan_id', 'count')
+).dropna().reset_index()
+
+irr_chart = alt.Chart(irr_by_partner).mark_bar().encode(
+    x=alt.X('avg_irr:Q', title="Average IRR", axis=alt.Axis(format=".0%")),
+    y=alt.Y('partner_source:N', title="Partner", sort='-x'),
+    color=alt.value(PRIMARY_COLOR),
+    tooltip=['partner_source:N', alt.Tooltip('avg_irr:Q', format=".2%"), 'deal_count:Q']
+).properties(
+    width=700,
+    height=400,
+    title="Average IRR by Partner"
+)
+
+st.altair_chart(irr_chart, use_container_width=True)
+
+# ----------------------------
+# Vintage/Cohort/Waterfall Scaffold
+# ----------------------------
+st.subheader("Cohort & Vintage Analysis (Prototype)")
+
+# Create cohort column (e.g., 2024-Q1)
+df['cohort'] = df['funding_date'].dt.to_period('Q').astype(str)
+cohort_summary = df.groupby('cohort').agg(
+    loans=('loan_id', 'count'),
+    capital_deployed=('csl_participation_amount', 'sum'),
+    capital_returned=('total_paid', 'sum'),
+    avg_roi=('roi', 'mean')
+).reset_index()
+
+st.dataframe(cohort_summary.sort_values('cohort'), use_container_width=True)
+
+# ----------------------------
+# Cohort Repayment Heatmap (% of RTR Paid Over Time)
+# ----------------------------
+st.subheader("Cohort Repayment Heatmap (Cumulative % of RTR Paid)")
+
+# Filter relevant loans
+cohort_df = df[
+    (df['funding_date'].notna()) &
+    (df['our_rtr'] > 0) &
+    (df['total_paid'] >= 0)
+].copy()
+
+# Extract cohort
+cohort_df['cohort'] = cohort_df['funding_date'].dt.to_period('Q').astype(str)
+cohort_df['funding_month'] = cohort_df['funding_date'].dt.to_period('M')
+
+# Calculate "months since funding"
+cohort_df['current_month'] = pd.Timestamp.today().to_period('M')
+cohort_df['months_since_funding'] = ((cohort_df['current_month'] - cohort_df['funding_month']).apply(lambda x: x.n)).clip(lower=0)
+
+# Create base repayment % for each loan
+cohort_df['repayment_pct'] = (cohort_df['total_paid'] / cohort_df['our_rtr']).clip(upper=1.0)
+
+# Group by cohort and months since funding
+repayment_grid = cohort_df.groupby(['cohort', 'months_since_funding']).agg(
+    avg_repayment_pct=('repayment_pct', 'mean'),
+    loans=('loan_id', 'count')
+).reset_index()
+
+# Build heatmap
+heatmap = alt.Chart(repayment_grid).mark_rect().encode(
+    x=alt.X('months_since_funding:O', title="Months Since Funding"),
+    y=alt.Y('cohort:N', title="Cohort (Funding Quarter)", sort='-y'),
+    color=alt.Color('avg_repayment_pct:Q', title="% Repaid", scale=alt.Scale(scheme="greens")),
+    tooltip=[
+        alt.Tooltip('cohort:N', title="Cohort"),
+        alt.Tooltip('months_since_funding:O', title="Months Since Funding"),
+        alt.Tooltip('avg_repayment_pct:Q', title="Avg % Repaid", format=".0%"),
+        alt.Tooltip('loans:Q', title="# of Loans")
     ]
+).properties(
+    width=700,
+    height=400,
+    title="Repayment Progress by Cohort"
+)
 
-    final_chart = base
-    for rule in rules:
-        final_chart += rule
-
-    st.altair_chart(final_chart, use_container_width=True)
-
-# ----------------------------
-# Running Total Paid Over Time
-# ----------------------------
-st.subheader("Total Capital Returned Over Time")
-
-if 'funding_date' in df.columns and 'total_paid' in df.columns:
-    paid_df = df[['funding_date', 'total_paid']].dropna().copy()
-    paid_df = paid_df.groupby('funding_date').sum().sort_index()
-    paid_df['cumulative_paid'] = paid_df['total_paid'].cumsum()
-    paid_df = paid_df.reset_index()
-
-    paid_chart = alt.Chart(paid_df).mark_line().encode(
-        x=alt.X('funding_date:T', title='Funding Date'),
-        y=alt.Y('cumulative_paid:Q', title='Cumulative Total Paid ($)'),
-        tooltip=['funding_date', 'cumulative_paid']
-    ).properties(
-        width=800,
-        height=400,
-        title="Running Total of Capital Returned"
-    )
-
-    st.altair_chart(paid_chart, use_container_width=True)
+st.altair_chart(heatmap, use_container_width=True)
 
 # ----------------------------
-# IRR for Paid Off Loans
+# Capital Flow Waterfall Chart
 # ----------------------------
-st.subheader("Realized & Expected IRR (Paid Off Loans Only)")
+st.subheader("Capital Flow Waterfall")
 
-# Filter
-irr_df = df[(df['loan_status'] == "Paid Off") & df['funding_date'].notna() & df['maturity_date'].notna()].copy()
+# Summarize values
+total_invested = df['total_invested'].sum()
+platform_fees = (df['csl_participation_amount'] * 0.03).sum()
+commission_fees = df['commission_fees'].sum()
+capital_returned = df['total_paid'].sum()
 
-# Ensure all required fields exist
-if not irr_df.empty and 'total_invested' in irr_df.columns and 'total_paid' in irr_df.columns:
+net_investment = total_invested - platform_fees - commission_fees
+net_gain = capital_returned - net_investment
 
-    def calc_irr(row):
-        try:
-            days_held = (row['payoff_date'] - row['funding_date']).days
-            if days_held <= 0:
-                return None
-            return npf.irr([-row['total_invested'], row['total_paid']])
-        except:
-            return None
+# Build waterfall data
+waterfall_data = pd.DataFrame([
+    {"label": "Capital Deployed", "value": total_invested, "type": "start"},
+    {"label": "Less Platform Fees", "value": -platform_fees, "type": "decrease"},
+    {"label": "Less Commission Fees", "value": -commission_fees, "type": "decrease"},
+    {"label": "Net Investment", "value": net_investment, "type": "subtotal"},
+    {"label": "Capital Returned", "value": capital_returned, "type": "increase"},
+    {"label": "Net Gain/Loss", "value": net_gain, "type": "net"}
+])
 
-    def calc_expected_irr(row):
-        try:
-            days_expected = (row['maturity_date'] - row['funding_date']).days
-            if days_expected <= 0:
-                return None
-            return npf.irr([-row['total_invested'], row['total_paid']])
-        except:
-            return None
-
-    # Try to use payoff_date (if available), fallback to maturity_date
-    if 'payoff_date' in irr_df.columns:
-        irr_df['realized_irr'] = irr_df.apply(calc_irr, axis=1)
+# Compute cumulative position
+cumulative = []
+running_total = 0
+for _, row in waterfall_data.iterrows():
+    if row['type'] == "start":
+        start = row['value']
+        end = start
     else:
-        irr_df['realized_irr'] = irr_df.apply(calc_expected_irr, axis=1)  # fallback
+        start = running_total
+        end = start + row['value']
+    cumulative.append({
+        "label": row['label'],
+        "start": start,
+        "end": end,
+        "color": (
+            "#2ca02c" if row['value'] > 0 else "#d62728"
+            if row['type'] not in ["start", "subtotal"] else "#1f77b4"
+        ),
+        "value": row['value']
+    })
+    running_total = end
 
-    irr_df['expected_irr'] = irr_df.apply(calc_expected_irr, axis=1)
+wf_df = pd.DataFrame(cumulative)
 
-    avg_realized_irr = irr_df['realized_irr'].mean(skipna=True)
-    avg_expected_irr = irr_df['expected_irr'].mean(skipna=True)
+# Create bars
+bars = alt.Chart(wf_df).mark_bar().encode(
+    x=alt.X('label:N', title=""),
+    y=alt.Y('start:Q', title="Capital ($)"),
+    y2='end:Q',
+    color=alt.Color('color:N', scale=None, legend=None),
+    tooltip=[
+        alt.Tooltip('label:N'),
+        alt.Tooltip('value:Q', format="$,.2f")
+    ]
+).properties(
+    width=700,
+    height=400,
+    title="Capital Waterfall"
+)
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("Average Realized IRR", f"{avg_realized_irr:.2%}" if pd.notnull(avg_realized_irr) else "N/A")
-    with col2:
-        st.metric("Average Expected IRR", f"{avg_expected_irr:.2%}" if pd.notnull(avg_expected_irr) else "N/A")
+# Add labels
+labels = alt.Chart(wf_df).mark_text(
+    dy=-10,
+    size=12,
+    fontWeight="bold"
+).encode(
+    x='label:N',
+    y='end:Q',
+    text=alt.Text('value:Q', format="$,.0f")
+)
 
-else:
-    st.info("Insufficient data to calculate IRR. Ensure 'funding_date', 'maturity_date', and 'total_paid' are present.")
+st.altair_chart(bars + labels, use_container_width=True)
