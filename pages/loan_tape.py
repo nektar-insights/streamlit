@@ -757,6 +757,97 @@ with tabs[1]:
     )
 
     # ----------------------------
+    # Loan Status Distribution Chart
+    # ----------------------------
+    st.subheader("Loan Status Distribution")
+    
+    status_counts = df["loan_status"].fillna("Unknown").value_counts(normalize=True)
+    status_csl_balance = df.groupby("loan_status")["net_balance"].sum()
+    
+    status_chart_df = pd.DataFrame({
+        "Status": status_counts.index,
+        "Share": status_counts.values,
+        "Net Balance ($)": status_csl_balance.reindex(status_counts.index).fillna(0).values
+    })
+    
+    bar = alt.Chart(status_chart_df).mark_bar().encode(
+        x=alt.X("Status:N", title="Loan Status", sort="-y"),
+        y=alt.Y("Share:Q", title="% of Loans", axis=alt.Axis(format=".0%")),
+        color=alt.Color("Share:Q", scale=alt.Scale(scheme="redyellowgreen"), legend=None),
+        tooltip=[
+            alt.Tooltip("Status:N"),
+            alt.Tooltip("Share:Q", format=".1%", title="Share of Loans"),
+            alt.Tooltip("Net Balance ($):Q", format="$,.0f", title="Net Balance")
+        ]
+    ).properties(
+        width=700,
+        height=350,
+        title="Loan Count by Status"
+    )
+    
+    st.altair_chart(bar, use_container_width=True)
+    
+    # ----------------------------
+    # Risk Score Distribution (Bar)
+    # ----------------------------
+    st.subheader("Risk Score Distribution")
+    
+    risk_bins = [0, 0.2, 0.4, 0.6, 0.8, 1.0]
+    risk_labels = ["0–0.2", "0.2–0.4", "0.4–0.6", "0.6–0.8", "0.8–1.0"]
+    risk_df["risk_band"] = pd.cut(risk_df["risk_score"], bins=risk_bins, labels=risk_labels)
+    
+    band_summary = risk_df.groupby("risk_band").agg(
+        loan_count=("loan_id", "count"),
+        net_balance=("net_balance", "sum")
+    ).reset_index()
+    
+    risk_bar = alt.Chart(band_summary).mark_bar().encode(
+        x=alt.X("risk_band:N", title="Risk Score Band"),
+        y=alt.Y("loan_count:Q", title="Loan Count"),
+        color=alt.Color("loan_count:Q", scale=alt.Scale(scheme="orangered"), legend=None),
+        tooltip=[
+            alt.Tooltip("risk_band:N", title="Risk Band"),
+            alt.Tooltip("loan_count:Q", title="Loan Count"),
+            alt.Tooltip("net_balance:Q", title="Net Balance ($)", format="$,.0f")
+        ]
+    ).properties(
+        width=650,
+        height=350,
+        title="Loan Count by Risk Score Band"
+    )
+    
+    st.altair_chart(risk_bar, use_container_width=True)
+    
+    # ----------------------------
+    # Risk Scatter Plot: Gap vs. Age
+    # ----------------------------
+    st.subheader("Risk Score by Payment Performance & Loan Age")
+    
+    scatter = alt.Chart(risk_df).mark_circle(size=75).encode(
+        x=alt.X("performance_gap:Q", title="Performance Gap (1 - Paid %)"),
+        y=alt.Y("days_since_funding:Q", title="Days Since Funding"),
+        size=alt.Size("risk_score:Q", title="Risk Score"),
+        color=alt.Color("risk_score:Q", scale=alt.Scale(scheme="orangered"), title="Risk Score"),
+        tooltip=[
+            alt.Tooltip("loan_id:N", title="Loan ID"),
+            alt.Tooltip("deal_name:N", title="Deal Name"),
+            alt.Tooltip("performance_gap:Q", format=".2f", title="Gap"),
+            alt.Tooltip("days_since_funding:Q", title="Age (Days)"),
+            alt.Tooltip("risk_score:Q", format=".2f", title="Risk Score"),
+            alt.Tooltip("net_balance:Q", format="$,.0f", title="Net Balance")
+        ]
+    ).properties(
+        width=750,
+        height=400,
+        title="Loan Risk: Gap vs. Age"
+    )
+    
+    threshold_x = alt.Chart(pd.DataFrame({"x": [0.10]})).mark_rule(strokeDash=[4, 4], color="gray").encode(x="x:Q")
+    threshold_y = alt.Chart(pd.DataFrame({"y": [90]})).mark_rule(strokeDash=[4, 4], color="gray").encode(y="y:Q")
+    
+    st.altair_chart(scatter + threshold_x + threshold_y, use_container_width=True)
+
+    # ----------------------------
     # NAICS Sector Risk Integration
     # ----------------------------
     st.subheader("Industry Risk Composition")
