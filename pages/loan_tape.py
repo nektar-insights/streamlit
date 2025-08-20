@@ -701,3 +701,127 @@ labels = alt.Chart(wf_df).mark_text(
 )
 
 st.altair_chart(bars + labels, use_container_width=True)
+
+# ----------------------------
+# Add Tabs to Page
+# ----------------------------
+tabs = st.tabs(["📊 Summary", "📈 Analytics"])
+
+with tabs[0]:
+    st.info("Loan Tape Summary already rendered above...")
+
+with tabs[1]:
+    st.header("📈 Portfolio Risk Analytics")
+
+    # ----------------------------
+    # Risk Score Calculation Based on Performance
+    # ----------------------------
+    risk_df = df.copy()
+    risk_df = risk_df[risk_df['loan_status'] != 'Paid Off']
+
+    # Normalize dates
+    risk_df['funding_date'] = pd.to_datetime(risk_df['funding_date'], errors='coerce')
+    risk_df['days_since_funding'] = (pd.Timestamp.today() - risk_df['funding_date']).dt.days
+
+    # Calculate performance-based risk score
+    # Score = 70% payment performance shortfall + 30% deal age
+    max_age = risk_df['days_since_funding'].max()
+    risk_df['performance_gap'] = 1 - risk_df['payment_performance'].clip(upper=1.0)
+    risk_df['age_weight'] = risk_df['days_since_funding'] / max_age if max_age > 0 else 0
+    risk_df['risk_score'] = (risk_df['performance_gap'] * 0.7) + (risk_df['age_weight'] * 0.3)
+
+    # Top 10 risk
+    top_risk = risk_df.sort_values("risk_score", ascending=False).head(10)
+
+    st.subheader("Top 10 Underperforming Loans by Risk Score")
+
+    st.dataframe(
+        top_risk[[
+            'loan_id', 'deal_name', 'funding_date', 'payment_performance',
+            'days_since_funding', 'performance_gap', 'risk_score'
+        ]].rename(columns={
+            'loan_id': 'Loan ID',
+            'deal_name': 'Deal Name',
+            'funding_date': 'Funded',
+            'payment_performance': 'Payment Performance',
+            'days_since_funding': 'Days Since Funding',
+            'performance_gap': 'Performance Gap',
+            'risk_score': 'Risk Score'
+        }).sort_values("Risk Score", ascending=False),
+        use_container_width=True,
+        column_config={
+            "Payment Performance": st.column_config.NumberColumn(format="%.2f"),
+            "Performance Gap": st.column_config.NumberColumn(format="%.2f"),
+            "Risk Score": st.column_config.NumberColumn(format="%.3f")
+        }
+    )
+
+    # ----------------------------
+    # NAICS Sector Risk Integration
+    # ----------------------------
+    st.subheader("Industry Risk Composition")
+
+    # Extract 2-digit NAICS sector code
+    if 'industry' in df.columns:
+        df['sector_code'] = df['industry'].astype(str).str[:2]
+
+        # Load sector risk data from Supabase
+        @st.cache_data(ttl=3600)
+        def load_naics_sector_risk():
+            res = supabase.table("naics_sector_risk_profile").select("*").execute()
+            return pd.DataFrame(res.data)
+
+        sector_risk_df = load_naics_sector_risk()
+
+        # Join
+        df_with_risk = df.merge(
+            sector_risk_df,
+            on='sector_code',
+            how='left'
+        )
+
+        # Summary by sector
+        sector_summary = df_with_risk.groupby(['sector_name', 'risk_score']).agg(
+            loan_count=('loan_id', 'count'),
+            total_deployed=('csl_participation_amount', 'sum'),
+            avg_payment_performance=('payment_performance', 'mean')
+        ).reset_index()
+
+        sector_summary = sector_summary.sort_values('loan_count', ascending=False)
+
+        st.dataframe(
+            sector_summary.rename(columns={
+                'sector_name': 'Sector',
+                'risk_score': 'Risk Score',
+                'loan_count': 'Loan Count',
+                'total_deployed': 'Capital Deployed',
+                'avg_payment_performance': 'Avg Payment Performance'
+            }),
+            use_container_width=True,
+            column_config={
+                "Capital Deployed": st.column_config.NumberColumn(format="$%.0f"),
+                "Avg Payment Performance": st.column_config.NumberColumn(format="%.2f")
+            }
+        )
+
+        # Visualization
+        chart = alt.Chart(sector_summary).mark_bar().encode(
+            x=alt.X('Sector:N', sort='-y', title="Industry Sector"),
+            y=alt.Y('loan_count:Q', title="Number of Loans"),
+            color=alt.Color('risk_score:Q', title="Risk Score", scale=alt.Scale(scheme="orangered")),
+            tooltip=[
+                alt.Tooltip('Sector:N'),
+                alt.Tooltip('loan_count:Q', title="Loans"),
+                alt.Tooltip('total_deployed:Q', title="Capital", format="$,.0f"),
+                alt.Tooltip('avg_payment_performance:Q', title="Avg Payment Performance", format=".2f")
+            ]
+        ).properties(
+            width=800,
+            height=400,
+            title="Loan Count by Industry Sector and Risk"
+        )
+
+        st.altair_chart(chart, use_container_width=True)
+
+    else:
+        st.warning("Industry field not available for sector risk analysis.")
