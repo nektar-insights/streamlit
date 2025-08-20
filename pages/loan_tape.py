@@ -1291,7 +1291,7 @@ def display_capital_at_risk(df):
         st.info("No active loans to analyze for capital at risk.")
         return
     
-    # Calculate remaining principal by loan status
+    # Calculate remaining principal by loan status - explicitly set observed=True
     status_principal = active_df.groupby('loan_status', observed=True).agg(
         remaining_principal=('csl_participation_amount', 'sum'),
         total_paid=('total_paid', 'sum'),
@@ -1459,6 +1459,7 @@ def display_capital_at_risk(df):
         ]
     )
     
+    # Explicitly set observed=True for pandas future compatibility
     diff_distribution = active_df.groupby('payment_diff_category', observed=True).agg(
         loan_count=('loan_id', 'count'),
         total_difference=('payment_difference', 'sum'),
