@@ -1,396 +1,6 @@
-def plot_sector_risk_by_dollars(df):
-    """
-    Create and display visualizations of industry risk by dollar amount of outstanding principal.
-    
-    Args:
-        df: DataFrame with loan data
-    """
-    try:
-        # Only include active loans
-        active_df = df[df['loan_status'] != 'Paid Off'].copy()
-        
-        if 'industry' not in active_df.columns or active_df['industry'].isna().all():
-            st.warning("Industry data not available for sector risk analysis.")
-            return
-            
-        # Get sector risk data
-        sector_risk_df = load_naics_sector_risk()
-        
-        # Join with loan data
-        df_with_risk = active_df.merge(
-            sector_risk_df,
-            on='sector_code',
-            how='left'
-        )
-        
-        # Summary by sector
-        sector_summary = df_with_risk.groupby(['sector_name', 'risk_score']).agg(
-            loan_count=('loan_id', 'count'),
-            total_deployed=('csl_participation_amount', 'sum'),
-            net_balance=('net_balance', 'sum'),
-            avg_payment_performance=('payment_performance', 'mean')
-        ).reset_index()
-        
-        sector_summary = sector_summary.sort_values('net_balance', ascending=False)
-        
-        if sector_summary.empty:
-            st.info("No sector data available with sufficient risk information.")
-            return
-            
-        # Display data table with both loan count and dollar exposure
-        st.subheader("Industry Exposure by Dollar Amount")
-        
-        # Format for display
-        display_df = sector_summary.copy()
-        display_df['total_deployed'] = display_df['total_deployed'].map(lambda x: f"${x:,.0f}")
-        display_df['net_balance'] = display_df['net_balance'].map(lambda x: f"${x:,.0f}")
-        display_df['avg_payment_performance'] = display_df['avg_payment_performance'].map(lambda x: f"{x:.2%}")
-        
-        # Rename columns
-        display_df.columns = [
-            'Industry Sector', 'Risk Score', 'Loan Count', 
-            'Capital Deployed', 'Outstanding Balance', 'Avg Payment Performance'
-        ]
-        
-        st.dataframe(display_df, use_container_width=True)
-        
-        # Create chart showing dollar exposure by industry
-        chart = alt.Chart(sector_summary).mark_bar().encode(
-            x=alt.X('net_balance:Q', title="Outstanding Balance ($)", axis=alt.Axis(format="$,.0f")),
-            y=alt.Y('sector_name:N', title="Industry Sector", sort='-x'),
-            color=alt.Color('risk_score:Q', 
-                title="Risk Score", 
-                scale=alt.Scale(scheme="orangered"),
-                legend=alt.Legend(format=".0f")
-            ),
-            tooltip=[
-                alt.Tooltip('sector_name:N', title="Industry Sector"),
-                alt.Tooltip('loan_count:Q', title="Loans"),
-                alt.Tooltip('net_balance:Q', title="Outstanding Balance", format="$,.0f"),
-                alt.Tooltip('total_deployed:Q', title="Capital Deployed", format="$,.0f"),
-                alt.Tooltip('avg_payment_performance:Q', title="Avg Payment Performance", format=".2%")
-            ]
-        ).properties(
-            width=800,
-            height=400,
-            title={
-                "text": "Outstanding Balance by Industry Sector",
-                "subtitle": "Color indicates risk level of each sector",
-                "fontSize": 16
-            }
-        )
-        
-        # Add count labels
-        text = alt.Chart(sector_summary).mark_text(
-            align='left',
-            baseline='middle',
-            dx=5,
-            fontSize=10
-        ).encode(
-            x='net_balance:Q',
-            y='sector_name:N',
-            text=alt.Text('loan_count:Q', format='d', title="Loan Count")
-        )
-
-        st.altair_chart(chart + text, use_container_width=True)
-        
-        # Pie chart showing balance distribution by sector
-        pie = alt.Chart(sector_summary).mark_arc().encode(
-            theta=alt.Theta(field="net_balance", type="quantitative"),
-            color=alt.Color(
-                field="sector_name", 
-                type="nominal",
-                legend=alt.Legend(title="Industry Sector")
-            ),
-            tooltip=[
-                alt.Tooltip('sector_name:N', title="Industry Sector"),
-                alt.Tooltip('net_balance:Q', title="Outstanding Balance", format="$,.0f"),
-                alt.Tooltip('loan_count:Q', title="Loan Count"),
-                alt.Tooltip('risk_score:Q', title="Risk Score", format=".0f")
-            ]
-        ).properties(
-            width=500,
-            height=400,
-            title={
-                "text": "Outstanding Balance Distribution by Industry",
-                "fontSize": 16
-            }
-        )
-        
-        st.altair_chart(pie, use_container_width=True)
-        
-    except Exception as e:
-        st.error(f"Error creating industry risk visualization: {str(e)}")
-        st.info("Unable to generate industry risk chart due to an error in data processing.")
-def calculate_expected_payment_to_date(row):
-    """
-    Calculate how much should have been paid by now based on:
-    - Time elapsed since funding
-    - Expected maturity date
-    - Total expected RTR
-    
-    This assumes linear payment over time.
-    """
-    if pd.isna(row['funding_date']) or pd.isna(row['maturity_date']) or pd.isna(row['our_rtr']):
-        return 0
-        
-    try:
-        # Convert to timezone-naive dates for consistent comparison
-        funding_date = pd.to_datetime(row['funding_date']).tz_localize(None)
-        maturity_date = pd.to_datetime(row['maturity_date']).tz_localize(None)
-        current_date = pd.Timestamp.today().tz_localize(None)
-        
-        # If loan is past maturity, expected payment is full RTR
-        if current_date >= maturity_date:
-            return row['our_rtr']
-            
-        # Calculate expected payment based on time elapsed
-        total_days = (maturity_date - funding_date).days
-        days_elapsed = (current_date - funding_date).days
-        
-        if total_days <= 0:
-            return 0
-            
-        # Calculate expected percentage completion
-        expected_pct = min(1.0, max(0.0, days_elapsed / total_days))
-        
-        # Calculate expected payment
-        expected_payment = row['our_rtr'] * expected_pct
-        
-        return expected_payment
-    except Exception as e:
-        # Handle any timezone or conversion errors
-        st.warning(f"Error calculating expected payment: {str(e)}")
-        return 0
-
-def display_capital_at_risk(df):
-    """
-    Display the Capital at Risk analysis section.
-    
-    This section focuses on principal balance remaining, risk exposure,
-    and the difference between expected and actual returns.
-    """
-    st.header("Capital at Risk Analysis")
-    
-    # Filter out paid-off loans
-    active_df = df[df['loan_status'] != "Paid Off"].copy()
-    
-    if active_df.empty:
-        st.info("No active loans to analyze for capital at risk.")
-        return
-    
-    # Calculate remaining principal by loan status
-    status_principal = active_df.groupby('loan_status', observed=True).agg(
-        remaining_principal=('csl_participation_amount', 'sum'),
-        total_paid=('total_paid', 'sum'),
-        count=('loan_id', 'count')
-    ).reset_index()
-    
-    # Calculate principal recovery percentage
-    status_principal['recovery_pct'] = status_principal['total_paid'] / status_principal['remaining_principal']
-    
-    # Calculate total remaining principal
-    total_principal = status_principal['remaining_principal'].sum()
-    total_recovery = status_principal['total_paid'].sum()
-    overall_recovery_pct = total_recovery / total_principal if total_principal > 0 else 0
-    
-    # Display metrics with tooltips
-    st.subheader("Remaining Principal Exposure")
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric(
-            "Total Principal at Risk", 
-            f"${total_principal:,.2f}",
-            help="Total principal amount for all active loans (excluding paid off loans)"
-        )
-    with col2:
-        st.metric(
-            "Total Recovery to Date", 
-            f"${total_recovery:,.2f}",
-            help="Total amount recovered so far from active loans"
-        )
-    with col3:
-        st.metric(
-            "Overall Recovery Percentage", 
-            f"{overall_recovery_pct:.2%}",
-            help="Percentage of principal that has been recovered from active loans"
-        )
-        
-    # Create stacked bar chart of principal by status
-    st.subheader("Principal at Risk by Loan Status")
-    
-    # Plot principal at risk by status
-    principal_chart = alt.Chart(status_principal).mark_bar().encode(
-        x=alt.X('loan_status:N', title="Loan Status", axis=alt.Axis(labelAngle=-45)),
-        y=alt.Y('remaining_principal:Q', title="Principal Amount ($)", axis=alt.Axis(format="$,.0f")),
-        color=alt.Color('loan_status:N', legend=alt.Legend(title="Loan Status")),
-        tooltip=[
-            alt.Tooltip('loan_status:N', title="Status"),
-            alt.Tooltip('remaining_principal:Q', title="Principal Amount", format="$,.2f"),
-            alt.Tooltip('count:Q', title="Number of Loans"),
-            alt.Tooltip('recovery_pct:Q', title="Recovery Percentage", format=".1%")
-        ]
-    ).properties(
-        width=600,
-        height=400,
-        title="Principal Balance Remaining by Loan Status"
-    )
-    
-    st.altair_chart(principal_chart, use_container_width=True)
-    
-    # Expected vs Actual Return Analysis
-    st.subheader("Expected vs. Actual Return Analysis")
-    
-    # Information tooltip for expected vs actual calculation
-    st.markdown("""
-        <div style="text-align: right; margin-bottom: 10px;">
-            <span style="cursor: help;" title="Expected payments are calculated based on linear payment over time from funding date to maturity date. Actual payments are the amount received to date.">
-                ℹ️ How expected payments are calculated
-            </span>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    # Calculate expected and actual RTR and differences
-    active_df['expected_rtr'] = active_df['our_rtr']
-    active_df['actual_paid'] = active_df['total_paid']
-    active_df['expected_paid_to_date'] = active_df.apply(
-        lambda x: calculate_expected_payment_to_date(x), axis=1
-    )
-    active_df['payment_difference'] = active_df['actual_paid'] - active_df['expected_paid_to_date']
-    
-    # Handle division by zero for difference percentage
-    active_df['difference_pct'] = 0.0
-    mask = active_df['expected_paid_to_date'] > 0
-    active_df.loc[mask, 'difference_pct'] = active_df.loc[mask, 'payment_difference'] / active_df.loc[mask, 'expected_paid_to_date']
-    
-    # Aggregate for visualization
-    payment_summary = pd.DataFrame({
-        'Category': ['Expected Payment to Date', 'Actual Payment to Date', 'Difference'],
-        'Amount': [
-            active_df['expected_paid_to_date'].sum(),
-            active_df['actual_paid'].sum(),
-            active_df['payment_difference'].sum()
-        ]
-    })
-    
-    # Add percentage of difference
-    expected_total = payment_summary.loc[0, 'Amount']
-    difference = payment_summary.loc[2, 'Amount']
-    difference_pct = difference / expected_total if expected_total > 0 else 0
-    
-    # Display metrics for expected vs actual - with tooltips
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric(
-            "Expected Payment to Date", 
-            f"${expected_total:,.2f}",
-            help="Total amount expected to be paid by now based on loan terms and elapsed time"
-        )
-    with col2:
-        st.metric(
-            "Actual Payment to Date", 
-            f"${payment_summary.loc[1, 'Amount']:,.2f}",
-            help="Total amount actually received from borrowers"
-        )
-    with col3:
-        st.metric(
-            "Difference", 
-            f"${difference:,.2f}", 
-            delta=f"{difference_pct:.2%}",
-            delta_color="normal",
-            help="Difference between actual and expected payments (positive means ahead of schedule)"
-        )
-    
-    # Create section for visualizations
-    st.markdown("#### Payment Performance Visualization")
-    
-    # Create bar chart for expected vs actual
-    bar_chart = alt.Chart(payment_summary[:2]).mark_bar().encode(
-        x=alt.X('Category:N', title=None),
-        y=alt.Y('Amount:Q', title="Amount ($)", axis=alt.Axis(format="$,.0f")),
-        color=alt.Color('Category:N', 
-            scale=alt.Scale(
-                domain=['Expected Payment to Date', 'Actual Payment to Date'],
-                range=['#1f77b4', '#2ca02c']
-            ),
-            legend=alt.Legend(title="Payment Type")
-        ),
-        tooltip=[
-            alt.Tooltip('Category:N', title="Type"),
-            alt.Tooltip('Amount:Q', title="Amount", format="$,.2f")
-        ]
-    ).properties(
-        width=400,
-        height=300,
-        title="Expected vs. Actual Payments to Date"
-    )
-    
-    # Distribution of payment differences by loan
-    active_df['payment_diff_category'] = pd.cut(
-        active_df['difference_pct'],
-        bins=[-float('inf'), -0.2, -0.1, -0.05, 0.05, 0.1, 0.2, float('inf')],
-        labels=[
-            "Severely Underperforming (<-20%)", 
-            "Underperforming (-20% to -10%)",
-            "Slightly Underperforming (-10% to -5%)",
-            "On Target (-5% to +5%)",
-            "Slightly Overperforming (5% to 10%)",
-            "Overperforming (10% to 20%)",
-            "Strongly Overperforming (>20%)"
-        ]
-    )
-    
-    diff_distribution = active_df.groupby('payment_diff_category', observed=True).agg(
-        loan_count=('loan_id', 'count'),
-        total_difference=('payment_difference', 'sum'),
-        avg_difference_pct=('difference_pct', 'mean')
-    ).reset_index()
-    
-    diff_chart = alt.Chart(diff_distribution).mark_bar().encode(
-        x=alt.X(
-            'payment_diff_category:N', 
-            title="Performance Category",
-            sort=list(diff_distribution['payment_diff_category'])
-        ),
-        y=alt.Y(
-            'loan_count:Q', 
-            title="Number of Loans"
-        ),
-        color=alt.Color(
-            'avg_difference_pct:Q',
-            scale=alt.Scale(
-                domain=[-0.3, 0, 0.3],
-                range=['#d62728', '#ffbb78', '#2ca02c']
-            ),
-            legend=alt.Legend(title="Avg. Difference")
-        ),
-        tooltip=[
-            alt.Tooltip('payment_diff_category:N', title="Category"),
-            alt.Tooltip('loan_count:Q', title="Loan Count"),
-            alt.Tooltip('total_difference:Q', title="Total Difference", format="$,.2f"),
-            alt.Tooltip('avg_difference_pct:Q', title="Avg Difference %", format=".1%")
-        ]
-    ).properties(
-        width=700,
-        height=400,
-        title="Distribution of Loans by Payment Performance"
-    )
-    
-    # Layout charts side by side
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        st.altair_chart(bar_chart, use_container_width=True)
-    with col2:
-        st.altair_chart(diff_chart, use_container_width=True)# pages/loan_tape.py
+# pages/loan_tape.py
 """
-Loan Tape Dashboard - CSL Capital
----------------------------------
-This dashboard provides comprehensive analytics for loan portfolio management:
-- Portfolio summary metrics and performance indicators
-- Loan status distribution and tracking
-- Return on investment (ROI) analysis
-- Risk assessment and scoring
+Loan Tape Dashboard
 """
 
 from utils.imports import *
@@ -416,13 +26,19 @@ inject_logo()
 
 # Constants
 PLATFORM_FEE = 0.03  # 3% platform fee
-RISK_GRADIENT = [
-    "#fff600",  # Light yellow
-    "#ffc302",  # Yellow
-    "#ff8f00",  # Orange
-    "#ff5b00",  # Dark orange
-    "#ff0505",  # Red
-]
+# Improved color palette for better visual distinction
+LOAN_STATUS_COLORS = {
+    "Active": "#2ca02c",        # Green
+    "Late": "#ffbb78",          # Light orange
+    "Default": "#ff7f0e",       # Orange
+    "Bankrupt": "#d62728",      # Red
+    "Severe": "#990000",        # Dark red
+    "Minor Delinquency": "#88c999",  # Light green
+    "Moderate Delinquency": "#ffcc88", # Light orange
+    "Past Delinquency": "#aaaaaa",   # Gray
+    "Severe Delinquency": "#cc4444", # Dark red
+    "Active - Frequently Late": "#66aa66" # Medium green
+}
 
 # ------------------------------
 # Data Loading Functions
@@ -445,6 +61,12 @@ def load_deals():
 def load_naics_sector_risk():
     """Load NAICS sector risk profiles."""
     res = supabase.table("naics_sector_risk_profile").select("*").execute()
+    return pd.DataFrame(res.data)
+
+@st.cache_data(ttl=3600)
+def load_loan_schedules():
+    """Load loan schedule data from Supabase."""
+    res = supabase.table("loan_schedules").select("*").execute()
     return pd.DataFrame(res.data)
 
 # ------------------------------
@@ -713,7 +335,7 @@ def calculate_risk_scores(df):
     return risk_df
 
 # ------------------------------
-# Visualization Functions
+# Data Visualization Functions
 # ------------------------------
 def format_dataframe_for_display(df, columns=None, rename_map=None):
     """
@@ -793,23 +415,10 @@ def plot_status_distribution(df):
         "balance": active_df.groupby("loan_status")["net_balance"].sum().reindex(status_counts.index).values
     })
     
-    # Define a custom color scheme - green for Active, red gradient for risk levels
-    def get_status_color(status):
-        if status == "Active":
-            return "#2ca02c"  # Green
-        elif status == "Late":
-            return "#ffbb78"  # Light orange
-        elif status == "Default":
-            return "#ff7f0e"  # Orange
-        elif status == "Bankrupt":
-            return "#d62728"  # Red
-        elif status == "Severe":
-            return "#990000"  # Dark red
-        else:
-            return "#808080"  # Gray for other statuses
-    
-    # Add color to the DataFrame
-    status_summary["color"] = status_summary["status"].apply(get_status_color)
+    # Use improved color scheme for better visual distinction
+    status_summary["color"] = status_summary["status"].apply(
+        lambda x: LOAN_STATUS_COLORS.get(x, "#808080")  # Default to gray if status not in mapping
+    )
     
     # Add note about excluding Paid Off loans
     st.caption("Note: 'Paid Off' loans are excluded from this chart")
@@ -898,18 +507,10 @@ def plot_roi_distribution(df):
 
 def plot_capital_flow(df):
     """
-    Create and display a line chart showing capital deployment vs returns over time.
-    
-    This function analyzes the funding dates and payment dates to accurately show
-    when capital was deployed versus when returns were received.
+    Create and display a line chart showing capital deployment vs returns over time,
+    with a table showing days between significant milestones.
     """
     # Get loan schedules for actual payment dates
-    @st.cache_data(ttl=3600)
-    def load_loan_schedules():
-        """Load loan schedule data from Supabase."""
-        res = supabase.table("loan_schedules").select("*").execute()
-        return pd.DataFrame(res.data)
-    
     loan_schedules = load_loan_schedules()
     
     # Convert funding_date to datetime if not already
@@ -1013,6 +614,39 @@ def plot_capital_flow(df):
         capital_chart = alt.layer(capital_chart, milestone_points)
     
     st.altair_chart(capital_chart, use_container_width=True)
+    
+    # NEW: Add milestone days table
+    if not milestone_df.empty and len(milestone_df) > 1:
+        st.subheader("Days Between Capital Milestones")
+        
+        # Sort milestone dataframe by date
+        milestone_df_sorted = milestone_df.sort_values('funding_date')
+        
+        # Calculate days between consecutive milestones
+        milestone_days = []
+        prev_date = None
+        prev_milestone = None
+        
+        for _, row in milestone_df_sorted.iterrows():
+            current_date = row['funding_date']
+            current_milestone = row['milestone']
+            
+            if prev_date is not None:
+                days_between = (current_date - prev_date).days
+                milestone_days.append({
+                    'From': prev_milestone,
+                    'To': current_milestone,
+                    'Start Date': prev_date.strftime('%Y-%m-%d'),
+                    'End Date': current_date.strftime('%Y-%m-%d'),
+                    'Days': days_between
+                })
+            
+            prev_date = current_date
+            prev_milestone = current_milestone
+        
+        # Create and display milestone days table
+        milestone_days_df = pd.DataFrame(milestone_days)
+        st.table(milestone_days_df)
     
     # Add explanatory note
     st.caption(
@@ -1333,7 +967,6 @@ def plot_capital_waterfall(df):
         st.error(f"Error creating capital waterfall chart: {str(e)}")
         st.info("Unable to generate capital waterfall chart due to an error in data processing.")
 
-
 def plot_risk_scatter(risk_df, avg_payment_performance=0.75):
     """
     Create and display a scatter plot of risk factors.
@@ -1450,593 +1083,422 @@ def plot_risk_scatter(risk_df, avg_payment_performance=0.75):
         "Higher values in either dimension increase risk."
     )
 
-def plot_sector_risk(df):
-    """Create and display a bar chart showing industry sector risk."""
-    if 'sector_code' not in df.columns or df['sector_code'].isna().all():
-        st.warning("Industry sector data not available for risk analysis.")
-        return
+def plot_sector_risk_by_dollars(df):
+    """
+    Create and display visualizations of industry risk by dollar amount of outstanding principal.
+    
+    Args:
+        df: DataFrame with loan data
+    """
+    try:
+        # Only include active loans
+        active_df = df[df['loan_status'] != 'Paid Off'].copy()
         
-    # Get sector risk data
-    sector_risk_df = load_naics_sector_risk()
+        if 'industry' not in active_df.columns or active_df['industry'].isna().all():
+            st.warning("Industry data not available for sector risk analysis.")
+            return
+            
+        # Get sector risk data
+        sector_risk_df = load_naics_sector_risk()
+        
+        # Join with loan data
+        df_with_risk = active_df.merge(
+            sector_risk_df,
+            on='sector_code',
+            how='left'
+        )
+        
+        # Summary by sector
+        sector_summary = df_with_risk.groupby(['sector_name', 'risk_score']).agg(
+            loan_count=('loan_id', 'count'),
+            total_deployed=('csl_participation_amount', 'sum'),
+            net_balance=('net_balance', 'sum'),
+            avg_payment_performance=('payment_performance', 'mean')
+        ).reset_index()
+        
+        sector_summary = sector_summary.sort_values('net_balance', ascending=False)
+        
+        if sector_summary.empty:
+            st.info("No sector data available with sufficient risk information.")
+            return
+            
+        # Display data table with both loan count and dollar exposure
+        st.subheader("Industry Exposure by Dollar Amount")
+        
+        # Format for display
+        display_df = sector_summary.copy()
+        display_df['total_deployed'] = display_df['total_deployed'].map(lambda x: f"${x:,.0f}")
+        display_df['net_balance'] = display_df['net_balance'].map(lambda x: f"${x:,.0f}")
+        display_df['avg_payment_performance'] = display_df['avg_payment_performance'].map(lambda x: f"{x:.2%}")
+        
+        # Rename columns
+        display_df.columns = [
+            'Industry Sector', 'Risk Score', 'Loan Count', 
+            'Capital Deployed', 'Outstanding Balance', 'Avg Payment Performance'
+        ]
+        
+        # Only show top 5 sectors by outstanding balance for focused analysis
+        top_5_sectors = display_df.head(5)
+        st.dataframe(top_5_sectors, use_container_width=True)
+        
+        # NEW: Create scatter plot showing capital at risk vs risk score
+        # Size of dots representing number of deals
+        st.subheader("Industry Risk Analysis: Outstanding Balance vs. Risk Score")
+        
+        scatter_data = sector_summary.copy()
+        scatter_data['sector_name_count'] = scatter_data['sector_name'] + ' (' + scatter_data['loan_count'].astype(str) + ' loans)'
+        
+        risk_scatter = alt.Chart(scatter_data).mark_circle().encode(
+            x=alt.X('risk_score:Q', title='Risk Score', axis=alt.Axis(format='.1f')),
+            y=alt.Y('net_balance:Q', title='Outstanding Balance ($)', axis=alt.Axis(format='$,.0f')),
+            size=alt.Size('loan_count:Q', 
+                title='Number of Loans',
+                scale=alt.Scale(range=[50, 500])
+            ),
+            color=alt.Color('risk_score:Q', 
+                title='Risk Score',
+                scale=alt.Scale(scheme='orangered', domain=[0, 1])
+            ),
+            tooltip=[
+                alt.Tooltip('sector_name:N', title='Industry Sector'),
+                alt.Tooltip('risk_score:Q', title='Risk Score', format='.2f'),
+                alt.Tooltip('loan_count:Q', title='Number of Loans'),
+                alt.Tooltip('net_balance:Q', title='Outstanding Balance', format='$,.0f'),
+                alt.Tooltip('avg_payment_performance:Q', title='Avg Payment Performance', format='.2%')
+            ]
+        ).properties(
+            width=800,
+            height=500,
+            title={
+                "text": "Industry Risk Analysis",
+                "subtitle": "Bubble size indicates number of loans in each sector",
+                "fontSize": 16
+            }
+        )
+        
+        # Add labels for the bubbles
+        text = alt.Chart(scatter_data).mark_text(
+            align='center',
+            baseline='middle',
+            fontSize=12,
+            dy=-15
+        ).encode(
+            x='risk_score:Q',
+            y='net_balance:Q',
+            text='sector_name:N'
+        )
+        
+        st.altair_chart(risk_scatter + text, use_container_width=True)
+        
+        # Keep the original bar chart for comparison
+        chart = alt.Chart(sector_summary).mark_bar().encode(
+            x=alt.X('net_balance:Q', title="Outstanding Balance ($)", axis=alt.Axis(format="$,.0f")),
+            y=alt.Y('sector_name:N', title="Industry Sector", sort='-x'),
+            color=alt.Color('risk_score:Q', 
+                title="Risk Score", 
+                scale=alt.Scale(scheme="orangered"),
+                legend=alt.Legend(format=".0f")
+            ),
+            tooltip=[
+                alt.Tooltip('sector_name:N', title="Industry Sector"),
+                alt.Tooltip('loan_count:Q', title="Loans"),
+                alt.Tooltip('net_balance:Q', title="Outstanding Balance", format="$,.0f"),
+                alt.Tooltip('total_deployed:Q', title="Capital Deployed", format="$,.0f"),
+                alt.Tooltip('avg_payment_performance:Q', title="Avg Payment Performance", format=".2%")
+            ]
+        ).properties(
+            width=800,
+            height=400,
+            title={
+                "text": "Outstanding Balance by Industry Sector",
+                "subtitle": "Color indicates risk level of each sector",
+                "fontSize": 16
+            }
+        )
+        
+        # Add count labels
+        text = alt.Chart(sector_summary).mark_text(
+            align='left',
+            baseline='middle',
+            dx=5,
+            fontSize=10
+        ).encode(
+            x='net_balance:Q',
+            y='sector_name:N',
+            text=alt.Text('loan_count:Q', format='d', title="Loan Count")
+        )
+
+        st.altair_chart(chart + text, use_container_width=True)
+        
+    except Exception as e:
+        st.error(f"Error creating industry risk visualization: {str(e)}")
+        st.info("Unable to generate industry risk chart due to an error in data processing.")
+
+def calculate_expected_payment_to_date(row):
+    """
+    Calculate how much should have been paid by now based on:
+    - Time elapsed since funding
+    - Expected maturity date
+    - Total expected RTR
     
-    # Join with loan data
-    df_with_risk = df.merge(
-        sector_risk_df,
-        on='sector_code',
-        how='left'
-    )
+    This assumes linear payment over time.
+    """
+    if pd.isna(row['funding_date']) or pd.isna(row['maturity_date']) or pd.isna(row['our_rtr']):
+        return 0
+        
+    try:
+        # Convert to timezone-naive dates for consistent comparison
+        funding_date = pd.to_datetime(row['funding_date']).tz_localize(None)
+        maturity_date = pd.to_datetime(row['maturity_date']).tz_localize(None)
+        current_date = pd.Timestamp.today().tz_localize(None)
+        
+        # If loan is past maturity, expected payment is full RTR
+        if current_date >= maturity_date:
+            return row['our_rtr']
+            
+        # Calculate expected payment based on time elapsed
+        total_days = (maturity_date - funding_date).days
+        days_elapsed = (current_date - funding_date).days
+        
+        if total_days <= 0:
+            return 0
+            
+        # Calculate expected percentage completion
+        expected_pct = min(1.0, max(0.0, days_elapsed / total_days))
+        
+        # Calculate expected payment
+        expected_payment = row['our_rtr'] * expected_pct
+        
+        return expected_payment
+    except Exception as e:
+        # Handle any timezone or conversion errors
+        st.warning(f"Error calculating expected payment: {str(e)}")
+        return 0
+
+def display_capital_at_risk(df):
+    """
+    Display the Capital at Risk analysis section.
     
-    # Summary by sector
-    sector_summary = df_with_risk.groupby(['sector_name', 'risk_score']).agg(
-        loan_count=('loan_id', 'count'),
-        total_deployed=('csl_participation_amount', 'sum'),
-        avg_payment_performance=('payment_performance', 'mean')
+    This section focuses on principal balance remaining, risk exposure,
+    and the difference between expected and actual returns.
+    """
+    st.header("Capital at Risk Analysis")
+    
+    # Filter out paid-off loans
+    active_df = df[df['loan_status'] != "Paid Off"].copy()
+    
+    if active_df.empty:
+        st.info("No active loans to analyze for capital at risk.")
+        return
+    
+    # Calculate remaining principal by loan status
+    status_principal = active_df.groupby('loan_status', observed=True).agg(
+        remaining_principal=('csl_participation_amount', 'sum'),
+        total_paid=('total_paid', 'sum'),
+        count=('loan_id', 'count')
     ).reset_index()
     
-    sector_summary = sector_summary.sort_values('loan_count', ascending=False)
+    # Calculate principal recovery percentage
+    status_principal['recovery_pct'] = status_principal['total_paid'] / status_principal['remaining_principal']
     
-    if sector_summary.empty:
-        st.info("No sector risk data available to display.")
-        return
-        
-    # Display data table
-    st.dataframe(
-        sector_summary.rename(columns={
-            'sector_name': 'Sector',
-            'risk_score': 'Risk Score',
-            'loan_count': 'Loan Count',
-            'total_deployed': 'Capital Deployed',
-            'avg_payment_performance': 'Avg Payment Performance'
-        }),
-        use_container_width=True,
-        column_config={
-            "Capital Deployed": st.column_config.NumberColumn(format="$%.0f"),
-            "Avg Payment Performance": st.column_config.NumberColumn(format="%.2f")
-        }
-    )
+    # Calculate total remaining principal
+    total_principal = status_principal['remaining_principal'].sum()
+    total_recovery = status_principal['total_paid'].sum()
+    overall_recovery_pct = total_recovery / total_principal if total_principal > 0 else 0
     
-    # Visualization
-    chart = alt.Chart(sector_summary).mark_bar().encode(
-        x=alt.X('sector_name:N', sort='-y', title="Industry Sector"),
-        y=alt.Y('loan_count:Q', title="Number of Loans"),
-        color=alt.Color('risk_score:Q', title="Risk Score", scale=alt.Scale(scheme="orangered")),
-        tooltip=[
-            alt.Tooltip('sector_name:N', title="Sector"),
-            alt.Tooltip('loan_count:Q', title="Loans"),
-            alt.Tooltip('total_deployed:Q', title="Capital", format="$,.0f"),
-            alt.Tooltip('avg_payment_performance:Q', title="Avg Payment Performance", format=".2f")
-        ]
-    ).properties(
-        width=800,
-        height=400,
-        title="Loan Count by Industry Sector and Risk"
-    )
+    # Display metrics with tooltips
+    st.subheader("Remaining Principal Exposure")
     
-    st.altair_chart(chart, use_container_width=True)
-
-# ------------------------------
-# Dashboard Sections
-# ------------------------------
-def display_filters(df):
-    """Display and process dashboard filters."""
-    # Date filter
-    if 'funding_date' in df.columns and not df['funding_date'].isna().all():
-        min_date = df["funding_date"].min().date()
-        max_date = df["funding_date"].max().date()
-        start_date, end_date = st.date_input(
-            "Filter by Funding Date",
-            [min_date, max_date],
-            min_value=min_date,
-            max_value=max_date
-        )
-        filtered_df = df[(df["funding_date"].dt.date >= start_date) & (df["funding_date"].dt.date <= end_date)]
-    else:
-        filtered_df = df.copy()
-    
-    # Status filter as radio buttons with "All" option
-    all_statuses = sorted(df["loan_status"].unique().tolist())
-    status_options = ["All"] + all_statuses
-    
-    selected_status = st.radio(
-        "Filter by Status:", 
-        status_options,
-        horizontal=True
-    )
-    
-    # Apply status filter
-    if selected_status != "All":
-        filtered_df = filtered_df[filtered_df["loan_status"] == selected_status]
-    
-    return filtered_df
-
-def display_portfolio_metrics(df):
-    """Display portfolio overview metrics."""
-    st.subheader("Portfolio Overview")
-    
-    # Calculate portfolio metrics
-    total_positions = len(df)
-    total_paid_off = (df["loan_status"] == "Paid Off").sum()
-    total_active = total_positions - total_paid_off
-    
-    # Financial metrics
-    total_capital_deployed = df['csl_participation_amount'].sum()
-    total_invested = df['total_invested'].sum()
-    total_capital_returned = df['total_paid'].sum()
-    net_balance = df['net_balance'].sum()
-    
-    # Fee metrics
-    total_commission_fees = df['commission_fees'].sum()
-    total_platform_fees = df['platform_fees'].sum()
-    total_bad_debt_allowance = df['bad_debt_allowance'].sum() if 'bad_debt_allowance' in df.columns else 0
-    
-    # Average metrics
-    avg_total_paid = df['total_paid'].mean()
-    avg_payment_performance = df['payment_performance'].mean() if 'payment_performance' in df.columns else 0
-    
-    # Calculate average remaining maturity for active loans
-    active_loans_mask = (df['loan_status'] != "Paid Off") & (df['maturity_date'] > pd.Timestamp.today())
-    avg_remaining_maturity = df.loc[active_loans_mask, 'remaining_maturity_months'].mean() if not df.loc[active_loans_mask].empty else 0
-    
-    # First row: Position counts and capital metrics
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Total Positions", total_positions)
+        st.metric(
+            "Total Principal at Risk", 
+            f"${total_principal:,.2f}",
+            help="Total principal amount for all active loans (excluding paid off loans)"
+        )
     with col2:
-        st.metric("Total Capital Deployed", f"${total_capital_deployed:,.2f}")
+        st.metric(
+            "Total Recovery to Date", 
+            f"${total_recovery:,.2f}",
+            help="Total amount recovered so far from active loans"
+        )
     with col3:
-        st.metric("Total Capital Returned", f"${total_capital_returned:,.2f}")
-    
-    # Second row: Fee metrics
-    col4, col5, col6 = st.columns(3)
-    with col4:
-        st.metric("Total Commission Fees", f"${total_commission_fees:,.2f}")
-    with col5:
-        st.metric("Total Platform Fees", f"${total_platform_fees:,.2f}")
-    with col6:
-        st.metric("Total Bad Debt Allowance", f"${total_bad_debt_allowance:,.2f}")
-    
-    # Third row: Average metrics
-    col7, col8, col9 = st.columns(3)
-    with col7:
-        st.metric("Average Total Paid", f"${avg_total_paid:,.2f}")
-    with col8:
-        # Use tooltip on the metric for better explanation
         st.metric(
-            "Average Payment Performance", 
-            f"{avg_payment_performance:.2%}", 
-            help="Payment Performance measures the ratio of actual payments to expected payments. 100% means payments are on schedule."
-        )
-    with col9:
-        st.metric("Average Remaining Maturity", f"{avg_remaining_maturity:.1f} months")
-
-def display_top_positions(df):
-    """Display top outstanding positions."""
-    st.subheader("Top 5 Largest Outstanding Positions")
-    
-    try:
-        # Filter for unpaid positions
-        top_positions = (
-            df[df['is_unpaid']]
-            .sort_values('net_balance', ascending=False)
-            .head(5)
+            "Overall Recovery Percentage", 
+            f"{overall_recovery_pct:.2%}",
+            help="Percentage of principal that has been recovered from active loans"
         )
         
-        if not top_positions.empty:
-            # Calculate total net balance of top 5 positions
-            top_5_total_balance = top_positions['net_balance'].sum()
-            # Calculate percentage of total net balance
-            top_5_pct_of_total = (top_5_total_balance / df['net_balance'].sum() * 100) if df['net_balance'].sum() > 0 else 0
-            
-            st.caption(f"Total Value: ${top_5_total_balance:,.2f} ({top_5_pct_of_total:.1f}% of total net balance)")
-            
-            # Format for display - using only columns that exist
-            available_columns = [
-                'loan_id', 'deal_name', 'loan_status', 'total_invested', 
-                'total_paid', 'net_balance', 'remaining_maturity_months'
-            ]
-            display_columns = [col for col in available_columns if col in top_positions.columns]
-            
-            column_rename = {
-                "loan_id": "Loan ID",
-                "deal_name": "Deal Name",
-                "loan_status": "Loan Status",
-                "total_invested": "Total Invested",
-                "total_paid": "Total Paid",
-                "net_balance": "Net Balance",
-                "remaining_maturity_months": "Months to Maturity"
-            }
-            
-            top_positions_display = format_dataframe_for_display(
-                top_positions, 
-                columns=display_columns,
-                rename_map=column_rename
-            )
-            
-            st.dataframe(
-                top_positions_display,
-                use_container_width=True,
-                hide_index=True
-            )
-        else:
-            st.info("No outstanding positions found with the current filters.")
-    except Exception as e:
-        st.error(f"Error displaying top positions: {str(e)}")
-        st.info("Unable to display top positions due to an error in data processing.")
-
-def display_loan_tape(df):
-    """Display the main loan tape table."""
-    st.subheader("Loan Tape")
+    # Create stacked bar chart of principal by status
+    st.subheader("Principal at Risk by Loan Status")
     
-    # Select columns for display
-    display_columns = ["loan_id"]
-    
-    # Add deal columns if available
-    for col in ["deal_name", "partner_source", "industry"]:
-        if col in df.columns:
-            display_columns.append(col)
-    
-    # Add financial columns
-    display_columns.extend([
-        "loan_status",
-        "funding_date",
-        "maturity_date",
-        "csl_participation_amount",
-        "total_invested",
-        "total_paid",
-        "net_balance",
-        "current_roi",
-        "participation_percentage",
-        "on_time_rate",
-        "payment_performance",
-        "remaining_maturity_months"
-    ])
-    
-    # Column display names
-    column_rename = {
-        "loan_id": "Loan ID",
-        "deal_name": "Deal Name",
-        "partner_source": "Partner Source",
-        "industry": "Industry",
-        "loan_status": "Loan Status",
-        "funding_date": "Funding Date",
-        "maturity_date": "Maturity Date",
-        "csl_participation_amount": "Capital Deployed",
-        "total_invested": "Total Invested",
-        "total_paid": "Total Paid",
-        "net_balance": "Net Balance",
-        "current_roi": "Current ROI",
-        "participation_percentage": "Participation Percentage",
-        "on_time_rate": "On Time Rate",
-        "payment_performance": "Payment Performance",
-        "remaining_maturity_months": "Remaining Maturity Months"
-    }
-    
-    # Format for display
-    loan_tape = format_dataframe_for_display(
-        df,
-        columns=display_columns,
-        rename_map=column_rename
-    )
-    
-    st.dataframe(
-        loan_tape,
-        use_container_width=True,
-        hide_index=True
-    )
-    
-    # Export functionality
-    csv = loan_tape.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        label="Download Loan Tape as CSV",
-        data=csv,
-        file_name="loan_tape.csv",
-        mime="text/csv"
-    )
-
-def display_irr_analysis(df):
-    """Display IRR analysis for paid-off loans."""
-    st.subheader("IRR Analysis for Paid-Off Loans")
-    
-    # Filter to paid-off loans
-    paid_df = df[df['loan_status'] == "Paid Off"].copy()
-    
-    if paid_df.empty:
-        st.info("No paid-off loans to analyze for IRR.")
-        return
-    
-    # Calculate weighted average IRR (weighted by investment amount)
-    weighted_realized_irr = (paid_df['realized_irr'] * paid_df['total_invested']).sum() / paid_df['total_invested'].sum()
-    weighted_expected_irr = (paid_df['expected_irr'] * paid_df['total_invested']).sum() / paid_df['total_invested'].sum()
-    
-    # Calculate simple averages for comparison
-    avg_realized_irr = paid_df['realized_irr'].mean()
-    avg_expected_irr = paid_df['expected_irr'].mean()
-    
-    # Display metrics with detailed tooltips
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric(
-            "Weighted Average Realized IRR", 
-            f"{weighted_realized_irr:.2%}" if pd.notnull(weighted_realized_irr) else "N/A",
-            help="Weighted by investment amount to reflect the actual portfolio return"
-        )
-        st.metric(
-            "Simple Average Realized IRR", 
-            f"{avg_realized_irr:.2%}" if pd.notnull(avg_realized_irr) else "N/A",
-            help="Simple arithmetic mean of all IRRs (gives equal weight to each loan)"
-        )
-    with col2:
-        st.metric(
-            "Weighted Average Expected IRR", 
-            f"{weighted_expected_irr:.2%}" if pd.notnull(weighted_expected_irr) else "N/A",
-            help="Weighted by investment amount based on expected returns at maturity"
-        )
-        st.metric(
-            "Simple Average Expected IRR", 
-            f"{avg_expected_irr:.2%}" if pd.notnull(avg_expected_irr) else "N/A",
-            help="Simple arithmetic mean of all expected IRRs"
-        )
-    
-    # Display explanation of IRR calculation
-    with st.expander("How IRR is Calculated"):
-        st.markdown("""
-        **Internal Rate of Return (IRR)** is the annualized rate of return that makes the net present value of all cash flows equal to zero.
-
-        For our loan IRR calculations:
-        - **Realized IRR** uses actual cash flows: initial investment (negative) and total amount paid back (positive)
-        - **Expected IRR** uses initial investment and projected return at maturity
-        - Time period is calculated using actual funding date and payoff/maturity date
-        - Weighted average weights each loan's IRR by its investment amount
-        
-        The calculation uses the numpy financial `irr` function with fallback to annualized simple return for extreme values.
-        """)
-    
-    # Display IRR table
-    st.subheader("IRR by Loan")
-    
-    irr_columns = [
-        'loan_id', 'deal_name', 'partner_source', 'funding_date', 'payoff_date',
-        'total_invested', 'total_paid', 'realized_irr', 'expected_irr'
-    ]
-    
-    column_rename = {
-        'loan_id': 'Loan ID',
-        'deal_name': 'Deal Name',
-        'partner_source': 'Partner Source',
-        'funding_date': 'Funding Date',
-        'payoff_date': 'Payoff Date',
-        'total_invested': 'Total Invested',
-        'total_paid': 'Total Paid',
-        'realized_irr': 'Realized IRR',
-        'expected_irr': 'Expected IRR'
-    }
-    
-    irr_display = format_dataframe_for_display(
-        paid_df, 
-        columns=irr_columns,
-        rename_map=column_rename
-    )
-    
-    st.dataframe(
-        irr_display.sort_values(by='Realized IRR', ascending=False),
-        use_container_width=True,
-        column_config={
-            "Realized IRR": st.column_config.NumberColumn(format="%.2%"),
-            "Expected IRR": st.column_config.NumberColumn(format="%.2%"),
-        }
-    )
-
-def display_cohort_analysis(df):
-    """Display cohort and vintage analysis."""
-    st.subheader("Cohort & Vintage Analysis")
-    
-    # Create cohort summary
-    cohort_summary = df.groupby('cohort').agg(
-        loans=('loan_id', 'count'),
-        capital_deployed=('csl_participation_amount', 'sum'),
-        capital_returned=('total_paid', 'sum'),
-        avg_roi=('current_roi', 'mean')
-    ).reset_index()
-    
-    # Format for display
-    cohort_display = cohort_summary.copy()
-    cohort_display['capital_deployed'] = cohort_display['capital_deployed'].map(lambda x: f"${x:,.2f}")
-    cohort_display['capital_returned'] = cohort_display['capital_returned'].map(lambda x: f"${x:,.2f}")
-    cohort_display['avg_roi'] = cohort_display['avg_roi'].map(lambda x: f"{x:.2%}")
-    
-    # Rename columns
-    cohort_display.columns = ['Cohort', 'Loans', 'Capital Deployed', 'Capital Returned', 'Avg ROI']
-    
-    st.dataframe(cohort_display.sort_values('Cohort'), use_container_width=True)
-
-def display_risk_analytics(df):
-    """Display risk analytics section."""
-    st.header("Portfolio Risk Analytics")
-    
-    # Calculate risk scores for active loans
-    risk_df = calculate_risk_scores(df)
-    
-    if risk_df.empty:
-        st.info("No active loans to display risk analytics.")
-        return
-    
-    # Display top risk loans
-    st.subheader("Top 10 Underperforming Loans by Risk Score")
-    
-    # Add info tooltip to explain risk calculation
-    st.markdown("""
-        <div style="text-align: right; margin-bottom: 10px;">
-            <span style="cursor: help;" title="Risk Score = 70% × Performance Gap + 30% × Age Weight. Performance Gap measures how far behind schedule payments are (1 - Payment Performance). Age Weight is normalized based on the oldest loan in the portfolio.">
-                ℹ️ How Risk Score is calculated
-            </span>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    top_risk = risk_df.sort_values("risk_score", ascending=False).head(10)
-    
-    risk_columns = [
-        'loan_id', 'deal_name', 'loan_status', 'funding_date', 'payment_performance',
-        'days_since_funding', 'performance_gap', 'risk_score'
-    ]
-    
-    column_rename = {
-        'loan_id': 'Loan ID',
-        'deal_name': 'Deal Name',
-        'loan_status': 'Status',
-        'funding_date': 'Funded',
-        'payment_performance': 'Payment Performance',
-        'days_since_funding': 'Days Since Funding',
-        'performance_gap': 'Performance Gap',
-        'risk_score': 'Risk Score'
-    }
-    
-    top_risk_display = format_dataframe_for_display(
-        top_risk,
-        columns=risk_columns,
-        rename_map=column_rename
-    )
-    
-    st.dataframe(
-        top_risk_display.sort_values("Risk Score", ascending=False),
-        use_container_width=True,
-        column_config={
-            "Payment Performance": st.column_config.NumberColumn(format="%.2f"),
-            "Performance Gap": st.column_config.NumberColumn(format="%.2f"),
-            "Risk Score": st.column_config.NumberColumn(format="%.3f")
-        }
-    )
-    
-    # Risk Score Distribution
-    st.subheader("Risk Score Distribution")
-    
-    band_summary = risk_df.groupby("risk_band", observed=True).agg(
-        loan_count=("loan_id", "count"),
-        net_balance=("net_balance", "sum")
-    ).reset_index()
-    
-    if band_summary.empty:
-        st.info("No risk band data available.")
-        return
-        
-    risk_bar = alt.Chart(band_summary).mark_bar().encode(
-        x=alt.X("risk_band:N", title="Risk Score Band"),
-        y=alt.Y("loan_count:Q", title="Loan Count"),
-        color=alt.Color(
-            "risk_band:N", 
+    # Plot principal at risk by status
+    principal_chart = alt.Chart(status_principal).mark_bar().encode(
+        x=alt.X('loan_status:N', title="Loan Status", axis=alt.Axis(labelAngle=-45)),
+        y=alt.Y('remaining_principal:Q', title="Principal Amount ($)", axis=alt.Axis(format="$,.0f")),
+        color=alt.Color('loan_status:N', 
             scale=alt.Scale(
-                domain=["0–0.2", "0.2–0.4", "0.4–0.6", "0.6–0.8", "0.8–1.0"],
-                range=["#2ca02c", "#98df8a", "#ffbb78", "#ff7f0e", "#d62728"]
+                domain=list(status_principal['loan_status']),
+                range=[LOAN_STATUS_COLORS.get(status, "#808080") for status in status_principal['loan_status']]
             ),
-            legend=alt.Legend(title="Risk Band")
+            legend=alt.Legend(title="Loan Status")
         ),
         tooltip=[
-            alt.Tooltip("risk_band:N", title="Risk Band"),
-            alt.Tooltip("loan_count:Q", title="Loan Count"),
-            alt.Tooltip("net_balance:Q", title="Net Balance ($)", format="$,.0f")
+            alt.Tooltip('loan_status:N', title="Status"),
+            alt.Tooltip('remaining_principal:Q', title="Principal Amount", format="$,.2f"),
+            alt.Tooltip('count:Q', title="Number of Loans"),
+            alt.Tooltip('recovery_pct:Q', title="Recovery Percentage", format=".1%")
         ]
     ).properties(
-        width=650,
-        height=350,
-        title={
-            "text": "Loan Count by Risk Score Band",
-            "subtitle": "Active loans only (Paid Off loans excluded)",
-            "fontSize": 16
-        }
+        width=600,
+        height=400,
+        title="Principal Balance Remaining by Loan Status"
     )
     
-    st.altair_chart(risk_bar, use_container_width=True)
+    st.altair_chart(principal_chart, use_container_width=True)
     
-    # Risk scatter plot with tooltip and quadrant adjustment
-    st.subheader("Loan Risk Assessment")
+    # Expected vs Actual Return Analysis
+    st.subheader("Expected vs. Actual Return Analysis")
     
-    # Add info tooltip to explain the risk assessment chart
+    # Information tooltip for expected vs actual calculation
     st.markdown("""
         <div style="text-align: right; margin-bottom: 10px;">
-            <span style="cursor: help;" title="This chart plots each active loan by its Performance Gap (how far behind in payments) vs. Days Since Funding. Quadrants are adjusted based on average payment performance. Larger, darker circles indicate higher risk scores.">
-                ℹ️ How to interpret this chart
+            <span style="cursor: help;" title="Expected payments are calculated based on linear payment over time from funding date to maturity date. Actual payments are the amount received to date.">
+                (i) How expected payments are calculated
             </span>
         </div>
     """, unsafe_allow_html=True)
     
-    plot_risk_scatter(risk_df, df['payment_performance'].mean())
+    # Calculate expected and actual RTR and differences
+    active_df['expected_rtr'] = active_df['our_rtr']
+    active_df['actual_paid'] = active_df['total_paid']
+    active_df['expected_paid_to_date'] = active_df.apply(
+        lambda x: calculate_expected_payment_to_date(x), axis=1
+    )
+    active_df['payment_difference'] = active_df['actual_paid'] - active_df['expected_paid_to_date']
     
-    # Industry risk by dollar amounts
-    st.subheader("Industry Risk Composition")
-    plot_sector_risk_by_dollars(df)
-
-# ------------------------------
-# Main Application
-# ------------------------------
-def main():
-    """Main application entry point."""
-    st.title("Loan Tape Dashboard")
+    # Handle division by zero for difference percentage
+    active_df['difference_pct'] = 0.0
+    mask = active_df['expected_paid_to_date'] > 0
+    active_df.loc[mask, 'difference_pct'] = active_df.loc[mask, 'payment_difference'] / active_df.loc[mask, 'expected_paid_to_date']
     
-    # Load data
-    loans_df = load_loan_summaries()
-    deals_df = load_deals()
+    # Aggregate for visualization
+    payment_summary = pd.DataFrame({
+        'Category': ['Expected Payment to Date', 'Actual Payment to Date', 'Difference'],
+        'Amount': [
+            active_df['expected_paid_to_date'].sum(),
+            active_df['actual_paid'].sum(),
+            active_df['payment_difference'].sum()
+        ]
+    })
     
-    # Process data
-    df = prepare_loan_data(loans_df, deals_df)
+    # Add percentage of difference
+    expected_total = payment_summary.loc[0, 'Amount']
+    difference = payment_summary.loc[2, 'Amount']
+    difference_pct = difference / expected_total if expected_total > 0 else 0
     
-    # Add IRR calculations
-    df = calculate_irr(df)
+    # Display metrics for expected vs actual - with tooltips
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric(
+            "Expected Payment to Date", 
+            f"${expected_total:,.2f}",
+            help="Total amount expected to be paid by now based on loan terms and elapsed time"
+        )
+    with col2:
+        st.metric(
+            "Actual Payment to Date", 
+            f"${payment_summary.loc[1, 'Amount']:,.2f}",
+            help="Total amount actually received from borrowers"
+        )
+    with col3:
+        st.metric(
+            "Difference", 
+            f"${difference:,.2f}", 
+            delta=f"{difference_pct:.2%}",
+            delta_color="normal",
+            help="Difference between actual and expected payments (positive means ahead of schedule)"
+        )
     
-    # Display filters
-    filtered_df = display_filters(df)
+    # Create section for visualizations
+    st.markdown("#### Payment Performance Visualization")
     
-    # Create tabs for main sections - moved to top
-    tabs = st.tabs(["Summary", "Visualizations", "Analytics", "Capital at Risk"])
+    # Create bar chart for expected vs actual
+    bar_chart = alt.Chart(payment_summary[:2]).mark_bar().encode(
+        x=alt.X('Category:N', title=None),
+        y=alt.Y('Amount:Q', title="Amount ($)", axis=alt.Axis(format="$,.0f")),
+        color=alt.Color('Category:N', 
+            scale=alt.Scale(
+                domain=['Expected Payment to Date', 'Actual Payment to Date'],
+                range=['#1f77b4', '#2ca02c']
+            ),
+            legend=alt.Legend(title="Payment Type")
+        ),
+        tooltip=[
+            alt.Tooltip('Category:N', title="Type"),
+            alt.Tooltip('Amount:Q', title="Amount", format="$,.2f")
+        ]
+    ).properties(
+        width=400,
+        height=300,
+        title="Expected vs. Actual Payments to Date"
+    )
     
-    with tabs[0]:
-        # Display portfolio summary
-        display_portfolio_metrics(filtered_df)
-        
-        # Display top positions
-        display_top_positions(filtered_df)
-        
-        # Display loan tape
-        display_loan_tape(filtered_df)
+    # Distribution of payment differences by loan
+    active_df['payment_diff_category'] = pd.cut(
+        active_df['difference_pct'],
+        bins=[-float('inf'), -0.2, -0.1, -0.05, 0.05, 0.1, 0.2, float('inf')],
+        labels=[
+            "Severely Underperforming (<-20%)", 
+            "Underperforming (-20% to -10%)",
+            "Slightly Underperforming (-10% to -5%)",
+            "On Target (-5% to +5%)",
+            "Slightly Overperforming (5% to 10%)",
+            "Overperforming (10% to 20%)",
+            "Strongly Overperforming (>20%)"
+        ]
+    )
     
-    with tabs[1]:
-        # Status distribution chart
-        if 'loan_status' in filtered_df.columns and not filtered_df['loan_status'].isna().all():
-            st.subheader("Distribution of Loan Status")
-            plot_status_distribution(filtered_df)
-        
-        # ROI Distribution Chart
-        st.subheader("ROI Distribution by Loan")
-        plot_roi_distribution(filtered_df)
-        
-        # Capital Flow Chart
-        st.subheader("Capital Flow: Deployment vs. Returns")
-        plot_capital_flow(filtered_df)
-        
-        # IRR Analysis
-        display_irr_analysis(filtered_df)
-        
-        # IRR by Partner
-        st.subheader("Average IRR by Partner")
-        plot_irr_by_partner(filtered_df)
-        
-        # Cohort Analysis
-        display_cohort_analysis(filtered_df)
-        
-        # Cohort Repayment Heatmap
-        st.subheader("Cohort Repayment Heatmap (Cumulative % of RTR Paid)")
-        plot_repayment_heatmap(filtered_df)
-        
-        # Capital Waterfall
-        st.subheader("Capital Flow Waterfall")
-        plot_capital_waterfall(filtered_df)
+    diff_distribution = active_df.groupby('payment_diff_category', observed=True).agg(
+        loan_count=('loan_id', 'count'),
+        total_difference=('payment_difference', 'sum'),
+        avg_difference_pct=('difference_pct', 'mean')
+    ).reset_index()
     
-    with tabs[2]:
-        # Risk analytics section
-        display_risk_analytics(filtered_df)
-        
-    with tabs[3]:
-        # New Capital at Risk section
-        display_capital_at_risk(filtered_df)
-
-# Run the application
-if __name__ == "__main__":
-    main()
+    diff_chart = alt.Chart(diff_distribution).mark_bar().encode(
+        x=alt.X(
+            'payment_diff_category:N', 
+            title="Performance Category",
+            sort=list(diff_distribution['payment_diff_category']),
+            axis=alt.Axis(labelAngle=-45)
+        ),
+        y=alt.Y(
+            'loan_count:Q', 
+            title="Number of Loans"
+        ),
+        color=alt.Color(
+            'avg_difference_pct:Q',
+            scale=alt.Scale(
+                domain=[-0.3, 0, 0.3],
+                range=['#d62728', '#ffbb78', '#2ca02c']
+            ),
+            legend=alt.Legend(title="Avg. Difference")
+        ),
+        tooltip=[
+            alt.Tooltip('payment_diff_category:N', title="Category"),
+            alt.Tooltip('loan_count:Q', title="Loan Count"),
+            alt.Tooltip('total_difference:Q', title="Total Difference", format="$,.2f"),
+            alt.Tooltip('avg_difference_pct:Q', title="Avg Difference %", format=".1%")
+        ]
+    ).properties(
+        width=700,
+        height=400,
+        title="Distribution of Loans by Payment Performance"
+    )
+    
+    # Layout charts side by side
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        st.altair_chart(bar_chart, use_container_width=True)
+    with col2:
+        st.altair_chart(diff_chart, use_container_width=True)
