@@ -427,3 +427,114 @@ st.download_button(
     file_name="loan_tape.csv",
     mime="text/csv"
 )
+
+# ----------------------------
+# Capital Timeline Visualization
+# ----------------------------
+st.subheader("Capital Deployment Timeline")
+
+if 'funding_date' in df.columns and 'csl_participation_amount' in df.columns:
+    capital_df = df[['funding_date', 'csl_participation_amount']].dropna().copy()
+    capital_df = capital_df.sort_values('funding_date')
+    capital_df['cumulative_capital'] = capital_df['csl_participation_amount'].cumsum()
+
+    # Define thresholds and milestone dates
+    thresholds = [500_000, 1_000_000, 2_000_000, 3_000_000]
+    milestone_dates = {}
+    for threshold in thresholds:
+        milestone = capital_df[capital_df['cumulative_capital'] >= threshold]
+        if not milestone.empty:
+            milestone_dates[f"${threshold:,}"] = milestone.iloc[0]['funding_date']
+
+    # Plot
+    base = alt.Chart(capital_df).mark_line().encode(
+        x=alt.X("funding_date:T", title="Funding Date"),
+        y=alt.Y("cumulative_capital:Q", title="Cumulative Capital Deployed ($)"),
+        tooltip=["funding_date", "cumulative_capital"]
+    )
+
+    rules = [
+        alt.Chart(pd.DataFrame({'date': [d], 'label': [label]})).mark_rule(color="red").encode(
+            x='date:T',
+            tooltip=[alt.Tooltip('label:N'), alt.Tooltip('date:T')]
+        )
+        for label, d in milestone_dates.items()
+    ]
+
+    final_chart = base
+    for rule in rules:
+        final_chart += rule
+
+    st.altair_chart(final_chart, use_container_width=True)
+
+# ----------------------------
+# Running Total Paid Over Time
+# ----------------------------
+st.subheader("Total Capital Returned Over Time")
+
+if 'funding_date' in df.columns and 'total_paid' in df.columns:
+    paid_df = df[['funding_date', 'total_paid']].dropna().copy()
+    paid_df = paid_df.groupby('funding_date').sum().sort_index()
+    paid_df['cumulative_paid'] = paid_df['total_paid'].cumsum()
+    paid_df = paid_df.reset_index()
+
+    paid_chart = alt.Chart(paid_df).mark_line().encode(
+        x=alt.X('funding_date:T', title='Funding Date'),
+        y=alt.Y('cumulative_paid:Q', title='Cumulative Total Paid ($)'),
+        tooltip=['funding_date', 'cumulative_paid']
+    ).properties(
+        width=800,
+        height=400,
+        title="Running Total of Capital Returned"
+    )
+
+    st.altair_chart(paid_chart, use_container_width=True)
+
+# ----------------------------
+# IRR for Paid Off Loans
+# ----------------------------
+st.subheader("Realized & Expected IRR (Paid Off Loans Only)")
+
+# Filter
+irr_df = df[(df['loan_status'] == "Paid Off") & df['funding_date'].notna() & df['maturity_date'].notna()].copy()
+
+# Ensure all required fields exist
+if not irr_df.empty and 'total_invested' in irr_df.columns and 'total_paid' in irr_df.columns:
+
+    def calc_irr(row):
+        try:
+            days_held = (row['payoff_date'] - row['funding_date']).days
+            if days_held <= 0:
+                return None
+            return npf.irr([-row['total_invested'], row['total_paid']])
+        except:
+            return None
+
+    def calc_expected_irr(row):
+        try:
+            days_expected = (row['maturity_date'] - row['funding_date']).days
+            if days_expected <= 0:
+                return None
+            return npf.irr([-row['total_invested'], row['total_paid']])
+        except:
+            return None
+
+    # Try to use payoff_date (if available), fallback to maturity_date
+    if 'payoff_date' in irr_df.columns:
+        irr_df['realized_irr'] = irr_df.apply(calc_irr, axis=1)
+    else:
+        irr_df['realized_irr'] = irr_df.apply(calc_expected_irr, axis=1)  # fallback
+
+    irr_df['expected_irr'] = irr_df.apply(calc_expected_irr, axis=1)
+
+    avg_realized_irr = irr_df['realized_irr'].mean(skipna=True)
+    avg_expected_irr = irr_df['expected_irr'].mean(skipna=True)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Average Realized IRR", f"{avg_realized_irr:.2%}" if pd.notnull(avg_realized_irr) else "N/A")
+    with col2:
+        st.metric("Average Expected IRR", f"{avg_expected_irr:.2%}" if pd.notnull(avg_expected_irr) else "N/A")
+
+else:
+    st.info("Insufficient data to calculate IRR. Ensure 'funding_date', 'maturity_date', and 'total_paid' are present.")
