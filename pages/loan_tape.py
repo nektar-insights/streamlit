@@ -633,15 +633,32 @@ def format_dataframe_for_display(df, columns=None, rename_map=None):
     for col in display_df.select_dtypes(include=['float64', 'float32']).columns:
         if any(term in col for term in ["ROI", "Rate", "Percentage", "Performance"]):
             display_df[col] = display_df[col].map(lambda x: f"{x:.2%}" if pd.notnull(x) else "")
-        elif "Maturity" in col:
+        elif any(term in col for term in ["Maturity", "Months"]):
             display_df[col] = display_df[col].map(lambda x: f"{x:.1f}" if pd.notnull(x) else "")
         elif any(term in col for term in ["Capital", "Invested", "Paid", "Balance", "Fees"]):
             display_df[col] = display_df[col].map(lambda x: f"${x:,.2f}" if pd.notnull(x) else "")
     
-    # Format date columns
-    for col in display_df.columns:
-        if any(term in col for term in ["Date", "Funding", "Maturity"]) and pd.api.types.is_datetime64_dtype(df[col.replace(" ", "_").lower()]):
-            display_df[col] = pd.to_datetime(df[col.replace(" ", "_").lower()]).dt.strftime('%Y-%m-%d')
+    # Format date columns safely
+    try:
+        # Get column mapping for safer column lookup
+        if rename_map:
+            # Create reverse mapping (display name -> original name)
+            reverse_map = {v: k for k, v in rename_map.items() if k in df.columns}
+        else:
+            reverse_map = {}
+            
+        for col in display_df.columns:
+            # Check if column looks like a date column
+            if any(term in col for term in ["Date", "Funding", "Maturity"]):
+                # Try to get the original column name
+                original_col = reverse_map.get(col, col.replace(" ", "_").lower())
+                
+                # Check if original column exists in source dataframe
+                if original_col in df.columns and pd.api.types.is_datetime64_dtype(df[original_col]):
+                    # Format as date
+                    display_df[col] = pd.to_datetime(df[original_col]).dt.strftime('%Y-%m-%d')
+    except Exception as e:
+        st.warning(f"Error formatting date columns: {str(e)}")
     
     return display_df
 
@@ -1430,46 +1447,55 @@ def display_top_positions(df):
     """Display top outstanding positions."""
     st.subheader("Top 5 Largest Outstanding Positions")
     
-    # Filter for unpaid positions
-    top_positions = (
-        df[df['is_unpaid']]
-        .sort_values('net_balance', ascending=False)
-        .head(5)
-    )
-    
-    if not top_positions.empty:
-        # Calculate total net balance of top 5 positions
-        top_5_total_balance = top_positions['net_balance'].sum()
-        # Calculate percentage of total net balance
-        top_5_pct_of_total = (top_5_total_balance / df['net_balance'].sum() * 100) if df['net_balance'].sum() > 0 else 0
-        
-        st.caption(f"Total Value: ${top_5_total_balance:,.2f} ({top_5_pct_of_total:.1f}% of total net balance)")
-        
-        # Format for display
-        display_columns = ['loan_id', 'deal_name', 'loan_status', 'total_invested', 'total_paid', 'net_balance', 'remaining_maturity_months']
-        column_rename = {
-            "loan_id": "Loan ID",
-            "deal_name": "Deal Name",
-            "loan_status": "Loan Status",
-            "total_invested": "Total Invested",
-            "total_paid": "Total Paid",
-            "net_balance": "Net Balance",
-            "remaining_maturity_months": "Months to Maturity"
-        }
-        
-        top_positions_display = format_dataframe_for_display(
-            top_positions, 
-            columns=display_columns,
-            rename_map=column_rename
+    try:
+        # Filter for unpaid positions
+        top_positions = (
+            df[df['is_unpaid']]
+            .sort_values('net_balance', ascending=False)
+            .head(5)
         )
         
-        st.dataframe(
-            top_positions_display,
-            use_container_width=True,
-            hide_index=True
-        )
-    else:
-        st.info("No outstanding positions found with the current filters.")
+        if not top_positions.empty:
+            # Calculate total net balance of top 5 positions
+            top_5_total_balance = top_positions['net_balance'].sum()
+            # Calculate percentage of total net balance
+            top_5_pct_of_total = (top_5_total_balance / df['net_balance'].sum() * 100) if df['net_balance'].sum() > 0 else 0
+            
+            st.caption(f"Total Value: ${top_5_total_balance:,.2f} ({top_5_pct_of_total:.1f}% of total net balance)")
+            
+            # Format for display - using only columns that exist
+            available_columns = [
+                'loan_id', 'deal_name', 'loan_status', 'total_invested', 
+                'total_paid', 'net_balance', 'remaining_maturity_months'
+            ]
+            display_columns = [col for col in available_columns if col in top_positions.columns]
+            
+            column_rename = {
+                "loan_id": "Loan ID",
+                "deal_name": "Deal Name",
+                "loan_status": "Loan Status",
+                "total_invested": "Total Invested",
+                "total_paid": "Total Paid",
+                "net_balance": "Net Balance",
+                "remaining_maturity_months": "Months to Maturity"
+            }
+            
+            top_positions_display = format_dataframe_for_display(
+                top_positions, 
+                columns=display_columns,
+                rename_map=column_rename
+            )
+            
+            st.dataframe(
+                top_positions_display,
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.info("No outstanding positions found with the current filters.")
+    except Exception as e:
+        st.error(f"Error displaying top positions: {str(e)}")
+        st.info("Unable to display top positions due to an error in data processing.")
 
 def display_loan_tape(df):
     """Display the main loan tape table."""
