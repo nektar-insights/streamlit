@@ -21,8 +21,13 @@ st.set_page_config(
     page_title="CSL Capital | Loan Tape",
     layout="wide",
 )
-inject_global_styles()
-inject_logo()
+
+# Use try-except for initialization to catch any early errors
+try:
+    inject_global_styles()
+    inject_logo()
+except Exception as e:
+    st.error(f"Error initializing page configuration: {str(e)}")
 
 # Constants
 PLATFORM_FEE = 0.03  # 3% platform fee
@@ -43,31 +48,70 @@ LOAN_STATUS_COLORS = {
 # ------------------------------
 # Data Loading Functions
 # ------------------------------
-supabase = get_supabase_client()
+# Initialize Supabase client with error handling
+try:
+    supabase = get_supabase_client()
+    st.session_state['supabase_initialized'] = True
+except Exception as e:
+    st.error(f"Failed to initialize Supabase client: {str(e)}")
+    supabase = None
+    st.session_state['supabase_initialized'] = False
 
 @st.cache_data(ttl=3600)
 def load_loan_summaries():
     """Load loan summary data from Supabase."""
-    res = supabase.table("loan_summaries").select("*").execute()
-    return pd.DataFrame(res.data)
+    try:
+        res = supabase.table("loan_summaries").select("*").execute()
+        df = pd.DataFrame(res.data)
+        # Check if data is empty
+        if df.empty:
+            st.warning("No loan summaries found in the database.")
+        return df
+    except Exception as e:
+        st.error(f"Error loading loan summaries: {str(e)}")
+        return pd.DataFrame()  # Return empty dataframe instead of None
 
 @st.cache_data(ttl=3600)
 def load_deals():
     """Load deal data from Supabase."""
-    res = supabase.table("deals").select("*").execute()
-    return pd.DataFrame(res.data)
+    try:
+        res = supabase.table("deals").select("*").execute()
+        df = pd.DataFrame(res.data)
+        # Check if data is empty
+        if df.empty:
+            st.warning("No deals found in the database.")
+        return df
+    except Exception as e:
+        st.error(f"Error loading deals: {str(e)}")
+        return pd.DataFrame()  # Return empty dataframe instead of None
 
 @st.cache_data(ttl=3600)
 def load_naics_sector_risk():
     """Load NAICS sector risk profiles."""
-    res = supabase.table("naics_sector_risk_profile").select("*").execute()
-    return pd.DataFrame(res.data)
+    try:
+        res = supabase.table("naics_sector_risk_profile").select("*").execute()
+        df = pd.DataFrame(res.data)
+        # Check if data is empty
+        if df.empty:
+            st.warning("No NAICS sector risk profiles found in the database.")
+        return df
+    except Exception as e:
+        st.error(f"Error loading NAICS sector risk profiles: {str(e)}")
+        return pd.DataFrame()  # Return empty dataframe instead of None
 
 @st.cache_data(ttl=3600)
 def load_loan_schedules():
     """Load loan schedule data from Supabase."""
-    res = supabase.table("loan_schedules").select("*").execute()
-    return pd.DataFrame(res.data)
+    try:
+        res = supabase.table("loan_schedules").select("*").execute()
+        df = pd.DataFrame(res.data)
+        # Check if data is empty
+        if df.empty:
+            st.warning("No loan schedules found in the database.")
+        return df
+    except Exception as e:
+        st.error(f"Error loading loan schedules: {str(e)}")
+        return pd.DataFrame()  # Return empty dataframe instead of None
 
 # ------------------------------
 # Data Processing Functions
