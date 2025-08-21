@@ -1493,7 +1493,7 @@ def display_capital_at_risk(df):
     )
     
     # Layout charts side by side
-    col1, col2 = st.columns([1, 2])
+    col1, col2 = st.columns([1, 1])
     with col1:
         st.altair_chart(bar_chart, use_container_width=True)
     with col2:
