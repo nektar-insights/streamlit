@@ -1004,6 +1004,123 @@ def plot_capital_waterfall(df):
         st.error(f"Error creating capital waterfall chart: {str(e)}")
         st.info("Unable to generate capital waterfall chart due to an error in data processing.")
 
+def plot_j_curve(df):
+    """
+    Create and display a J-Curve visualization showing the expected vs actual return pattern over time.
+    """
+    st.subheader("Portfolio J-Curve Analysis", 
+                help="The J-Curve shows how investments typically have negative returns initially before becoming profitable over time.")
+    
+    # Convert dates to datetime
+    df['funding_date'] = pd.to_datetime(df['funding_date'], errors='coerce')
+    
+    # Calculate months since funding for each loan
+    current_date = pd.Timestamp.now()
+    df['months_since_funding'] = ((current_date - df['funding_date']).dt.days / 30).round().astype(int)
+    
+    # Create data for expected return curve
+    # This is based on a typical expected return pattern - modify as needed
+    max_months = min(max(df['months_since_funding'].max(), 24), 60)  # Cap at 60 months for visualization
+    
+    expected_curve = pd.DataFrame({
+        'month': range(0, max_months + 1),
+        'expected_return': [-0.05] * 3 + 
+                          [(-0.05 + (i/max_months)*0.35) for i in range(3, max_months + 1)]
+    })
+    
+    # Aggregate actual returns by month
+    actual_returns = df.groupby('months_since_funding').agg(
+        total_invested=('total_invested', 'sum'),
+        total_paid=('total_paid', 'sum'),
+        loan_count=('loan_id', 'count')
+    ).reset_index()
+    
+    # Calculate ROI for each month group
+    actual_returns['actual_roi'] = (actual_returns['total_paid'] / actual_returns['total_invested']) - 1
+    
+    # Merge with expected curve for visualization
+    j_curve_data = pd.merge(
+        expected_curve, 
+        actual_returns[['months_since_funding', 'actual_roi', 'loan_count']], 
+        left_on='month', 
+        right_on='months_since_funding', 
+        how='left'
+    )
+    
+    # Create long-format data for visualization
+    chart_data = []
+    for _, row in j_curve_data.iterrows():
+        # Expected return
+        chart_data.append({
+            'Month': row['month'],
+            'Return': row['expected_return'],
+            'Type': 'Expected Return',
+            'Loan Count': 'N/A'
+        })
+        
+        # Actual return (if available)
+        if pd.notnull(row['actual_roi']):
+            chart_data.append({
+                'Month': row['month'],
+                'Return': row['actual_roi'],
+                'Type': 'Actual Return',
+                'Loan Count': row['loan_count']
+            })
+    
+    chart_df = pd.DataFrame(chart_data)
+    
+    # Create J-Curve chart
+    j_curve = alt.Chart(chart_df).mark_line(point=True).encode(
+        x=alt.X('Month:Q', title='Months Since Funding'),
+        y=alt.Y('Return:Q', 
+                title='Return on Investment (ROI)',
+                axis=alt.Axis(format='%')),
+        color=alt.Color(
+            'Type:N',
+            scale=alt.Scale(
+                domain=['Expected Return', 'Actual Return'],
+                range=['gray', '#2ca02c']
+            )
+        ),
+        strokeDash=alt.condition(
+            alt.datum.Type == 'Expected Return',
+            alt.value([5, 5]),  # dashed line for expected returns
+            alt.value([0])      # solid line for actual returns
+        ),
+        size=alt.condition(
+            alt.datum.Type == 'Actual Return',
+            alt.value(3),  # thicker line for actual returns
+            alt.value(2)   # thinner line for expected returns
+        ),
+        tooltip=[
+            alt.Tooltip('Month:Q', title='Months Since Funding'),
+            alt.Tooltip('Return:Q', title='ROI', format='.2%'),
+            alt.Tooltip('Type:N', title='Return Type'),
+            alt.Tooltip('Loan Count:Q', title='Number of Loans')
+        ]
+    ).properties(
+        width=800,
+        height=500,
+        title='Portfolio J-Curve: Expected vs. Actual Returns Over Time'
+    )
+    
+    # Add reference line at 0% (break-even)
+    zero_line = alt.Chart(pd.DataFrame({'y': [0]})).mark_rule(
+        strokeDash=[2, 2],
+        color='gray',
+        strokeWidth=1
+    ).encode(y='y:Q')
+    
+    st.altair_chart(j_curve + zero_line, use_container_width=True)
+    
+    # Add explanation
+    st.caption(
+        "**J-Curve Explanation:** The J-Curve illustrates the pattern where investments typically show negative returns " +
+        "initially due to deployment costs, fees, and early-stage risks, before generating positive returns over time. " +
+        "The gray dashed line represents the theoretical expected return pattern, while the green solid line shows " +
+        "your portfolio's actual performance."
+    )
+
 def plot_risk_scatter(risk_df, avg_payment_performance=0.75):
     """
     Create and display a scatter plot of risk factors.
@@ -2468,6 +2585,12 @@ def main():
         # Capital Waterfall
         st.subheader("Capital Flow Waterfall")
         plot_capital_waterfall(filtered_df)
+
+        st.header("Payment Performance Analysis Over Time")
+        plot_payment_performance_over_time(filtered_df)
+    
+        st.header("Portfolio J-Curve Analysis")
+        plot_j_curve(filtered_df)
     
     with tabs[2]:
         # Risk analytics section with enhanced industry, FICO, and TIB analysis
