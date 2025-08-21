@@ -10,6 +10,23 @@ from utils.config import (
 )
 
 # ----------------------------
+# Password Protection
+# ----------------------------
+def check_password():
+    if "password_correct" in st.session_state:
+        return st.session_state["password_correct"]
+    
+    st.markdown("<h1 style='text-align: center;'>CSL Capital</h1>", unsafe_allow_html=True)
+    password = st.text_input("Enter password:", type="password")
+    if st.button("Submit"):
+        if password == st.secrets["APP_PASSWORD"]:
+            st.session_state["password_correct"] = True
+            return True
+        else:
+            st.error("Incorrect password")
+    return False
+
+# ----------------------------
 # Apply Branding
 # ----------------------------
 st.set_page_config(page_title="CSL Capital | Dashboard", layout="wide")
