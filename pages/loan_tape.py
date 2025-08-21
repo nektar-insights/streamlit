@@ -429,10 +429,19 @@ def plot_status_distribution(df):
         lambda x: LOAN_STATUS_COLORS.get(x, "#808080")  # Default to gray if status not in mapping
     )
     
+    # Create a lookup table of loan IDs grouped by status
+    loan_ids_by_status = {}
+    for status in active_df["loan_status"].unique():
+        loans = active_df[active_df["loan_status"] == status]["loan_id"].tolist()
+        loan_ids_by_status[status] = ", ".join(loans)
+    
+    # Add loan IDs to status summary
+    status_summary["loan_ids"] = status_summary["status"].map(loan_ids_by_status)
+    
     # Add note about excluding Paid Off loans
     st.caption("Note: 'Paid Off' loans are excluded from this chart")
     
-    # Create pie chart with custom colors
+    # Create pie chart with custom colors and loan IDs in tooltip
     pie_chart = alt.Chart(status_summary).mark_arc().encode(
         theta=alt.Theta(field="percentage", type="quantitative"),
         color=alt.Color(
@@ -447,7 +456,8 @@ def plot_status_distribution(df):
             alt.Tooltip("status:N", title="Loan Status"),
             alt.Tooltip("count:Q", title="Number of Loans"),
             alt.Tooltip("percentage:Q", title="% of Active Loans", format=".1%"),
-            alt.Tooltip("balance:Q", title="Net Balance", format="$,.0f")
+            alt.Tooltip("balance:Q", title="Net Balance", format="$,.0f"),
+            alt.Tooltip("loan_ids:N", title="Loan IDs")
         ]
     ).properties(
         width=600,
@@ -561,7 +571,9 @@ def plot_capital_flow(df):
     # Create separate charts with shared x-axis scale
     deploy_chart = alt.Chart(deploy_df).mark_line(color="red").encode(
         x=alt.X('funding_date:T', title="Date", axis=alt.Axis(format="%b %Y")),
-        y=alt.Y('capital_deployed:Q', title="Capital Deployed ($)"),
+        y=alt.Y('capital_deployed:Q', 
+                title="Capital Deployed ($)",
+                axis=alt.Axis(format="$,.0f", tickCount=5)), # Control number of ticks
         tooltip=[
             alt.Tooltip('funding_date:T', title="Date", format="%Y-%m-%d"),
             alt.Tooltip('capital_deployed:Q', title="Capital Deployed", format="$,.0f")
@@ -575,7 +587,9 @@ def plot_capital_flow(df):
     if not return_df.empty:
         return_chart = alt.Chart(return_df).mark_line(color="green").encode(
             x=alt.X('payment_date:T', title="Date"),
-            y=alt.Y('capital_returned:Q', title="Capital Returned ($)"),
+            y=alt.Y('capital_returned:Q', 
+                title="Capital Returned ($)",
+                axis=alt.Axis(format="$,.0f", tickCount=5)),
             tooltip=[
                 alt.Tooltip('payment_date:T', title="Date", format="%Y-%m-%d"),
                 alt.Tooltip('capital_returned:Q', title="Capital Returned", format="$,.0f")
@@ -583,8 +597,16 @@ def plot_capital_flow(df):
         )
         
         # Combine charts
-        capital_chart = alt.layer(deploy_chart, return_chart).resolve_scale(
-            x='shared', y='independent'
+        capital_chart = alt.layer(
+            deploy_chart,
+            return_chart
+        ).resolve_scale(
+            x='shared',
+            y='independent'
+        ).configure_axisLeft(
+            labelOverlap='greedy'  # Prevent duplicate labels
+        ).configure_axisRight(
+            labelOverlap='greedy'  # Prevent duplicate labels
         ).properties(
             title={
                 "text": "Capital Deployed vs. Capital Returned Over Time",
@@ -593,7 +615,9 @@ def plot_capital_flow(df):
             }
         )
     else:
-        capital_chart = deploy_chart.properties(
+        capital_chart = deploy_chart.configure_axisLeft(
+            labelOverlap='greedy'  # Prevent duplicate labels
+        ).properties(
             title={
                 "text": "Capital Deployed Over Time",
                 "fontSize": 16
@@ -643,11 +667,11 @@ def plot_capital_flow(df):
             if prev_date is not None:
                 days_between = (current_date - prev_date).days
                 milestone_days.append({
-                    'From': prev_milestone,
-                    'To': current_milestone,
+                    '$ Deployed Milestone': prev_milestone,
+                    'Next Capital Milestone': current_milestone,
                     'Start Date': prev_date.strftime('%Y-%m-%d'),
                     'End Date': current_date.strftime('%Y-%m-%d'),
-                    'Days': days_between
+                    'Days Between': days_between
                 })
             
             prev_date = current_date
@@ -1418,6 +1442,17 @@ def display_capital_at_risk(df):
         total_difference=('payment_difference', 'sum'),
         avg_difference_pct=('difference_pct', 'mean')
     ).reset_index()
+
+    loan_ids_by_category = {}
+    for category in active_df["payment_diff_category"].unique():
+        if pd.notna(category):  # Ensure we're not processing NaN categories
+            loans = active_df[active_df["payment_diff_category"] == category]["loan_id"].tolist()
+            loan_ids_by_category[category] = ", ".join(loans)
+    
+    # Add loan IDs to diff_distribution
+    diff_distribution["loan_ids"] = diff_distribution["payment_diff_category"].map(
+        lambda x: loan_ids_by_category.get(x, "") if pd.notna(x) else ""
+    )
     
     diff_chart = alt.Chart(diff_distribution).mark_bar().encode(
         x=alt.X(
@@ -1442,7 +1477,8 @@ def display_capital_at_risk(df):
             alt.Tooltip('payment_diff_category:N', title="Category"),
             alt.Tooltip('loan_count:Q', title="Loan Count"),
             alt.Tooltip('total_difference:Q', title="Total Difference", format="$,.2f"),
-            alt.Tooltip('avg_difference_pct:Q', title="Avg Difference %", format=".1%")
+            alt.Tooltip('avg_difference_pct:Q', title="Avg Difference %", format=".1%"),
+            alt.Tooltip('loan_ids:N', title="Loan IDs")
         ]
     ).properties(
         width=700,
@@ -2020,30 +2056,59 @@ def display_irr_analysis(df):
     
     # Display IRR table
     st.subheader("IRR by Loan")
+
+        # Create a copy of paid_df for display purposes
+    irr_display_df = paid_df.copy()
     
+    # Pre-format the IRR columns as percentages
+    irr_display_df['realized_irr_formatted'] = irr_display_df['realized_irr'].apply(
+        lambda x: f"{x:.2%}" if pd.notnull(x) else "N/A"
+    )
+    irr_display_df['expected_irr_formatted'] = irr_display_df['expected_irr'].apply(
+        lambda x: f"{x:.2%}" if pd.notnull(x) else "N/A"
+    )
+    
+    # Calculate duration in days
+    irr_display_df['duration_days'] = (
+        pd.to_datetime(irr_display_df['payoff_date']).dt.tz_localize(None) - 
+        pd.to_datetime(irr_display_df['funding_date']).dt.tz_localize(None)
+    ).dt.days
+    
+    # Calculate working days (excluding weekends) - approximate method
+    irr_display_df['working_days'] = irr_display_df['duration_days'].apply(
+        lambda x: max(0, round(x * 5/7)) if pd.notnull(x) else None  # Approximation: 5/7 of days are working days
+    )
+    
+    # Select columns for display   
     irr_columns = [
         'loan_id', 'deal_name', 'partner_source', 'funding_date', 'payoff_date',
-        'total_invested', 'total_paid', 'realized_irr', 'expected_irr'
+        'duration_days', 'working_days', 'total_invested', 'total_paid', 
+        'realized_irr_formatted', 'expected_irr_formatted'
     ]
     
+    # Rename columns for display
     column_rename = {
         'loan_id': 'Loan ID',
         'deal_name': 'Deal Name',
         'partner_source': 'Partner Source',
         'funding_date': 'Funding Date',
         'payoff_date': 'Payoff Date',
+        'duration_days': 'Duration (Days)',
+        'working_days': 'Working Days',
         'total_invested': 'Total Invested',
         'total_paid': 'Total Paid',
-        'realized_irr': 'Realized IRR',
-        'expected_irr': 'Expected IRR'
+        'realized_irr_formatted': 'Realized IRR',
+        'expected_irr_formatted': 'Expected IRR'
     }
     
+    # Format dates and numeric columns
     irr_display = format_dataframe_for_display(
-        paid_df, 
+        irr_display_df, 
         columns=irr_columns,
         rename_map=column_rename
     )
     
+    # Display the dataframe
     st.dataframe(
         irr_display.sort_values(by='Realized IRR', ascending=False),
         use_container_width=True,
