@@ -564,57 +564,58 @@ def plot_capital_flow(df):
         return_df = pd.DataFrame(columns=['payment_date', 'capital_returned'])
     
     # Skip if data is insufficient
-    if deploy_df.empty or return_df.empty:
+    if deploy_df.empty:
         st.info("Insufficient data to display capital flow chart.")
         return
     
-    # Create separate charts with shared x-axis scale
-    deploy_chart = alt.Chart(deploy_df).mark_line(color="red").encode(
-        x=alt.X('funding_date:T', title="Date", axis=alt.Axis(format="%b %Y")),
-        y=alt.Y('capital_deployed:Q', 
-                title="Capital Deployed ($)",
-                axis=alt.Axis(format="$,.0f", tickCount=5)),
+    # SIMPLIFIED APPROACH: Create a single chart with normalized values
+    # Create a combined dataset with both series
+    combined_data = []
+    
+    # Add deployment data
+    for _, row in deploy_df.iterrows():
+        combined_data.append({
+            'date': row['funding_date'],
+            'amount': row['capital_deployed'],
+            'series': 'Capital Deployed'
+        })
+    
+    # Add return data if available
+    if not return_df.empty:
+        for _, row in return_df.iterrows():
+            combined_data.append({
+                'date': row['payment_date'],
+                'amount': row['capital_returned'],
+                'series': 'Capital Returned'
+            })
+    
+    # Create dataframe
+    combined_df = pd.DataFrame(combined_data)
+    
+    # Create a single chart with one y-axis
+    chart = alt.Chart(combined_df).mark_line().encode(
+        x=alt.X('date:T', title="Date", axis=alt.Axis(format="%b %Y")),
+        y=alt.Y('amount:Q', title="Amount ($)", axis=alt.Axis(format="$,.0f")),
+        color=alt.Color(
+            'series:N', 
+            scale=alt.Scale(
+                domain=['Capital Deployed', 'Capital Returned'],
+                range=['red', 'green']
+            ),
+            legend=alt.Legend(title="Capital Flow")
+        ),
         tooltip=[
-            alt.Tooltip('funding_date:T', title="Date", format="%Y-%m-%d"),
-            alt.Tooltip('capital_deployed:Q', title="Capital Deployed", format="$,.0f")
+            alt.Tooltip('date:T', title="Date", format="%Y-%m-%d"),
+            alt.Tooltip('amount:Q', title="Amount", format="$,.0f"),
+            alt.Tooltip('series:N', title="Type")
         ]
+    ).properties(
+        width=800,
+        height=400,
+        title="Capital Deployed vs. Capital Returned Over Time"
     )
     
-    # Only create return chart if we have return data
-    if not return_df.empty:
-        return_chart = alt.Chart(return_df).mark_line(color="green").encode(
-            x=alt.X('payment_date:T', title="Date"),
-            y=alt.Y('capital_returned:Q', 
-                    title="Capital Returned ($)",
-                    axis=alt.Axis(format="$,.0f", tickCount=5)),
-            tooltip=[
-                alt.Tooltip('payment_date:T', title="Date", format="%Y-%m-%d"),
-                alt.Tooltip('capital_returned:Q', title="Capital Returned", format="$,.0f")
-            ]
-        )
-        
-        # Combine charts - NO configuration here
-        capital_chart = alt.layer(deploy_chart, return_chart).resolve_scale(
-            x='shared', 
-            y='independent'
-        ).properties(
-            width=800,
-            height=400,
-            title={
-                "text": "Capital Deployed vs. Capital Returned Over Time",
-                "subtitle": "Red = Capital Deployed, Green = Capital Returned",
-                "fontSize": 16
-            }
-        )
-    else:
-        capital_chart = deploy_chart.properties(
-            title={
-                "text": "Capital Deployed Over Time",
-                "fontSize": 16
-            }
-        )
-    
-    # Milestone Annotations
+    # Add milestone markers
     milestones = [500_000, 1_000_000, 2_000_000, 3_000_000]
     milestone_df = pd.DataFrame()
     for value in milestones:
@@ -626,33 +627,33 @@ def plot_capital_flow(df):
     
     # Add milestone points if we have any
     if not milestone_df.empty:
-        milestone_points = alt.Chart(milestone_df).mark_point(filled=True, size=80, color="red").encode(
-            x='funding_date:T',
-            y='capital_deployed:Q',
+        # Convert milestone data to the same format
+        milestone_points_data = []
+        for _, row in milestone_df.iterrows():
+            milestone_points_data.append({
+                'date': row['funding_date'],
+                'amount': row['capital_deployed'],
+                'milestone': row['milestone']
+            })
+        
+        milestone_points_df = pd.DataFrame(milestone_points_data)
+        
+        # Create milestone points
+        milestone_layer = alt.Chart(milestone_points_df).mark_circle(size=80).encode(
+            x='date:T',
+            y='amount:Q',
+            color=alt.value('red'),
             tooltip=[
-                alt.Tooltip('milestone:N', title="Milestone"), 
-                alt.Tooltip('funding_date:T', title="Date Reached", format="%Y-%m-%d")
+                alt.Tooltip('milestone:N', title="Milestone"),
+                alt.Tooltip('date:T', title="Date Reached", format="%Y-%m-%d")
             ]
         )
         
-        # First create the combined layer chart, THEN apply configurations
-        combined_chart = alt.layer(capital_chart, milestone_points)
-        
-        # Apply any configurations after all layers are combined
-        final_chart = combined_chart.configure_axisLeft(
-            labelOverlap='greedy'
-        ).configure_axisRight(
-            labelOverlap='greedy'
-        )
-    else:
-        # Apply configurations to the chart directly if no milestones
-        final_chart = capital_chart.configure_axisLeft(
-            labelOverlap='greedy'
-        ).configure_axisRight(
-            labelOverlap='greedy'
-        )
+        # Combine charts
+        chart = alt.layer(chart, milestone_layer)
     
-    st.altair_chart(final_chart, use_container_width=True)
+    # Display chart
+    st.altair_chart(chart, use_container_width=True)
     
     # NEW: Add milestone days table
     if not milestone_df.empty and len(milestone_df) > 1:
@@ -673,8 +674,8 @@ def plot_capital_flow(df):
             if prev_date is not None:
                 days_between = (current_date - prev_date).days
                 milestone_days.append({
-                    'Capital Deployed Milestone': prev_milestone,
-                    'Next Capital Milestone': current_milestone,
+                    'From': prev_milestone,
+                    'To': current_milestone,
                     'Start Date': prev_date.strftime('%Y-%m-%d'),
                     'End Date': current_date.strftime('%Y-%m-%d'),
                     'Days': days_between
@@ -1007,6 +1008,9 @@ def plot_risk_scatter(risk_df, avg_payment_performance=0.75):
     """
     Create and display a scatter plot of risk factors.
     """
+    # Filter out 'Paid Off' loans
+    risk_df = risk_df[risk_df['loan_status'] != 'Paid Off'].copy()
+
     if risk_df.empty:
         st.info("No active loans to display in risk assessment chart.")
         return
@@ -1022,6 +1026,9 @@ def plot_risk_scatter(risk_df, avg_payment_performance=0.75):
     if not risk_df['days_since_funding'].empty:
         median_age = risk_df['days_since_funding'].median()
         age_threshold = max(60, min(120, median_age))
+
+    st.subheader("Loan Risk Assessment", 
+               help="Risk Score = 70% × Performance Gap + 30% × Age Weight. Performance Gap measures how far behind schedule payments are (1 - Payment Performance). Age Weight is normalized based on the oldest loan in the portfolio.")
     
     scatter = alt.Chart(risk_df).mark_circle(size=75).encode(
         x=alt.X(
@@ -1345,13 +1352,8 @@ def display_capital_at_risk(df):
     st.subheader("Expected vs. Actual Return Analysis")
     
     # Information tooltip for expected vs actual calculation
-    st.markdown("""
-        <div style="text-align: right; margin-bottom: 10px;">
-            <span style="cursor: help;" title="Expected payments are calculated based on linear payment over time from funding date to maturity date. Actual payments are the amount received to date.">
-                (i) How expected payments are calculated
-            </span>
-        </div>
-    """, unsafe_allow_html=True)
+    st.subheader("Expected vs. Actual Return Analysis", 
+            help="Expected payments are calculated based on linear payment over time from funding date to maturity date. Actual payments are the amount received to date.")
     
     # Calculate expected and actual RTR and differences
     active_df['expected_rtr'] = active_df['our_rtr']
@@ -2248,15 +2250,6 @@ def display_risk_analytics(df):
     
     # Risk scatter plot with tooltip and quadrant adjustment
     st.subheader("Loan Risk Assessment")
-    
-    # Add info tooltip to explain the risk assessment chart
-    st.markdown("""
-        <div style="text-align: right; margin-bottom: 10px;">
-            <span style="cursor: help;" title="This chart plots each active loan by its Performance Gap (how far behind in payments) vs. Days Since Funding. Quadrants are adjusted based on average payment performance. Larger, darker circles indicate higher risk scores.">
-                (i) How to interpret this chart
-            </span>
-        </div>
-    """, unsafe_allow_html=True)
     
     plot_risk_scatter(risk_df, df['payment_performance'].mean())
     
