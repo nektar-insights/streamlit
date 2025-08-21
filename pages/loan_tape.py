@@ -79,7 +79,7 @@ def prepare_loan_data(loans_df, deals_df):
     # Merge dataframes if data exists
     if not loans_df.empty and not deals_df.empty:
         df = loans_df.merge(
-            deals_df[["loan_id", "deal_name", "partner_source", "industry", "commission"]], 
+            deals_df[["loan_id", "deal_name", "partner_source", "industry", "commission","fico", "tib"]], 
             on="loan_id", 
             how="left"
         )
@@ -1462,8 +1462,8 @@ def plot_fico_distribution(df):
     Create and display visualizations of loan distribution by FICO score.
     """
     try:
-        # Check if FICO score data exists
-        if 'fico_score' not in df.columns or df['fico_score'].isna().all():
+        # Check if FICO score data exists (renamed from fico_score to fico based on schema)
+        if 'fico' not in df.columns or df['fico'].isna().all():
             st.warning("FICO score data not available for analysis.")
             return
             
@@ -1475,11 +1475,11 @@ def plot_fico_distribution(df):
         fico_df = df.copy()
         
         # Convert FICO to numeric and handle any errors
-        fico_df['fico_score'] = pd.to_numeric(fico_df['fico_score'], errors='coerce')
+        fico_df['fico'] = pd.to_numeric(fico_df['fico'], errors='coerce')
         
         # Add FICO band column
         fico_df['fico_band'] = pd.cut(
-            fico_df['fico_score'], 
+            fico_df['fico'], 
             bins=fico_bins, 
             labels=fico_labels, 
             right=False
@@ -1567,8 +1567,8 @@ def plot_tib_distribution(df):
     Create and display visualizations of capital exposure by Time in Business.
     """
     try:
-        # Check if Time in Business data exists
-        if 'time_in_business' not in df.columns or df['time_in_business'].isna().all():
+        # Check if Time in Business data exists (renamed from time_in_business to tib based on schema)
+        if 'tib' not in df.columns or df['tib'].isna().all():
             st.warning("Time in Business data not available for analysis.")
             return
             
@@ -1580,11 +1580,11 @@ def plot_tib_distribution(df):
         tib_df = df.copy()
         
         # Convert TIB to numeric and handle any errors
-        tib_df['time_in_business'] = pd.to_numeric(tib_df['time_in_business'], errors='coerce')
+        tib_df['tib'] = pd.to_numeric(tib_df['tib'], errors='coerce')
         
         # Add TIB band column
         tib_df['tib_band'] = pd.cut(
-            tib_df['time_in_business'], 
+            tib_df['tib'], 
             bins=tib_bins, 
             labels=tib_labels, 
             right=False
