@@ -10,6 +10,11 @@ from utils.config import (
 )
 
 # ----------------------------
+# Apply Branding - MUST be first
+# ----------------------------
+st.set_page_config(page_title="CSL Capital | Dashboard", layout="wide")
+
+# ----------------------------
 # Password Protection
 # ----------------------------
 def check_password():
@@ -26,21 +31,16 @@ def check_password():
             st.error("Incorrect password")
     return False
 
-# ----------------------------
-# Apply Branding
-# ----------------------------
-st.set_page_config(page_title="CSL Capital | Dashboard", layout="wide")
-
 # Only show app content if password is correct
 if check_password():
     inject_global_styles()
     inject_logo()
-
-# ----------------------------
-# Supabase connection
-# ----------------------------
-supabase = get_supabase_client()
-
+    
+    # ----------------------------
+    # Supabase connection
+    # ----------------------------
+    supabase = get_supabase_client()
+    
 # ----------------------------
 # Load and prepare data
 # ----------------------------
