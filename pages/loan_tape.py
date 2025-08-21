@@ -573,14 +573,11 @@ def plot_capital_flow(df):
         x=alt.X('funding_date:T', title="Date", axis=alt.Axis(format="%b %Y")),
         y=alt.Y('capital_deployed:Q', 
                 title="Capital Deployed ($)",
-                axis=alt.Axis(format="$,.0f", tickCount=5)), # Control number of ticks
+                axis=alt.Axis(format="$,.0f", tickCount=5)),
         tooltip=[
             alt.Tooltip('funding_date:T', title="Date", format="%Y-%m-%d"),
             alt.Tooltip('capital_deployed:Q', title="Capital Deployed", format="$,.0f")
         ]
-    ).properties(
-        width=800,
-        height=400,
     )
     
     # Only create return chart if we have return data
@@ -588,26 +585,21 @@ def plot_capital_flow(df):
         return_chart = alt.Chart(return_df).mark_line(color="green").encode(
             x=alt.X('payment_date:T', title="Date"),
             y=alt.Y('capital_returned:Q', 
-                title="Capital Returned ($)",
-                axis=alt.Axis(format="$,.0f", tickCount=5)),
+                    title="Capital Returned ($)",
+                    axis=alt.Axis(format="$,.0f", tickCount=5)),
             tooltip=[
                 alt.Tooltip('payment_date:T', title="Date", format="%Y-%m-%d"),
                 alt.Tooltip('capital_returned:Q', title="Capital Returned", format="$,.0f")
             ]
         )
         
-        # Combine charts
-        capital_chart = alt.layer(
-            deploy_chart,
-            return_chart
-        ).resolve_scale(
-            x='shared',
+        # Combine charts - NO configuration here
+        capital_chart = alt.layer(deploy_chart, return_chart).resolve_scale(
+            x='shared', 
             y='independent'
-        ).configure_axisLeft(
-            labelOverlap='greedy'  # Prevent duplicate labels
-        ).configure_axisRight(
-            labelOverlap='greedy'  # Prevent duplicate labels
         ).properties(
+            width=800,
+            height=400,
             title={
                 "text": "Capital Deployed vs. Capital Returned Over Time",
                 "subtitle": "Red = Capital Deployed, Green = Capital Returned",
@@ -615,9 +607,7 @@ def plot_capital_flow(df):
             }
         )
     else:
-        capital_chart = deploy_chart.configure_axisLeft(
-            labelOverlap='greedy'  # Prevent duplicate labels
-        ).properties(
+        capital_chart = deploy_chart.properties(
             title={
                 "text": "Capital Deployed Over Time",
                 "fontSize": 16
@@ -644,9 +634,25 @@ def plot_capital_flow(df):
                 alt.Tooltip('funding_date:T', title="Date Reached", format="%Y-%m-%d")
             ]
         )
-        capital_chart = alt.layer(capital_chart, milestone_points)
+        
+        # First create the combined layer chart, THEN apply configurations
+        combined_chart = alt.layer(capital_chart, milestone_points)
+        
+        # Apply any configurations after all layers are combined
+        final_chart = combined_chart.configure_axisLeft(
+            labelOverlap='greedy'
+        ).configure_axisRight(
+            labelOverlap='greedy'
+        )
+    else:
+        # Apply configurations to the chart directly if no milestones
+        final_chart = capital_chart.configure_axisLeft(
+            labelOverlap='greedy'
+        ).configure_axisRight(
+            labelOverlap='greedy'
+        )
     
-    st.altair_chart(capital_chart, use_container_width=True)
+    st.altair_chart(final_chart, use_container_width=True)
     
     # NEW: Add milestone days table
     if not milestone_df.empty and len(milestone_df) > 1:
@@ -667,11 +673,11 @@ def plot_capital_flow(df):
             if prev_date is not None:
                 days_between = (current_date - prev_date).days
                 milestone_days.append({
-                    '$ Deployed Milestone': prev_milestone,
-                    'Next Capital Milestone': current_milestone,
+                    'From': prev_milestone,
+                    'To': current_milestone,
                     'Start Date': prev_date.strftime('%Y-%m-%d'),
                     'End Date': current_date.strftime('%Y-%m-%d'),
-                    'Days Between': days_between
+                    'Days': days_between
                 })
             
             prev_date = current_date
