@@ -30,8 +30,11 @@ def check_password():
 # Apply Branding
 # ----------------------------
 st.set_page_config(page_title="CSL Capital | Dashboard", layout="wide")
-inject_global_styles()
-inject_logo()
+
+# Only show app content if password is correct
+if check_password():
+    inject_global_styles()
+    inject_logo()
 
 # ----------------------------
 # Supabase connection
@@ -845,3 +848,6 @@ with col_download2:
         file_name="partner_dollar_summary.pdf",
         mime="application/pdf"
     )
+
+else:
+    st.stop() 
