@@ -848,6 +848,3 @@ with col_download2:
         file_name="partner_dollar_summary.pdf",
         mime="application/pdf"
     )
-
-else:
-    st.stop() 
