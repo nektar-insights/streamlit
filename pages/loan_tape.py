@@ -1348,9 +1348,7 @@ def display_capital_at_risk(df):
     
     st.altair_chart(principal_chart, use_container_width=True)
     
-    # Expected vs Actual Return Analysis
-    st.subheader("Expected vs. Actual Return Analysis")
-    
+    # Expected vs Actual Return Analysis  
     # Information tooltip for expected vs actual calculation
     st.subheader("Expected vs. Actual Return Analysis", 
             help="Expected payments are calculated based on linear payment over time from funding date to maturity date. Actual payments are the amount received to date.")
@@ -1500,6 +1498,154 @@ def display_capital_at_risk(df):
         st.altair_chart(bar_chart, use_container_width=True)
     with col2:
         st.altair_chart(diff_chart, use_container_width=True)
+
+def plot_payment_performance_over_time(df):
+    """
+    Create and display charts showing expected vs. actual payment performance over time and by vintage.
+    """
+    # Filter out paid-off loans
+    active_df = df[df['loan_status'] != "Paid Off"].copy()
+    
+    if active_df.empty:
+        st.info("No active loans to analyze for payment performance over time.")
+        return
+    
+    # Calculate expected and actual payments
+    active_df['expected_paid_to_date'] = active_df.apply(
+        lambda x: calculate_expected_payment_to_date(x), axis=1
+    )
+    active_df['actual_paid'] = active_df['total_paid']
+    active_df['payment_difference'] = active_df['actual_paid'] - active_df['expected_paid_to_date']
+    active_df['performance_ratio'] = active_df.apply(
+        lambda x: x['actual_paid'] / x['expected_paid_to_date'] if x['expected_paid_to_date'] > 0 else 1.0, 
+        axis=1
+    )
+    
+    # Add date fields for time series analysis
+    active_df['funding_month'] = pd.to_datetime(active_df['funding_date']).dt.to_period('M')
+    active_df['cohort'] = pd.to_datetime(active_df['funding_date']).dt.to_period('Q').astype(str)
+    
+    # Chart 1: Performance Over Time
+    st.subheader("Payment Performance Over Time", 
+                help="Shows how expected vs. actual payments trend over time for the entire portfolio.")
+    
+    # Aggregate by month
+    monthly_performance = active_df.groupby('funding_month').agg(
+        expected_payment=('expected_paid_to_date', 'sum'),
+        actual_payment=('actual_paid', 'sum'),
+        loan_count=('loan_id', 'count')
+    ).reset_index()
+    
+    # Convert period to datetime for chart
+    monthly_performance['month'] = monthly_performance['funding_month'].dt.to_timestamp()
+    
+    # Calculate performance ratio
+    monthly_performance['performance_ratio'] = monthly_performance['actual_payment'] / monthly_performance['expected_payment']
+    
+    # Create chart data in long format
+    chart_data = []
+    for _, row in monthly_performance.iterrows():
+        chart_data.append({
+            'Month': row['month'],
+            'Amount': row['expected_payment'],
+            'Type': 'Expected Payment',
+            'Performance Ratio': row['performance_ratio'],
+            'Loan Count': row['loan_count']
+        })
+        chart_data.append({
+            'Month': row['month'],
+            'Amount': row['actual_payment'],
+            'Type': 'Actual Payment',
+            'Performance Ratio': row['performance_ratio'],
+            'Loan Count': row['loan_count']
+        })
+    
+    chart_df = pd.DataFrame(chart_data)
+    
+    # Create time series chart
+    time_chart = alt.Chart(chart_df).mark_line(point=True).encode(
+        x=alt.X('Month:T', title='Month'),
+        y=alt.Y('Amount:Q', title='Amount ($)', axis=alt.Axis(format='$,.0f')),
+        color=alt.Color(
+            'Type:N',
+            scale=alt.Scale(
+                domain=['Expected Payment', 'Actual Payment'],
+                range=['#1f77b4', '#2ca02c']
+            )
+        ),
+        tooltip=[
+            alt.Tooltip('Month:T', title='Month', format='%b %Y'),
+            alt.Tooltip('Amount:Q', title='Amount', format='$,.0f'),
+            alt.Tooltip('Type:N', title='Payment Type'),
+            alt.Tooltip('Performance Ratio:Q', title='Performance Ratio', format='.2f'),
+            alt.Tooltip('Loan Count:Q', title='Number of Loans')
+        ]
+    ).properties(
+        width=700,
+        height=400,
+        title='Expected vs. Actual Payments Over Time'
+    )
+    
+    st.altair_chart(time_chart, use_container_width=True)
+    
+    # Chart 2: Performance by Cohort (Vintage)
+    st.subheader("Payment Performance by Cohort", 
+                help="Shows how different funding cohorts (quarters) are performing relative to expectations.")
+    
+    # Aggregate by cohort
+    cohort_performance = active_df.groupby('cohort').agg(
+        expected_payment=('expected_paid_to_date', 'sum'),
+        actual_payment=('actual_paid', 'sum'),
+        loan_count=('loan_id', 'count')
+    ).reset_index()
+    
+    # Calculate performance ratio
+    cohort_performance['performance_ratio'] = cohort_performance['actual_payment'] / cohort_performance['expected_payment']
+    
+    # Sort cohorts chronologically
+    cohort_performance = cohort_performance.sort_values('cohort')
+    
+    # Create cohort ratio chart
+    ratio_chart = alt.Chart(cohort_performance).mark_bar().encode(
+        x=alt.X('cohort:N', title='Funding Quarter', sort=None),
+        y=alt.Y('performance_ratio:Q', 
+                title='Payment Performance Ratio (Actual/Expected)',
+                axis=alt.Axis(format='.0%')),
+        color=alt.Color(
+            'performance_ratio:Q',
+            scale=alt.Scale(
+                domain=[0.8, 1.0, 1.2],
+                range=['#d62728', '#ffbb78', '#2ca02c']
+            ),
+            legend=None
+        ),
+        tooltip=[
+            alt.Tooltip('cohort:N', title='Cohort'),
+            alt.Tooltip('expected_payment:Q', title='Expected Payment', format='$,.0f'),
+            alt.Tooltip('actual_payment:Q', title='Actual Payment', format='$,.0f'),
+            alt.Tooltip('performance_ratio:Q', title='Performance Ratio', format='.2f'),
+            alt.Tooltip('loan_count:Q', title='Number of Loans')
+        ]
+    ).properties(
+        width=700,
+        height=400,
+        title='Payment Performance Ratio by Cohort'
+    )
+    
+    # Add reference line at 100%
+    ref_line = alt.Chart(pd.DataFrame({'y': [1.0]})).mark_rule(
+        strokeDash=[4, 4],
+        color='gray',
+        strokeWidth=1
+    ).encode(y='y:Q')
+    
+    st.altair_chart(ratio_chart + ref_line, use_container_width=True)
+    
+    # Add explanation
+    st.caption(
+        "**Payment Performance Ratio:** A ratio of 1.0 (100%) means loans are performing exactly as expected. " +
+        "Values above 1.0 indicate better than expected performance, while values below 1.0 indicate underperformance."
+    )
 
 def plot_fico_distribution(df):
     """
@@ -2163,16 +2309,9 @@ def display_risk_analytics(df):
         return
     
     # Display top risk loans
-    st.subheader("Top 10 Underperforming Loans by Risk Score")
-    
-    # Add info tooltip to explain risk calculation
-    st.markdown("""
-        <div style="text-align: right; margin-bottom: 10px;">
-            <span style="cursor: help;" title="Risk Score = 70% × Performance Gap + 30% × Age Weight. Performance Gap measures how far behind schedule payments are (1 - Payment Performance). Age Weight is normalized based on the oldest loan in the portfolio.">
-                (i) How Risk Score is calculated
-            </span>
-        </div>
-    """, unsafe_allow_html=True)
+    st.subheader("Top 10 Underperforming Loans by Risk Score", 
+            help="Risk Score = 70% × Performance Gap + 30% × Age Weight. Performance Gap measures how far behind schedule payments are (1 - Payment Performance). Age Weight is normalized based on the oldest loan in the portfolio.")
+    )
     
     top_risk = risk_df.sort_values("risk_score", ascending=False).head(10)
     
@@ -2248,9 +2387,7 @@ def display_risk_analytics(df):
     
     st.altair_chart(risk_bar, use_container_width=True)
     
-    # Risk scatter plot with tooltip and quadrant adjustment
-    st.subheader("Loan Risk Assessment")
-    
+    # Risk scatter plot with tooltip and quadrant adjustment    
     plot_risk_scatter(risk_df, df['payment_performance'].mean())
     
     # Industry risk analysis
@@ -2339,6 +2476,10 @@ def main():
     with tabs[3]:
         # Capital at Risk section
         display_capital_at_risk(filtered_df)
+
+        st.header("Payment Performance Analysis Over Time")
+        plot_payment_performance_over_time(filtered_df)
+
 
 # Run the application
 if __name__ == "__main__":
