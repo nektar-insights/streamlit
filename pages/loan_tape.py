@@ -1004,123 +1004,145 @@ def plot_capital_waterfall(df):
         st.error(f"Error creating capital waterfall chart: {str(e)}")
         st.info("Unable to generate capital waterfall chart due to an error in data processing.")
 
-def plot_j_curve(df):
+def plot_investment_net_position(df):
     """
-    Create and display a J-Curve visualization showing the expected vs actual return pattern over time.
+    Create a chart showing the net investment position over time (total invested - total returned).
+    This represents the cumulative cash flow position of the portfolio.
     """
-    st.subheader("Portfolio J-Curve Analysis", 
-                help="The J-Curve shows how investments typically have negative returns initially before becoming profitable over time.")
+    st.subheader("Net Investment Position Over Time", 
+                help="Shows the running total of capital deployed minus capital returned over time.")
     
-    # Convert dates to datetime
-    df['funding_date'] = pd.to_datetime(df['funding_date'], errors='coerce')
+    # Get loan schedules for actual payment dates
+    loan_schedules = load_loan_schedules()
     
-    # Calculate months since funding for each loan
-    current_date = pd.Timestamp.now()
-    df['months_since_funding'] = ((current_date - df['funding_date']).dt.days / 30).round().astype(int)
+    # Convert funding_date to datetime if not already
+    df['funding_date'] = pd.to_datetime(df['funding_date'], errors='coerce').dt.tz_localize(None)
     
-    # Create data for expected return curve
-    # This is based on a typical expected return pattern - modify as needed
-    max_months = min(max(df['months_since_funding'].max(), 24), 60)  # Cap at 60 months for visualization
+    # Create daily timeline from first funding to today
+    min_date = df['funding_date'].min()
+    max_date = pd.Timestamp.today()
     
-    expected_curve = pd.DataFrame({
-        'month': range(0, max_months + 1),
-        'expected_return': [-0.05] * 3 + 
-                          [(-0.05 + (i/max_months)*0.35) for i in range(3, max_months + 1)]
-    })
+    if min_date is pd.NaT or max_date is pd.NaT:
+        st.warning("Invalid date range for net position analysis.")
+        return
+        
+    # Create date range for analysis
+    date_range = pd.date_range(start=min_date, end=max_date, freq='D')
+    position_df = pd.DataFrame({'date': date_range})
     
-    # Aggregate actual returns by month
-    actual_returns = df.groupby('months_since_funding').agg(
-        total_invested=('total_invested', 'sum'),
-        total_paid=('total_paid', 'sum'),
-        loan_count=('loan_id', 'count')
+    # Capital deployment events
+    deployments = df[['funding_date', 'csl_participation_amount']].copy()
+    deployments.rename(columns={'funding_date': 'date', 'csl_participation_amount': 'amount'}, inplace=True)
+    deployments['type'] = 'Investment'
+    
+    # Capital return events
+    if not loan_schedules.empty and 'payment_date' in loan_schedules.columns:
+        loan_schedules['payment_date'] = pd.to_datetime(loan_schedules['payment_date'], errors='coerce').dt.tz_localize(None)
+        returns = loan_schedules[loan_schedules['actual_payment'] > 0].copy()
+        returns = returns[['payment_date', 'actual_payment']].dropna()
+        returns.rename(columns={'payment_date': 'date', 'actual_payment': 'amount'}, inplace=True)
+        returns['type'] = 'Return'
+    else:
+        returns = pd.DataFrame(columns=['date', 'amount', 'type'])
+    
+    # Combine all cash flow events
+    all_events = pd.concat([
+        deployments,
+        returns
+    ]).sort_values('date')
+    
+    # Calculate daily cash flows
+    daily_flows = all_events.groupby(['date', 'type'])['amount'].sum().reset_index()
+    
+    # Pivot to get investments and returns in separate columns
+    daily_pivot = daily_flows.pivot_table(
+        index='date', 
+        columns='type', 
+        values='amount',
+        fill_value=0
     ).reset_index()
     
-    # Calculate ROI for each month group
-    actual_returns['actual_roi'] = (actual_returns['total_paid'] / actual_returns['total_invested']) - 1
+    # Ensure both columns exist
+    if 'Investment' not in daily_pivot.columns:
+        daily_pivot['Investment'] = 0
+    if 'Return' not in daily_pivot.columns:
+        daily_pivot['Return'] = 0
     
-    # Merge with expected curve for visualization
-    j_curve_data = pd.merge(
-        expected_curve, 
-        actual_returns[['months_since_funding', 'actual_roi', 'loan_count']], 
-        left_on='month', 
-        right_on='months_since_funding', 
+    # Calculate cumulative sums
+    daily_pivot['cum_investment'] = daily_pivot['Investment'].cumsum()
+    daily_pivot['cum_return'] = daily_pivot['Return'].cumsum()
+    daily_pivot['net_position'] = daily_pivot['cum_investment'] - daily_pivot['cum_return']
+    
+    # Merge with the full date range to get a complete timeline
+    position_timeline = position_df.merge(
+        daily_pivot[['date', 'cum_investment', 'cum_return', 'net_position']],
+        on='date',
         how='left'
     )
     
-    # Create long-format data for visualization
+    # Forward fill to get position on days without transactions
+    position_timeline = position_timeline.fillna(method='ffill')
+    position_timeline = position_timeline.fillna(0)  # Fill any remaining NAs with zeros
+    
+    # Create the chart
+    # Create data in long format for area chart
     chart_data = []
-    for _, row in j_curve_data.iterrows():
-        # Expected return
+    for _, row in position_timeline.iterrows():
         chart_data.append({
-            'Month': row['month'],
-            'Return': row['expected_return'],
-            'Type': 'Expected Return',
-            'Loan Count': 'N/A'
+            'Date': row['date'],
+            'Amount': row['cum_investment'],
+            'Type': 'Total Invested'
         })
-        
-        # Actual return (if available)
-        if pd.notnull(row['actual_roi']):
-            chart_data.append({
-                'Month': row['month'],
-                'Return': row['actual_roi'],
-                'Type': 'Actual Return',
-                'Loan Count': row['loan_count']
-            })
+        chart_data.append({
+            'Date': row['date'],
+            'Amount': row['cum_return'],
+            'Type': 'Total Returned'
+        })
+        chart_data.append({
+            'Date': row['date'],
+            'Amount': row['net_position'],
+            'Type': 'Net Position'
+        })
     
     chart_df = pd.DataFrame(chart_data)
     
-    # Create J-Curve chart
-    j_curve = alt.Chart(chart_df).mark_line(point=True).encode(
-        x=alt.X('Month:Q', title='Months Since Funding'),
-        y=alt.Y('Return:Q', 
-                title='Return on Investment (ROI)',
-                axis=alt.Axis(format='%')),
+    # Create a stacked area chart
+    area_chart = alt.Chart(chart_df).mark_line().encode(
+        x=alt.X('Date:T', title='Date'),
+        y=alt.Y('Amount:Q', title='Amount ($)', axis=alt.Axis(format='$,.0f')),
         color=alt.Color(
             'Type:N',
             scale=alt.Scale(
-                domain=['Expected Return', 'Actual Return'],
-                range=['gray', '#2ca02c']
+                domain=['Total Invested', 'Total Returned', 'Net Position'],
+                range=['#ff7f0e', '#2ca02c', '#1f77b4']
             )
         ),
-        strokeDash=alt.condition(
-            alt.datum.Type == 'Expected Return',
-            alt.value([5, 5]),  # dashed line for expected returns
-            alt.value([0])      # solid line for actual returns
-        ),
-        size=alt.condition(
-            alt.datum.Type == 'Actual Return',
-            alt.value(3),  # thicker line for actual returns
-            alt.value(2)   # thinner line for expected returns
-        ),
         tooltip=[
-            alt.Tooltip('Month:Q', title='Months Since Funding'),
-            alt.Tooltip('Return:Q', title='ROI', format='.2%'),
-            alt.Tooltip('Type:N', title='Return Type'),
-            alt.Tooltip('Loan Count:Q', title='Number of Loans')
+            alt.Tooltip('Date:T', title='Date', format='%Y-%m-%d'),
+            alt.Tooltip('Amount:Q', title='Amount', format='$,.2f'),
+            alt.Tooltip('Type:N', title='Metric')
         ]
     ).properties(
         width=800,
         height=500,
-        title='Portfolio J-Curve: Expected vs. Actual Returns Over Time'
+        title='Portfolio Net Position Over Time'
     )
     
-    # Add reference line at 0% (break-even)
+    # Add reference line at $0 (break-even)
     zero_line = alt.Chart(pd.DataFrame({'y': [0]})).mark_rule(
         strokeDash=[2, 2],
         color='gray',
         strokeWidth=1
     ).encode(y='y:Q')
     
-    st.altair_chart(j_curve + zero_line, use_container_width=True)
+    st.altair_chart(area_chart + zero_line, use_container_width=True)
     
     # Add explanation
     st.caption(
-        "**J-Curve Explanation:** The J-Curve illustrates the pattern where investments typically show negative returns " +
-        "initially due to deployment costs, fees, and early-stage risks, before generating positive returns over time. " +
-        "The gray dashed line represents the theoretical expected return pattern, while the green solid line shows " +
-        "your portfolio's actual performance."
+        "**Net Investment Position:** This chart shows the cumulative investment (orange), " +
+        "cumulative returns (green), and net position (blue) over time. The net position represents " +
+        "the capital still deployed (positive values) or the profit after full recovery (negative values)."
     )
-
 def plot_risk_scatter(risk_df, avg_payment_performance=0.75):
     """
     Create and display a scatter plot of risk factors.
@@ -2589,8 +2611,8 @@ def main():
         st.header("Payment Performance Analysis Over Time")
         plot_payment_performance_over_time(filtered_df)
     
-        st.header("Portfolio J-Curve Analysis")
-        plot_j_curve(filtered_df)
+        st.header("Investment Position Analysis")
+        plot_investment_net_position(filtered_df)
     
     with tabs[2]:
         # Risk analytics section with enhanced industry, FICO, and TIB analysis
