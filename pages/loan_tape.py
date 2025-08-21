@@ -673,8 +673,8 @@ def plot_capital_flow(df):
             if prev_date is not None:
                 days_between = (current_date - prev_date).days
                 milestone_days.append({
-                    'From': prev_milestone,
-                    'To': current_milestone,
+                    'Capital Deployed': prev_milestone,
+                    'Next Capital Milestone': current_milestone,
                     'Start Date': prev_date.strftime('%Y-%m-%d'),
                     'End Date': current_date.strftime('%Y-%m-%d'),
                     'Days': days_between
