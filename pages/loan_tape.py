@@ -564,58 +564,57 @@ def plot_capital_flow(df):
         return_df = pd.DataFrame(columns=['payment_date', 'capital_returned'])
     
     # Skip if data is insufficient
-    if deploy_df.empty:
+    if deploy_df.empty or return_df.empty:
         st.info("Insufficient data to display capital flow chart.")
         return
     
-    # SIMPLIFIED APPROACH: Create a single chart with normalized values
-    # Create a combined dataset with both series
-    combined_data = []
-    
-    # Add deployment data
-    for _, row in deploy_df.iterrows():
-        combined_data.append({
-            'date': row['funding_date'],
-            'amount': row['capital_deployed'],
-            'series': 'Capital Deployed'
-        })
-    
-    # Add return data if available
-    if not return_df.empty:
-        for _, row in return_df.iterrows():
-            combined_data.append({
-                'date': row['payment_date'],
-                'amount': row['capital_returned'],
-                'series': 'Capital Returned'
-            })
-    
-    # Create dataframe
-    combined_df = pd.DataFrame(combined_data)
-    
-    # Create a single chart with one y-axis
-    chart = alt.Chart(combined_df).mark_line().encode(
-        x=alt.X('date:T', title="Date", axis=alt.Axis(format="%b %Y")),
-        y=alt.Y('amount:Q', title="Amount ($)", axis=alt.Axis(format="$,.0f")),
-        color=alt.Color(
-            'series:N', 
-            scale=alt.Scale(
-                domain=['Capital Deployed', 'Capital Returned'],
-                range=['red', 'green']
-            ),
-            legend=alt.Legend(title="Capital Flow")
-        ),
+    # Create separate charts with shared x-axis scale
+    deploy_chart = alt.Chart(deploy_df).mark_line(color="red").encode(
+        x=alt.X('funding_date:T', title="Date", axis=alt.Axis(format="%b %Y")),
+        y=alt.Y('capital_deployed:Q', 
+                title="Capital Deployed ($)",
+                axis=alt.Axis(format="$,.0f", tickCount=5)),
         tooltip=[
-            alt.Tooltip('date:T', title="Date", format="%Y-%m-%d"),
-            alt.Tooltip('amount:Q', title="Amount", format="$,.0f"),
-            alt.Tooltip('series:N', title="Type")
+            alt.Tooltip('funding_date:T', title="Date", format="%Y-%m-%d"),
+            alt.Tooltip('capital_deployed:Q', title="Capital Deployed", format="$,.0f")
         ]
-    ).properties(
-        width=800,
-        height=400,
-        title="Capital Deployed vs. Capital Returned Over Time"
     )
     
-    # Add milestone markers
+    # Only create return chart if we have return data
+    if not return_df.empty:
+        return_chart = alt.Chart(return_df).mark_line(color="green").encode(
+            x=alt.X('payment_date:T', title="Date"),
+            y=alt.Y('capital_returned:Q', 
+                    title="Capital Returned ($)",
+                    axis=alt.Axis(format="$,.0f", tickCount=5)),
+            tooltip=[
+                alt.Tooltip('payment_date:T', title="Date", format="%Y-%m-%d"),
+                alt.Tooltip('capital_returned:Q', title="Capital Returned", format="$,.0f")
+            ]
+        )
+        
+        # Combine charts - NO configuration here
+        capital_chart = alt.layer(deploy_chart, return_chart).resolve_scale(
+            x='shared', 
+            y='independent'
+        ).properties(
+            width=800,
+            height=400,
+            title={
+                "text": "Capital Deployed vs. Capital Returned Over Time",
+                "subtitle": "Red = Capital Deployed, Green = Capital Returned",
+                "fontSize": 16
+            }
+        )
+    else:
+        capital_chart = deploy_chart.properties(
+            title={
+                "text": "Capital Deployed Over Time",
+                "fontSize": 16
+            }
+        )
+    
+    # Milestone Annotations
     milestones = [500_000, 1_000_000, 2_000_000, 3_000_000]
     milestone_df = pd.DataFrame()
     for value in milestones:
@@ -627,33 +626,33 @@ def plot_capital_flow(df):
     
     # Add milestone points if we have any
     if not milestone_df.empty:
-        # Convert milestone data to the same format
-        milestone_points_data = []
-        for _, row in milestone_df.iterrows():
-            milestone_points_data.append({
-                'date': row['funding_date'],
-                'amount': row['capital_deployed'],
-                'milestone': row['milestone']
-            })
-        
-        milestone_points_df = pd.DataFrame(milestone_points_data)
-        
-        # Create milestone points
-        milestone_layer = alt.Chart(milestone_points_df).mark_circle(size=80).encode(
-            x='date:T',
-            y='amount:Q',
-            color=alt.value('red'),
+        milestone_points = alt.Chart(milestone_df).mark_point(filled=True, size=80, color="red").encode(
+            x='funding_date:T',
+            y='capital_deployed:Q',
             tooltip=[
-                alt.Tooltip('milestone:N', title="Milestone"),
-                alt.Tooltip('date:T', title="Date Reached", format="%Y-%m-%d")
+                alt.Tooltip('milestone:N', title="Milestone"), 
+                alt.Tooltip('funding_date:T', title="Date Reached", format="%Y-%m-%d")
             ]
         )
         
-        # Combine charts
-        chart = alt.layer(chart, milestone_layer)
+        # First create the combined layer chart, THEN apply configurations
+        combined_chart = alt.layer(capital_chart, milestone_points)
+        
+        # Apply any configurations after all layers are combined
+        final_chart = combined_chart.configure_axisLeft(
+            labelOverlap='greedy'
+        ).configure_axisRight(
+            labelOverlap='greedy'
+        )
+    else:
+        # Apply configurations to the chart directly if no milestones
+        final_chart = capital_chart.configure_axisLeft(
+            labelOverlap='greedy'
+        ).configure_axisRight(
+            labelOverlap='greedy'
+        )
     
-    # Display chart
-    st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(final_chart, use_container_width=True)
     
     # NEW: Add milestone days table
     if not milestone_df.empty and len(milestone_df) > 1:
@@ -674,8 +673,8 @@ def plot_capital_flow(df):
             if prev_date is not None:
                 days_between = (current_date - prev_date).days
                 milestone_days.append({
-                    'From': prev_milestone,
-                    'To': current_milestone,
+                    'Capital Deployed Milestone': prev_milestone,
+                    'Next Capital Milestone': current_milestone,
                     'Start Date': prev_date.strftime('%Y-%m-%d'),
                     'End Date': current_date.strftime('%Y-%m-%d'),
                     'Days': days_between
