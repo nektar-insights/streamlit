@@ -2310,7 +2310,7 @@ def display_risk_analytics(df):
     
     # Display top risk loans
     st.subheader("Top 10 Underperforming Loans by Risk Score", 
-            help="Risk Score = 70% × Performance Gap + 30% × Age Weight. Performance Gap measures how far behind schedule payments are (1 - Payment Performance). Age Weight is normalized based on the oldest loan in the portfolio.")
+            help="Risk Score = 70% × Performance Gap + 30% × Age Weight. Performance Gap measures how far behind schedule payments are (1 - Payment Performance). Age Weight is normalized based on the oldest loan in the portfolio."
     )
     
     top_risk = risk_df.sort_values("risk_score", ascending=False).head(10)
