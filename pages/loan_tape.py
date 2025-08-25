@@ -69,6 +69,36 @@ def load_loan_schedules():
     res = supabase.table("loan_schedules").select("*").execute()
     return pd.DataFrame(res.data)
 
+@st.cache_data(ttl=3600)
+def get_last_updated():
+    """Get the most recent update timestamp from all tables."""
+    try:
+        # Check loan_summaries table
+        loans_res = supabase.table("loan_summaries").select("updated_at").order("updated_at", desc=True).limit(1).execute()
+        
+        # Check deals table  
+        deals_res = supabase.table("deals").select("updated_at").order("updated_at", desc=True).limit(1).execute()
+        
+        # Check loan_schedules table
+        schedules_res = supabase.table("loan_schedules").select("updated_at").order("updated_at", desc=True).limit(1).execute()
+        
+        # Get the most recent timestamp
+        timestamps = []
+        if loans_res.data:
+            timestamps.append(pd.to_datetime(loans_res.data[0]['updated_at']))
+        if deals_res.data:
+            timestamps.append(pd.to_datetime(deals_res.data[0]['updated_at']))
+        if schedules_res.data:
+            timestamps.append(pd.to_datetime(schedules_res.data[0]['updated_at']))
+            
+        if timestamps:
+            last_updated = max(timestamps)
+            return last_updated.strftime('%B %d, %Y at %I:%M %p')
+    except:
+        return "Unknown"
+    
+    return "Unknown"
+
 # ------------------------------
 # Data Processing Functions
 # ------------------------------
@@ -2549,6 +2579,10 @@ def display_risk_analytics(df):
 def main():
     """Main application entry point."""
     st.title("Loan Tape Dashboard")
+
+    # Display last updated time
+    last_updated = get_last_updated()
+    st.caption(f"Data last updated: {last_updated}")
     
     # Load data
     loans_df = load_loan_summaries()
