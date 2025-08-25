@@ -10,37 +10,17 @@ from utils.config import (
 )
 
 # ----------------------------
-# Apply Branding - MUST be first
+# Apply Branding
 # ----------------------------
 st.set_page_config(page_title="CSL Capital | Dashboard", layout="wide")
+inject_global_styles()
+inject_logo()
 
 # ----------------------------
-# Password Protection
+# Supabase connection
 # ----------------------------
-def check_password():
-    if "password_correct" in st.session_state:
-        return st.session_state["password_correct"]
-    
-    st.markdown("<h1 style='text-align: center;'>CSL Capital</h1>", unsafe_allow_html=True)
-    password = st.text_input("Enter password:", type="password")
-    if st.button("Submit"):
-        if password == st.secrets["APP_PASSWORD"]:
-            st.session_state["password_correct"] = True
-            return True
-        else:
-            st.error("Incorrect password")
-    return False
+supabase = get_supabase_client()
 
-# Only show app content if password is correct
-if check_password():
-    inject_global_styles()
-    inject_logo()
-    
-    # ----------------------------
-    # Supabase connection
-    # ----------------------------
-    supabase = get_supabase_client()
-    
 # ----------------------------
 # Load and prepare data
 # ----------------------------
