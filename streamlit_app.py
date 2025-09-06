@@ -200,6 +200,20 @@ col4.metric("Avg Deals/Week", f"{avg_deals_per_week:.1f}")
 col5.metric("Avg Deals/Month", f"{avg_deals_per_month:.1f}")
 col6.metric("Total Deals/30 Days", f"{deals_last_30:.1f}")
 
+st.write("**Average Participation Amounts**")
+col4a, col5a, col6a = st.columns(3)
+# Calculate average participation amount per week
+avg_participation_per_week = closed_won["amount"].sum() / date_range_weeks if date_range_weeks > 0 else 0
+col4a.metric("Avg Participation/Week", f"${avg_participation_per_week:,.0f}")
+
+# Calculate average participation amount per month
+avg_participation_per_month = closed_won["amount"].sum() / date_range_months if date_range_months > 0 else 0
+col5a.metric("Avg Participation/Month", f"${avg_participation_per_month:,.0f}")
+
+# Calculate participation amount for last 30 days
+participation_last_30 = closed_won[closed_won["date_created"] >= today - pd.Timedelta(days=30)]["amount"].sum()
+col6a.metric("Total Participation/30 Days", f"${participation_last_30:,.0f}")
+
 # New Average Deal Characteristics 
 st.write("**Average Deal Characteristics (All Deals)**")
 col7, col8 = st.columns(2)
@@ -627,30 +641,33 @@ st.altair_chart(rate_line_dollar, use_container_width=True)
 
 # ----------------------------
 # Monthly trend charts (last 6 months only)
-# ----------------------------
-
-# ----------------------------
-# Monthly trend charts (last 6 months) as lines
-# ----------------------------
+# ----------------------------# ----------------------------
 six_months_ago = today - pd.DateOffset(months=6)
 
-# Filter and dedupe
-mf = (
-    monthly_funded[monthly_funded["month_date"] >= six_months_ago]
-    .drop_duplicates("month_date")
-    .sort_values("month_date")
-)
-md = (
-    monthly_deals[monthly_deals["month_date"]   >= six_months_ago]
-    .drop_duplicates("month_date")
-    .sort_values("month_date")
-)
-mp = (
-    monthly_participation[monthly_participation["month_date"] >= six_months_ago]
-    .drop_duplicates("month_date")
-    .sort_values("month_date")
-)
+# Filter and dedupe - use period format to avoid duplicates
+mf_filtered = monthly_funded[monthly_funded["month_date"] >= six_months_ago].copy()
+md_filtered = monthly_deals[monthly_deals["month_date"] >= six_months_ago].copy()
+mp_filtered = monthly_participation[monthly_participation["month_date"] >= six_months_ago].copy()
 
+# Convert month_date to period for grouping (year-month format)
+for df in [mf_filtered, md_filtered, mp_filtered]:
+    df["month_period"] = df["month_date"].dt.to_period("M")
+
+# Group by period and aggregate to eliminate duplicates
+mf = (mf_filtered.groupby("month_period")
+      .agg({"total_funded_amount": "sum", "month_date": "first"})
+      .reset_index(drop=True)
+      .sort_values("month_date"))
+
+md = (md_filtered.groupby("month_period")
+      .agg({"deal_count": "sum", "month_date": "first"})
+      .reset_index(drop=True)
+      .sort_values("month_date"))
+
+mp = (mp_filtered.groupby("month_period")
+      .agg({"deal_count": "sum", "total_amount": "sum", "month_date": "first"})
+      .reset_index(drop=True)
+      .sort_values("month_date"))
 def avg_rule(df, field, title, fmt="$,.2f", color="gray"):
     return (
         alt.Chart(df)
