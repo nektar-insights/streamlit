@@ -641,33 +641,35 @@ st.altair_chart(rate_line_dollar, use_container_width=True)
 
 # ----------------------------
 # Monthly trend charts (last 6 months only)
-# ----------------------------# ----------------------------
+# ----------------------------
 six_months_ago = today - pd.DateOffset(months=6)
 
-# Filter and dedupe - use period format to avoid duplicates
+# Filter to last 6 months and convert to first day of each month
 mf_filtered = monthly_funded[monthly_funded["month_date"] >= six_months_ago].copy()
 md_filtered = monthly_deals[monthly_deals["month_date"] >= six_months_ago].copy()
 mp_filtered = monthly_participation[monthly_participation["month_date"] >= six_months_ago].copy()
 
-# Convert month_date to period for grouping (year-month format)
+# Convert dates to first day of month to ensure consistent representation
 for df in [mf_filtered, md_filtered, mp_filtered]:
-    df["month_period"] = df["month_date"].dt.to_period("M")
+    df["month_key"] = df["month_date"].dt.strftime("%Y-%m-01")  # First day of month as key
+    df["month_start"] = pd.to_datetime(df["month_key"])  # Convert to datetime
 
-# Group by period and aggregate to eliminate duplicates
-mf = (mf_filtered.groupby("month_period")
-      .agg({"total_funded_amount": "sum", "month_date": "first"})
-      .reset_index(drop=True)
-      .sort_values("month_date"))
+# Group by month_start to eliminate duplicates
+mf = (mf_filtered.groupby("month_start")
+      .agg({"total_funded_amount": "sum"})
+      .reset_index()
+      .sort_values("month_start"))
 
-md = (md_filtered.groupby("month_period")
-      .agg({"deal_count": "sum", "month_date": "first"})
-      .reset_index(drop=True)
-      .sort_values("month_date"))
+md = (md_filtered.groupby("month_start")
+      .agg({"deal_count": "sum"})
+      .reset_index()
+      .sort_values("month_start"))
 
-mp = (mp_filtered.groupby("month_period")
-      .agg({"deal_count": "sum", "total_amount": "sum", "month_date": "first"})
-      .reset_index(drop=True)
-      .sort_values("month_date"))
+mp = (mp_filtered.groupby("month_start")
+      .agg({"deal_count": "sum", "total_amount": "sum"})
+      .reset_index()
+      .sort_values("month_start"))
+
 def avg_rule(df, field, title, fmt="$,.2f", color="gray"):
     return (
         alt.Chart(df)
@@ -682,10 +684,10 @@ def avg_rule(df, field, title, fmt="$,.2f", color="gray"):
 # 1) Total Funded line
 st.subheader("Total Funded Amount by Month")
 base_fund = alt.Chart(mf).encode(
-    x=alt.X("month_date:T", title="", axis=alt.Axis(format="%b %Y", labelAngle=-45)),
+    x=alt.X("month_start:T", title="", axis=alt.Axis(format="%b %Y", labelAngle=-45)),
     y=alt.Y("total_funded_amount:Q", title="Total Funded ($)", axis=alt.Axis(format="$,.0f", grid=True)),
     tooltip=[
-        alt.Tooltip("month_date:T",          title="Month",       format="%B %Y"),
+        alt.Tooltip("month_start:T", title="Month", format="%B %Y"),
         alt.Tooltip("total_funded_amount:Q", title="Total Funded", format="$,.0f")
     ]
 )
