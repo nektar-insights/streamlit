@@ -1747,42 +1747,44 @@ def main():
             
             st.markdown("---")
             
-            # Risk band distribution
-            st.subheader("Risk Score Distribution")
-            band_summary = risk_df.groupby("risk_band").agg(
-                loan_count=("loan_id", "count"),
-                net_balance=("net_balance", "sum")
-            ).reset_index()
+        # Risk band distribution
+        st.subheader("Risk Score Distribution")
+        band_summary = risk_df.groupby("risk_band").agg(
+            loan_count=("loan_id", "count"),
+            net_balance=("net_balance", "sum")
+        ).reset_index()
+        
+        if not band_summary.empty:
+            # Define proper order for risk bands
+            risk_band_order = ["Low (0-0.5)", "Moderate (0.5-1.0)", "Elevated (1.0-1.5)", 
+                              "High (1.5-2.0)", "Severe (2.0+)"]
             
-            if not band_summary.empty:
-                # Define proper order for risk bands
-                risk_band_order = ["Low (0-0.5)", "Moderate (0.5-1.0)", "Elevated (1.0-1.5)", 
-                                  "High (1.5-2.0)", "Severe (2.0+)"]
-                
-                risk_bar = alt.Chart(band_summary).mark_bar().encode(
-                    x=alt.X("risk_band:N", title="Risk Band", 
-                           sort=risk_band_order),
-                    y=alt.Y("loan_count:Q", title="Number of Loans"),
-                    color=alt.Color("risk_band:N",
-                        scale=alt.Scale(
-                            domain=risk_band_order,
-                            range=["#2ca02c", "#98df8a", "#ffbb78", "#ff7f0e", "#d62728"]
-                        ),
-                        legend=alt.Legend(title="Risk Level", orient="right"),
-                        sort=risk_band_order
+            risk_bar = alt.Chart(band_summary).mark_bar().encode(
+                x=alt.X("risk_band:N", title="Risk Band", 
+                       sort=risk_band_order),
+                y=alt.Y("loan_count:Q", title="Number of Loans"),
+                color=alt.Color("risk_band:N",
+                    scale=alt.Scale(
+                        domain=risk_band_order,
+                        range=["#2ca02c", "#98df8a", "#ffbb78", "#ff7f0e", "#d62728"]
                     ),
-                    tooltip=[
-                        alt.Tooltip("risk_band:N", title="Risk Band"),
-                        alt.Tooltip("loan_count:Q", title="Loan Count"),
-                        alt.Tooltip("net_balance:Q", title="Net Balance", format="$,.0f")
-                    ]
-                ).properties(
-                    width=700,
-                    height=350,
-                    title="Loan Count by Risk Band (Active Loans Only)"
-                )
-                
-                st.altair_chart(risk_bar, use_container_width=True)
+                    legend=alt.Legend(title="Risk Level", orient="right"),
+                    sort=risk_band_order
+                ),
+                tooltip=[
+                    alt.Tooltip("risk_band:N", title="Risk Band"),
+                    alt.Tooltip("loan_count:Q", title="Loan Count"),
+                    alt.Tooltip("net_balance:Q", title="Net Balance", format="$,.0f")
+                ]
+            ).properties(
+                width=700,
+                height=350,
+                title="Loan Count by Risk Band (Active Loans Only)"
+            )
+            
+            st.altair_chart(risk_bar, use_container_width=True)
+        else:
+            st.info("No active loans to calculate risk scores.")
         else:
             st.info("No active loans to calculate risk scores.")
     
