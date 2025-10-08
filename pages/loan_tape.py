@@ -1,5 +1,5 @@
 # Risk band distribution
-            st.subheader("Risk Score Distribution")
+st.subheader("Risk Score Distribution")
             band_summary = risk_df.groupby("risk_band").agg(
                 loan_count=("loan_id", "count"),
                 net_balance=("net_balance", "sum")
