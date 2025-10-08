@@ -1,4 +1,17 @@
-# pages/loan_tape.py
+# Risk band distribution
+            st.subheader("Risk Score Distribution")
+            band_summary = risk_df.groupby("risk_band").agg(
+                loan_count=("loan_id", "count"),
+                net_balance=("net_balance", "sum")
+            ).reset_index()
+            
+            if not band_summary.empty:
+                # Define proper order for risk bands
+                risk_band_order = ["Low (0-0.5)", "Moderate (0.5-1.0)", "Elevated (1.0-1.5)", 
+                                  "High (1.5-2.0)", "Severe (2.0+)"]
+                
+                risk_bar = alt.Chart(band_summary).mark_bar().encode(
+                    x=alt.X("risk_band:# pages/loan_tape.py
 """
 Loan Tape Dashboard - Enhanced Version
 """
@@ -429,7 +442,7 @@ def format_dataframe_for_display(df, columns=None, rename_map=None):
 def plot_capital_flow(df):
     """
     Create and display a line chart showing capital deployment vs returns over time.
-    FIXED: Uses unified dataframe and aligned timeline.
+    FIXED: Uses unified dataframe and aligned timeline. Shows actual totals that match summary metrics.
     """
     st.subheader("Capital Flow: Deployment vs. Returns")
     
@@ -439,6 +452,16 @@ def plot_capital_flow(df):
     # Ensure dates are properly formatted
     df_copy = df.copy()
     df_copy['funding_date'] = pd.to_datetime(df_copy['funding_date'], errors='coerce').dt.tz_localize(None)
+    
+    # Show what the totals should be for verification
+    total_deployed = df_copy['csl_participation_amount'].sum()
+    total_returned = df_copy['total_paid'].sum()
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Total Capital Deployed (Expected)", f"${total_deployed:,.0f}")
+    with col2:
+        st.metric("Total Capital Returned (Expected)", f"${total_returned:,.0f}")
     
     # Create deployment timeline (cumulative)
     deploy_data = df_copy[['funding_date', 'csl_participation_amount']].dropna()
@@ -470,6 +493,12 @@ def plot_capital_flow(df):
         unified_df['capital_deployed'] = deploy_timeline.reindex(date_range).ffill().fillna(0)
         unified_df['capital_returned'] = return_timeline.reindex(date_range).ffill().fillna(0)
         unified_df['date'] = unified_df.index
+        
+        # Verify final values match
+        final_deployed = unified_df['capital_deployed'].iloc[-1]
+        final_returned = unified_df['capital_returned'].iloc[-1]
+        
+        st.caption(f"Chart shows: Deployed ${final_deployed:,.0f} | Returned ${final_returned:,.0f}")
         
         # Reshape for plotting
         plot_data = []
@@ -624,11 +653,10 @@ def plot_investment_net_position(df):
     else:
         st.info("Insufficient data for net position analysis.")
 
-# FIXED: Payment Performance by Cohort
+# FIXED: Payment Performance by Cohort - Show actual percentage difference
 def plot_payment_performance_by_cohort(df):
     """
-    FIXED: Show percentage difference from expected rather than raw ratio.
-    Adds visual cues for on-target zone.
+    FIXED: Show percentage difference from expected with proper formatting.
     """
     active_df = df[df['loan_status'] != "Paid Off"].copy()
     
@@ -641,9 +669,9 @@ def plot_payment_performance_by_cohort(df):
         lambda x: calculate_expected_payment_to_date(x), axis=1
     )
     active_df['actual_paid'] = active_df['total_paid']
-    active_df['payment_difference'] = active_df['actual_paid'] - active_df['expected_paid_to_date']
     
     # Calculate performance as percentage difference from expected
+    # Formula: ((Actual / Expected) - 1) * 100 = % difference
     active_df['performance_pct_diff'] = active_df.apply(
         lambda x: ((x['actual_paid'] / x['expected_paid_to_date']) - 1) if x['expected_paid_to_date'] > 0 else 0,
         axis=1
@@ -658,14 +686,19 @@ def plot_payment_performance_by_cohort(df):
         loan_count=('loan_id', 'count')
     ).reset_index()
     
-    # Calculate percentage difference from expected
+    # Calculate percentage difference from expected for the cohort
     cohort_performance['performance_pct_diff'] = (
         (cohort_performance['actual_payment'] / cohort_performance['expected_payment']) - 1
     )
     
+    # Add text labels showing the actual percentage
+    cohort_performance['perf_label'] = cohort_performance['performance_pct_diff'].apply(
+        lambda x: f"{x:+.1%}"
+    )
+    
     cohort_performance = cohort_performance.sort_values('cohort')
     
-    # Add color classification column
+    # Add color classification
     def classify_performance(pct_diff):
         if pct_diff >= -0.05:
             return 'On/Above Target'
@@ -676,11 +709,11 @@ def plot_payment_performance_by_cohort(df):
     
     cohort_performance['performance_category'] = cohort_performance['performance_pct_diff'].apply(classify_performance)
     
-    # Create chart with percentage difference
-    ratio_chart = alt.Chart(cohort_performance).mark_bar().encode(
+    # Create chart
+    bars = alt.Chart(cohort_performance).mark_bar().encode(
         x=alt.X('cohort:N', title='Funding Quarter', sort=None),
         y=alt.Y('performance_pct_diff:Q',
-                title='Performance vs Expected',
+                title='Performance Difference from Expected',
                 axis=alt.Axis(format='.0%')),
         color=alt.Color('performance_category:N',
             scale=alt.Scale(
@@ -693,13 +726,26 @@ def plot_payment_performance_by_cohort(df):
             alt.Tooltip('cohort:N', title='Cohort'),
             alt.Tooltip('expected_payment:Q', title='Expected Payment', format='$,.0f'),
             alt.Tooltip('actual_payment:Q', title='Actual Payment', format='$,.0f'),
-            alt.Tooltip('performance_pct_diff:Q', title='Performance Difference', format='.1%'),
+            alt.Tooltip('performance_pct_diff:Q', title='Performance Difference', format='+.1%'),
             alt.Tooltip('loan_count:Q', title='Number of Loans')
         ]
     ).properties(
         width=700,
         height=400,
-        title='Payment Performance by Cohort (% Difference from Expected)'
+        title='Payment Performance by Cohort (Difference from Expected)'
+    )
+    
+    # Add text labels on bars
+    text = alt.Chart(cohort_performance).mark_text(
+        align='center',
+        baseline='bottom',
+        dy=-5,
+        fontSize=11,
+        fontWeight='bold'
+    ).encode(
+        x=alt.X('cohort:N', sort=None),
+        y=alt.Y('performance_pct_diff:Q'),
+        text='perf_label:N'
     )
     
     # Add reference line at 0% (on target)
@@ -718,15 +764,147 @@ def plot_payment_performance_by_cohort(df):
         y2='y2:Q'
     )
     
-    st.altair_chart(target_zone + ratio_chart + ref_line, use_container_width=True)
+    st.altair_chart(target_zone + bars + text + ref_line, use_container_width=True)
     
     st.caption(
-        "**On-Target Zone (Green Area):** -5% to +5% from expected. "
-        "**Color Coding:** Green = on/above target, Yellow = 5-15% below, Red = >15% below expected."
+        "On-Target Zone (Green Area): -5% to +5% from expected. "
+        "Positive values mean ahead of schedule, negative values mean behind schedule."
     )
 
-# Enhanced FICO Analysis
+# Enhanced FICO Analysis - Use Payment Performance instead of ROI
 def plot_fico_performance_analysis(df):
+    """
+    ENHANCED: FICO score analysis with payment performance metrics (better than ROI for active loans).
+    """
+    st.header("FICO Score Performance Analysis")
+    
+    if 'fico' not in df.columns or df['fico'].isna().all():
+        st.warning("FICO score data not available for analysis.")
+        return
+    
+    fico_bins = [0, 580, 620, 660, 700, 740, 850]
+    fico_labels = ['<580', '580-619', '620-659', '660-699', '700-739', '740+']
+    
+    fico_df = df.copy()
+    fico_df['fico'] = pd.to_numeric(fico_df['fico'], errors='coerce')
+    fico_df['fico_band'] = pd.cut(fico_df['fico'], bins=fico_bins, labels=fico_labels, right=False)
+    
+    # Calculate performance metrics by FICO band
+    fico_metrics = fico_df.groupby('fico_band').agg(
+        deal_count=('loan_id', 'count'),
+        capital_deployed=('csl_participation_amount', 'sum'),
+        outstanding_balance=('net_balance', 'sum'),
+        avg_payment_performance=('payment_performance', 'mean'),
+        total_paid=('total_paid', 'sum'),
+        total_invested=('total_invested', 'sum')
+    ).reset_index()
+    
+    # Calculate actual return rate (useful for comparison)
+    fico_metrics['actual_return_rate'] = fico_metrics['total_paid'] / fico_metrics['total_invested']
+    
+    # Calculate default/late rates
+    status_by_fico = fico_df.groupby(['fico_band', 'loan_status']).size().reset_index(name='count')
+    total_by_fico = fico_df.groupby('fico_band').size().reset_index(name='total')
+    status_by_fico = status_by_fico.merge(total_by_fico, on='fico_band')
+    status_by_fico['pct'] = status_by_fico['count'] / status_by_fico['total']
+    
+    # Calculate problem loan rate (Late, Default, Bankrupt, Severe, Delinquencies)
+    problem_statuses = ['Late', 'Default', 'Bankrupt', 'Severe', 'Severe Delinquency', 'Moderate Delinquency']
+    problem_loans = status_by_fico[status_by_fico['loan_status'].isin(problem_statuses)]
+    problem_rate = problem_loans.groupby('fico_band')['pct'].sum().reset_index(name='problem_rate')
+    
+    fico_metrics = fico_metrics.merge(problem_rate, on='fico_band', how='left')
+    fico_metrics['problem_rate'] = fico_metrics['problem_rate'].fillna(0)
+    
+    # Chart 1: Payment Performance by FICO
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        perf_chart = alt.Chart(fico_metrics).mark_bar().encode(
+            x=alt.X('fico_band:N', title='FICO Score Band', sort=fico_labels),
+            y=alt.Y('avg_payment_performance:Q', title='Avg Payment Performance', 
+                    axis=alt.Axis(format='.0%')),
+            color=alt.Color('avg_payment_performance:Q',
+                scale=alt.Scale(domain=[0.5, 0.8, 1.0], range=['#d62728', '#ffbb78', '#2ca02c']),
+                legend=None),
+            tooltip=[
+                alt.Tooltip('fico_band:N', title='FICO Band'),
+                alt.Tooltip('avg_payment_performance:Q', title='Avg Payment Performance', format='.1%'),
+                alt.Tooltip('deal_count:Q', title='Loan Count')
+            ]
+        ).properties(
+            width=350,
+            height=300,
+            title='Payment Performance by FICO Score'
+        )
+        st.altair_chart(perf_chart, use_container_width=True)
+    
+    with col2:
+        # Chart 2: Problem Loan Rate by FICO
+        problem_chart = alt.Chart(fico_metrics).mark_bar().encode(
+            x=alt.X('fico_band:N', title='FICO Score Band', sort=fico_labels),
+            y=alt.Y('problem_rate:Q', title='Problem Loan Rate', 
+                    axis=alt.Axis(format='.0%')),
+            color=alt.Color('problem_rate:Q',
+                scale=alt.Scale(domain=[0, 0.2, 0.4], range=['#2ca02c', '#ffbb78', '#d62728']),
+                legend=None),
+            tooltip=[
+                alt.Tooltip('fico_band:N', title='FICO Band'),
+                alt.Tooltip('problem_rate:Q', title='Problem Loan Rate', format='.1%'),
+                alt.Tooltip('deal_count:Q', title='Total Loans')
+            ]
+        ).properties(
+            width=350,
+            height=300,
+            title='Problem Loan Rate by FICO Score'
+        )
+        st.altair_chart(problem_chart, use_container_width=True)
+    
+    # Chart 3: Actual Return Rate by FICO (better than ROI for mixed maturity loans)
+    return_chart = alt.Chart(fico_metrics).mark_bar().encode(
+        x=alt.X('fico_band:N', title='FICO Score Band', sort=fico_labels),
+        y=alt.Y('actual_return_rate:Q', title='Actual Return Rate (Paid/Invested)', 
+                axis=alt.Axis(format='.0%')),
+        color=alt.Color('actual_return_rate:Q',
+            scale=alt.Scale(domain=[0.5, 1.0, 1.3], range=['#d62728', '#ffbb78', '#2ca02c']),
+            legend=None),
+        tooltip=[
+            alt.Tooltip('fico_band:N', title='FICO Band'),
+            alt.Tooltip('actual_return_rate:Q', title='Return Rate', format='.2%'),
+            alt.Tooltip('deal_count:Q', title='Loan Count'),
+            alt.Tooltip('total_paid:Q', title='Total Paid', format='$,.0f'),
+            alt.Tooltip('total_invested:Q', title='Total Invested', format='$,.0f')
+        ]
+    ).properties(
+        width=700,
+        height=300,
+        title='Actual Return Rate by FICO Score (Total Paid / Total Invested)'
+    )
+    st.altair_chart(return_chart, use_container_width=True)
+    
+    # Summary table
+    st.subheader("FICO Performance Summary")
+    display_df = fico_metrics.copy()
+    display_df['capital_deployed'] = display_df['capital_deployed'].map(lambda x: f"${x:,.0f}")
+    display_df['outstanding_balance'] = display_df['outstanding_balance'].map(lambda x: f"${x:,.0f}")
+    display_df['avg_payment_performance'] = display_df['avg_payment_performance'].map(lambda x: f"{x:.1%}")
+    display_df['actual_return_rate'] = display_df['actual_return_rate'].map(lambda x: f"{x:.2%}")
+    display_df['problem_rate'] = display_df['problem_rate'].map(lambda x: f"{x:.1%}")
+    
+    display_df.columns = [
+        'FICO Band', 'Loan Count', 'Capital Deployed', 'Outstanding Balance',
+        'Avg Payment Performance', 'Total Paid', 'Total Invested', 'Actual Return Rate', 'Problem Loan Rate'
+    ]
+    
+    st.dataframe(display_df[['FICO Band', 'Loan Count', 'Outstanding Balance', 
+                              'Avg Payment Performance', 'Actual Return Rate', 'Problem Loan Rate']], 
+                 use_container_width=True, hide_index=True)
+    
+    st.caption(
+        "Payment Performance: Ratio of actual payments to expected payments. "
+        "Actual Return Rate: Total paid divided by total invested (better metric than ROI for mixed-maturity portfolios). "
+        "Problem Loan Rate: Percentage in Late/Default/Bankrupt/Delinquency status."
+    )
     """
     ENHANCED: FICO score analysis with performance metrics.
     """
@@ -854,10 +1032,10 @@ def plot_fico_performance_analysis(df):
         "Lower is better."
     )
 
-# Enhanced TIB Analysis
+# Enhanced TIB Analysis - Use Payment Performance instead of ROI
 def plot_tib_performance_analysis(df):
     """
-    ENHANCED: Time in Business analysis with performance metrics.
+    ENHANCED: Time in Business analysis with payment performance metrics (better than ROI).
     """
     st.header("Time in Business Performance Analysis")
     
@@ -878,8 +1056,12 @@ def plot_tib_performance_analysis(df):
         capital_deployed=('csl_participation_amount', 'sum'),
         outstanding_balance=('net_balance', 'sum'),
         avg_payment_performance=('payment_performance', 'mean'),
-        avg_roi=('current_roi', 'mean')
+        total_paid=('total_paid', 'sum'),
+        total_invested=('total_invested', 'sum')
     ).reset_index()
+    
+    # Calculate actual return rate
+    tib_metrics['actual_return_rate'] = tib_metrics['total_paid'] / tib_metrics['total_invested']
     
     # Calculate problem loan rate
     status_by_tib = tib_df.groupby(['tib_band', 'loan_status']).size().reset_index(name='count')
@@ -938,24 +1120,25 @@ def plot_tib_performance_analysis(df):
         )
         st.altair_chart(problem_chart, use_container_width=True)
     
-    # Chart 3: Average ROI by TIB
-    roi_chart = alt.Chart(tib_metrics).mark_bar().encode(
+    # Chart 3: Actual Return Rate by TIB
+    return_chart = alt.Chart(tib_metrics).mark_bar().encode(
         x=alt.X('tib_band:N', title='Time in Business (Years)', sort=tib_labels),
-        y=alt.Y('avg_roi:Q', title='Average ROI', axis=alt.Axis(format='.0%')),
-        color=alt.Color('avg_roi:Q',
-            scale=alt.Scale(domain=[-0.2, 0, 0.3], range=['#d62728', '#ffbb78', '#2ca02c']),
+        y=alt.Y('actual_return_rate:Q', title='Actual Return Rate (Paid/Invested)', 
+                axis=alt.Axis(format='.0%')),
+        color=alt.Color('actual_return_rate:Q',
+            scale=alt.Scale(domain=[0.5, 1.0, 1.3], range=['#d62728', '#ffbb78', '#2ca02c']),
             legend=None),
         tooltip=[
             alt.Tooltip('tib_band:N', title='TIB Band'),
-            alt.Tooltip('avg_roi:Q', title='Avg ROI', format='.2%'),
+            alt.Tooltip('actual_return_rate:Q', title='Return Rate', format='.2%'),
             alt.Tooltip('deal_count:Q', title='Loan Count')
         ]
     ).properties(
         width=700,
         height=300,
-        title='Average ROI by Time in Business'
+        title='Actual Return Rate by Time in Business'
     )
-    st.altair_chart(roi_chart, use_container_width=True)
+    st.altair_chart(return_chart, use_container_width=True)
     
     # Summary table
     st.subheader("Time in Business Performance Summary")
@@ -963,22 +1146,22 @@ def plot_tib_performance_analysis(df):
     display_df['capital_deployed'] = display_df['capital_deployed'].map(lambda x: f"${x:,.0f}")
     display_df['outstanding_balance'] = display_df['outstanding_balance'].map(lambda x: f"${x:,.0f}")
     display_df['avg_payment_performance'] = display_df['avg_payment_performance'].map(lambda x: f"{x:.1%}")
-    display_df['avg_roi'] = display_df['avg_roi'].map(lambda x: f"{x:.2%}")
+    display_df['actual_return_rate'] = display_df['actual_return_rate'].map(lambda x: f"{x:.2%}")
     display_df['problem_rate'] = display_df['problem_rate'].map(lambda x: f"{x:.1%}")
     
     display_df.columns = [
         'TIB Band', 'Loan Count', 'Capital Deployed', 'Outstanding Balance',
-        'Avg Payment Performance', 'Avg ROI', 'Problem Loan Rate'
+        'Avg Payment Performance', 'Total Paid', 'Total Invested', 'Actual Return Rate', 'Problem Loan Rate'
     ]
     
     st.dataframe(display_df[['TIB Band', 'Loan Count', 'Outstanding Balance',
-                              'Avg Payment Performance', 'Avg ROI', 'Problem Loan Rate']],
+                              'Avg Payment Performance', 'Actual Return Rate', 'Problem Loan Rate']],
                  use_container_width=True, hide_index=True)
 
-# Enhanced Industry Performance Analysis  
+# Enhanced Industry Performance Analysis - Use Payment Performance instead of ROI
 def plot_industry_performance_analysis(df):
     """
-    ENHANCED: Industry performance with scatter and bar charts plus ROI.
+    ENHANCED: Industry performance with scatter and bar charts plus actual return rate.
     """
     st.header("Industry Performance Analysis")
     
@@ -996,8 +1179,12 @@ def plot_industry_performance_analysis(df):
         loan_count=('loan_id', 'count'),
         net_balance=('net_balance', 'sum'),
         avg_payment_performance=('payment_performance', 'mean'),
-        avg_roi=('current_roi', 'mean')
+        total_paid=('total_paid', 'sum'),
+        total_invested=('total_invested', 'sum')
     ).reset_index()
+    
+    # Calculate actual return rate
+    sector_metrics['actual_return_rate'] = sector_metrics['total_paid'] / sector_metrics['total_invested']
     
     # Calculate problem loan rate by sector
     status_by_sector = df_with_risk.groupby(['sector_name', 'loan_status']).size().reset_index(name='count')
@@ -1058,10 +1245,26 @@ def plot_industry_performance_analysis(df):
     )
     st.altair_chart(problem_bar, use_container_width=True)
     
-    # Chart 3: ROI by Industry
-    st.subheader("Average ROI by Industry")
-    roi_bar = alt.Chart(top_sectors).mark_bar().encode(
-        x=alt.X('avg_roi:Q', title='Average ROI', axis=alt.Axis(format='.0%')),
+    # Chart 3: Actual Return Rate by Industry
+    st.subheader("Actual Return Rate by Industry")
+    return_bar = alt.Chart(top_sectors).mark_bar().encode(
+        x=alt.X('actual_return_rate:Q', title='Actual Return Rate (Paid/Invested)', 
+                axis=alt.Axis(format='.0%')),
+        y=alt.Y('sector_name:N', title='Industry Sector', sort='-x'),
+        color=alt.Color('actual_return_rate:Q',
+            scale=alt.Scale(domain=[0.5, 1.0, 1.3], range=['#d62728', '#ffbb78', '#2ca02c']),
+            legend=None),
+        tooltip=[
+            alt.Tooltip('sector_name:N', title='Industry'),
+            alt.Tooltip('actual_return_rate:Q', title='Return Rate', format='.2%'),
+            alt.Tooltip('loan_count:Q', title='Loan Count')
+        ]
+    ).properties(
+        width=700,
+        height=400,
+        title='Actual Return Rate by Industry (Top 10 by Balance)'
+    )
+    st.altair_chart(return_bar, use_container_width=True)
         y=alt.Y('sector_name:N', title='Industry Sector', sort='-x'),
         color=alt.Color('avg_roi:Q',
             scale=alt.Scale(domain=[-0.2, 0, 0.3], range=['#d62728', '#ffbb78', '#2ca02c']),
@@ -1323,36 +1526,48 @@ def main():
     # Sidebar filters
     st.sidebar.header("Filters")
     
+    # Date filter
     if 'funding_date' in df.columns and not df['funding_date'].isna().all():
         min_date = df["funding_date"].min().date()
         max_date = df["funding_date"].max().date()
-        date_range = st.sidebar.date_input(
-            "Funding Date Range",
-            [min_date, max_date],
-            min_value=min_date,
-            max_value=max_date
-        )
-        if len(date_range) == 2:
-            filtered_df = df[(df["funding_date"].dt.date >= date_range[0]) & 
-                            (df["funding_date"].dt.date <= date_range[1])]
+        
+        use_date_filter = st.sidebar.checkbox("Filter by Funding Date", value=False)
+        
+        if use_date_filter:
+            date_range = st.sidebar.date_input(
+                "Select Date Range",
+                [min_date, max_date],
+                min_value=min_date,
+                max_value=max_date
+            )
+            if len(date_range) == 2:
+                filtered_df = df[(df["funding_date"].dt.date >= date_range[0]) & 
+                                (df["funding_date"].dt.date <= date_range[1])]
+            else:
+                filtered_df = df.copy()
         else:
             filtered_df = df.copy()
     else:
         filtered_df = df.copy()
     
+    # Status filter
     all_statuses = ["All"] + sorted(df["loan_status"].unique().tolist())
-    selected_status = st.sidebar.radio("Filter by Status:", all_statuses)
+    selected_status = st.sidebar.selectbox("Filter by Status", all_statuses, index=0)
     
     if selected_status != "All":
         filtered_df = filtered_df[filtered_df["loan_status"] == selected_status]
     
+    # Show filter summary
+    st.sidebar.markdown("---")
+    st.sidebar.write(f"**Showing:** {len(filtered_df)} of {len(df)} loans")
+    
     # Create tabs
     tabs = st.tabs([
-        "📊 Summary", 
-        "💰 Capital Flow", 
-        "📈 Performance Analysis", 
-        "⚠️ Risk Analytics",
-        "📋 Loan Tape"
+        "Summary", 
+        "Capital Flow", 
+        "Performance Analysis", 
+        "Risk Analytics",
+        "Loan Tape"
     ])
     
     with tabs[0]:  # Summary
@@ -1456,7 +1671,7 @@ def main():
         
         if not risk_df.empty:
             # Explain risk formula
-            with st.expander("ℹ️ How Risk Scores are Calculated"):
+            with st.expander("How Risk Scores are Calculated"):
                 st.markdown("""
                 **Risk Score Formula:**
                 ```
@@ -1540,16 +1755,21 @@ def main():
             ).reset_index()
             
             if not band_summary.empty:
+                # Define proper order for risk bands
+                risk_band_order = ["Low (0-0.5)", "Moderate (0.5-1.0)", "Elevated (1.0-1.5)", 
+                                  "High (1.5-2.0)", "Severe (2.0+)"]
+                
                 risk_bar = alt.Chart(band_summary).mark_bar().encode(
-                    x=alt.X("risk_band:N", title="Risk Band"),
+                    x=alt.X("risk_band:N", title="Risk Band", 
+                           sort=risk_band_order),
                     y=alt.Y("loan_count:Q", title="Number of Loans"),
                     color=alt.Color("risk_band:N",
                         scale=alt.Scale(
-                            domain=["Low (0-0.5)", "Moderate (0.5-1.0)", "Elevated (1.0-1.5)", 
-                                   "High (1.5-2.0)", "Severe (2.0+)"],
+                            domain=risk_band_order,
                             range=["#2ca02c", "#98df8a", "#ffbb78", "#ff7f0e", "#d62728"]
                         ),
-                        legend=alt.Legend(title="Risk Level")
+                        legend=alt.Legend(title="Risk Level", orient="right"),
+                        sort=risk_band_order
                     ),
                     tooltip=[
                         alt.Tooltip("risk_band:N", title="Risk Band"),
@@ -1598,7 +1818,7 @@ def main():
         # Export functionality
         csv = loan_tape.to_csv(index=False).encode("utf-8")
         st.download_button(
-            label="📥 Download Loan Tape as CSV",
+            label="Download Loan Tape as CSV",
             data=csv,
             file_name=f"loan_tape_{pd.Timestamp.today().strftime('%Y%m%d')}.csv",
             mime="text/csv"
