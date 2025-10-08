@@ -1,17 +1,17 @@
 # Risk band distribution
 st.subheader("Risk Score Distribution")
-            band_summary = risk_df.groupby("risk_band").agg(
-                loan_count=("loan_id", "count"),
-                net_balance=("net_balance", "sum")
-            ).reset_index()
-            
-            if not band_summary.empty:
-                # Define proper order for risk bands
-                risk_band_order = ["Low (0-0.5)", "Moderate (0.5-1.0)", "Elevated (1.0-1.5)", 
-                                  "High (1.5-2.0)", "Severe (2.0+)"]
-                
-                risk_bar = alt.Chart(band_summary).mark_bar().encode(
-                    x=alt.X("risk_band:# pages/loan_tape.py
+band_summary = risk_df.groupby("risk_band").agg(
+    loan_count=("loan_id", "count"),
+    net_balance=("net_balance", "sum")
+).reset_index()
+
+if not band_summary.empty:
+    # Define proper order for risk bands
+    risk_band_order = ["Low (0-0.5)", "Moderate (0.5-1.0)", "Elevated (1.0-1.5)", 
+                      "High (1.5-2.0)", "Severe (2.0+)"]
+    
+    risk_bar = alt.Chart(band_summary).mark_bar().encode(
+        x=alt.X("risk_band:# pages/loan_tape.py
 """
 Loan Tape Dashboard - Enhanced Version
 """
