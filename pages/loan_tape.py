@@ -665,20 +665,29 @@ def plot_payment_performance_by_cohort(df):
     
     cohort_performance = cohort_performance.sort_values('cohort')
     
+    # Add color classification column
+    def classify_performance(pct_diff):
+        if pct_diff >= -0.05:
+            return 'On/Above Target'
+        elif pct_diff >= -0.15:
+            return 'Slightly Below'
+        else:
+            return 'Significantly Below'
+    
+    cohort_performance['performance_category'] = cohort_performance['performance_pct_diff'].apply(classify_performance)
+    
     # Create chart with percentage difference
     ratio_chart = alt.Chart(cohort_performance).mark_bar().encode(
         x=alt.X('cohort:N', title='Funding Quarter', sort=None),
         y=alt.Y('performance_pct_diff:Q',
                 title='Performance vs Expected',
                 axis=alt.Axis(format='.0%')),
-        color=alt.condition(
-            alt.datum.performance_pct_diff >= -0.05,  # Within 5% is "on target"
-            alt.value('#2ca02c'),  # Green for on/above target
-            alt.condition(
-                alt.datum.performance_pct_diff >= -0.15,  # 5-15% below is yellow
-                alt.value('#ffbb78'),  # Yellow
-                alt.value('#d62728')  # Red for >15% below
-            )
+        color=alt.Color('performance_category:N',
+            scale=alt.Scale(
+                domain=['On/Above Target', 'Slightly Below', 'Significantly Below'],
+                range=['#2ca02c', '#ffbb78', '#d62728']
+            ),
+            legend=alt.Legend(title='Performance')
         ),
         tooltip=[
             alt.Tooltip('cohort:N', title='Cohort'),
