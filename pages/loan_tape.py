@@ -676,7 +676,13 @@ if __name__ == "__main__":
 Loan Tape Dashboard - Enhanced Version
 """
 
-from utils.imports import *
+import streamlit as st
+import pandas as pd
+import altair as alt
+import numpy as np
+import numpy_financial as npf
+from datetime import datetime
+
 from utils.config import (
     inject_global_styles,
     inject_logo,
@@ -685,7 +691,6 @@ from utils.config import (
     COLOR_PALETTE,
     PLATFORM_FEE_RATE,
 )
-from datetime import datetime
 
 # Page Configuration
 st.set_page_config(
