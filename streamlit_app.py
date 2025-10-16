@@ -688,6 +688,11 @@ def avg_rule(df, field, title, fmt="$,.2f", color="gray"):
         )
     )
 
+st.caption("Monthly debug")
+st.write("mf rows / unique months:", len(mf), mf["month_date"].nunique())
+st.write("md rows / unique months:", len(md), md["month_date"].nunique())
+st.write("mp rows / unique months:", len(mp), mp["month_date"].nunique())
+
 # --- REBUILD monthly tables from canonical month_start ---
 
 # 100% canonical month start (if you didn't already create it earlier)
