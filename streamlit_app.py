@@ -648,6 +648,81 @@ rate_line_dollar = alt.Chart(monthly_participation_ratio_dollar).mark_line(
 
 st.altair_chart(rate_line_dollar, use_container_width=True)
 
+# ===================== MONTHLY TREND CHARTS (WORKING) =====================
+
+# Small helper for the dashed average rule
+def _avg_rule(df_, field, title, fmt):
+    return (
+        alt.Chart(df_)
+        .transform_aggregate(avg_val=f"mean({field})")
+        .mark_rule(color="gray", strokeDash=[4, 2], strokeWidth=2)
+        .encode(
+            y="avg_val:Q",
+            tooltip=alt.Tooltip("avg_val:Q", title=f"Avg {title}", format=fmt),
+        )
+    )
+
+# Generic renderer used by all three charts
+def _render_monthly_line(df_, y_field, y_title, fmt, color):
+    df_ = (
+        df_.copy()
+        .dropna(subset=["month_date"])           # ensure temporal axis is valid
+        .sort_values("month_date")
+        .drop_duplicates(subset=["month_date"])  # just in case
+    )
+    if df_.empty:
+        st.info(f"No data for {y_title.lower()} in the selected range.")
+        return
+
+    # y must be numeric
+    df_[y_field] = pd.to_numeric(df_[y_field], errors="coerce").fillna(0)
+
+    base = alt.Chart(df_).encode(
+        x=alt.X("month_date:T", title="", axis=alt.Axis(format="%b %Y", labelAngle=-45)),
+        y=alt.Y(f"{y_field}:Q", title=y_title, axis=alt.Axis(grid=True)),
+        tooltip=[
+            alt.Tooltip("month_date:T", title="Month", format="%B %Y"),
+            alt.Tooltip(f"{y_field}:Q", title=y_title, format=fmt),
+        ],
+    )
+    line = base.mark_line(color=color, strokeWidth=3)
+    pts  = base.mark_point(size=60, filled=True, color=color)
+    avg  = _avg_rule(df_, y_field, y_title, fmt)
+
+    st.altair_chart(
+        (line + pts + avg).properties(height=350, padding={"bottom": 80}),
+        use_container_width=True,
+    )
+
+# 1) Total Funded Amount by Month
+st.subheader("Total Funded Amount by Month")
+_render_monthly_line(
+    monthly_funded,
+    y_field="total_funded_amount",
+    y_title="Total Funded ($)",
+    fmt="$,.0f",
+    color=PRIMARY_COLOR,
+)
+
+# 2) Total Deal Count by Month
+st.subheader("Total Deal Count by Month")
+_render_monthly_line(
+    monthly_deals,
+    y_field="deal_count",
+    y_title="Deal Count",
+    fmt=",.0f",
+    color=COLOR_PALETTE[2],
+)
+
+# 3) Participation Trends by Month (by deal count)
+st.subheader("Participation Trends by Month")
+_render_monthly_line(
+    monthly_participation,
+    y_field="deal_count",
+    y_title="Participated Deals",
+    fmt=",.0f",
+    color=PRIMARY_COLOR,
+)
 # ----------------------------
 # PARTNER SUMMARY TABLES
 # ----------------------------
