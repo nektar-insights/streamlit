@@ -475,7 +475,9 @@ def train_classification_small(df: pd.DataFrame):
     ])
 
     # CV folds
-    skf = StratifiedKFold(n_splits=safe_kfold(len(df)), shuffle=True, random_state=42)
+    min_class = int(pd.Series(y).value_counts().min()) if y.nunique() == 2 else len(df)
+    n_splits = max(2, min(safe_kfold(len(df)), min_class))
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
     Xy = df.index  # dummy to align lengths
 
     # fit and CV
@@ -570,7 +572,7 @@ def render_corr_outputs(df: pd.DataFrame):
     if not hm.empty:
         chart = alt.Chart(hm).mark_rect().encode(
             x=alt.X("feature:N", sort=None, title="Feature"),
-            y=alt.Y("var:N", sort=None, title="Target", axis=alt.Axis(labels=True))
+            y=alt.Y("var:N", sort=None, title="Target", axis=alt.Axis(labels=True)),
             color=alt.Color("value:Q", scale=alt.Scale(scheme="redblue", domain=[-1,1]), title="Spearman ρ"),
             tooltip=[alt.Tooltip("feature:N"), alt.Tooltip("value:Q", title="ρ", format=".3f")]
         ).transform_calculate(var="'payment_performance'").transform_calculate(value="datum.spearman_rho_vs_performance"
