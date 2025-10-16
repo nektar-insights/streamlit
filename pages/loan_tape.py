@@ -8,6 +8,15 @@ import pandas as pd
 import altair as alt
 import numpy as np
 import numpy_financial as npf
+# ML & stats
+from sklearn.model_selection import StratifiedKFold, KFold, cross_val_score
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.linear_model import LogisticRegression, Ridge
+from sklearn.impute import SimpleImputer
+from sklearn.metrics import roc_auc_score, precision_score, recall_score, roc_curve
+from scipy.stats import pearsonr, spearmanr, pointbiserialr
 
 from utils.config import (
     inject_global_styles,
@@ -56,6 +65,8 @@ STATUS_RISK_MULTIPLIERS = {
     "Severe": 5.0,
     "Paid Off": 0.0,
 }
+
+PROBLEM_STATUSES = {"Late","Default","Bankrupt","Severe","Severe Delinquency","Moderate Delinquency","Active - Frequently Late"}
 
 # -------------
 # Supabase
@@ -1026,7 +1037,7 @@ def main():
     # -----
     # Tabs
     # -----
-    tabs = st.tabs(["Summary", "Capital Flow", "Performance Analysis", "Risk Analytics", "Loan Tape"])
+    tabs = st.tabs(["Summary", "Capital Flow", "Performance Analysis", "Risk Analytics", "Loan Tape", "Diagnostics & ML"])
 
     with tabs[0]:
         st.header("Portfolio Overview")
@@ -1213,6 +1224,47 @@ def main():
             file_name=f"loan_tape_{pd.Timestamp.today().strftime('%Y%m%d')}.csv",
             mime="text/csv",
         )
+
+    with tabs[5]:
+        st.header("Diagnostics & ML")
+    
+        st.markdown("##### Correlations")
+        render_corr_outputs(filtered_df)
+    
+        st.markdown("---")
+        render_fico_tib_heatmap(filtered_df)
+    
+        st.markdown("---")
+        st.subheader("Small Classification Model: Predict Problem Loans")
+        try:
+            model, metrics, top_pos, top_neg = train_classification_small(filtered_df)
+            col1, col2, col3, col4 = st.columns(4)
+            with col1: st.metric("ROC AUC (CV)", f"{metrics['ROC AUC'][0]:.3f}" if pd.notnull(metrics['ROC AUC'][0]) else "N/A")
+            with col2: st.metric("Precision (CV)", f"{metrics['Precision'][0]:.3f}")
+            with col3: st.metric("Recall (CV)", f"{metrics['Recall'][0]:.3f}")
+            with col4: st.caption(f"n={metrics['n_samples']}, positive rate={metrics['pos_rate']:.2f}")
+    
+            st.write("**Top Risk-Increasing Signals (coefficients)**")
+            st.dataframe(top_pos.assign(coef=lambda s: s["coef"].map(lambda x: f"{x:.3f}")), use_container_width=True, hide_index=True)
+            st.write("**Top Risk-Decreasing Signals (coefficients)**")
+            st.dataframe(top_neg.assign(coef=lambda s: s["coef"].map(lambda x: f"{x:.3f}")), use_container_width=True, hide_index=True)
+        except ImportError:
+            st.warning("scikit-learn or scipy not installed. `pip install scikit-learn scipy` to enable modeling.")
+        except Exception as e:
+            st.warning(f"Classification model could not run: {e}")
+    
+        st.markdown("---")
+        st.subheader("Small Regression Model: Predict Payment Performance")
+        try:
+            r_model, r_metrics = train_regression_small(filtered_df)
+            c1, c2 = st.columns(2)
+            with c1: st.metric("R² (CV)", f"{r_metrics['R2'][0]:.3f}" if pd.notnull(r_metrics['R2'][0]) else "N/A")
+            with c2: st.metric("RMSE (CV)", f"{r_metrics['RMSE'][0]:.3f}")
+            st.caption(f"n={r_metrics['n_samples']} (rows with non-null payment_performance)")
+        except ImportError:
+            st.warning("scikit-learn not installed. `pip install scikit-learn`.")
+        except Exception as e:
+            st.warning(f"Regression model could not run: {e}")
 
 if __name__ == "__main__":
     main()
