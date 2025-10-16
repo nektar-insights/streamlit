@@ -565,7 +565,7 @@ def render_corr_outputs(df: pd.DataFrame):
     for c in ["pearson_r_vs_performance","spearman_rho_vs_performance","pointbiserial_vs_problem"]:
         if c in disp.columns:
             disp[c] = disp[c].map(lambda x: f"{x:.3f}" if pd.notnull(x) else "")
-    st.dataframe(disp, use_container_width=True, hide_index=True)
+    st.dataframe(disp, width="stretch", hide_index=True)
 
     # heatmap vs performance (Spearman)
     hm = corr_df[["feature","spearman_rho_vs_performance"]].dropna()
@@ -577,7 +577,7 @@ def render_corr_outputs(df: pd.DataFrame):
             tooltip=[alt.Tooltip("feature:N"), alt.Tooltip("value:Q", title="ρ", format=".3f")]
         ).transform_calculate(var="'payment_performance'").transform_calculate(value="datum.spearman_rho_vs_performance"
         ).properties(width=700, height=150, title="Correlation with Payment Performance")
-        st.altair_chart(chart, use_container_width=True)
+        st.altair_chart(chart, width="stretch")
 
     st.download_button(
         "Download correlations (CSV)",
@@ -599,7 +599,7 @@ def render_fico_tib_heatmap(df: pd.DataFrame):
     d["fico_band"] = pd.cut(d["fico"], bins=fico_bins, labels=["<580","580-619","620-659","660-699","700-739","740+"], right=False)
     d["tib_band"]  = pd.cut(d["tib"],  bins=tib_bins,  labels=["≤5","5-10","10-15","15-20","20+"], right=False)
 
-    m = d.groupby(["fico_band","tib_band"]).agg(
+    m = d.groupby(["fico_band","tib_band"], observed=True).agg(
         avg_perf=("payment_performance","mean"),
         n=("loan_id","count")
     ).reset_index().dropna()
@@ -619,7 +619,7 @@ def render_fico_tib_heatmap(df: pd.DataFrame):
             alt.Tooltip("n:Q", title="Loans")
         ]
     ).properties(width=600, height=300, title="Avg Payment Performance by FICO × TIB")
-    st.altair_chart(heat, use_container_width=True)
+    st.altair_chart(heat, width="stretch")
 
 # -------------------
 # Charts & Visuals
@@ -691,7 +691,7 @@ def plot_capital_flow(df: pd.DataFrame):
             ],
         ).properties(width=800, height=400, title="Capital Deployed vs. Capital Returned Over Time")
 
-        st.altair_chart(chart, use_container_width=True)
+        st.altair_chart(chart, width="stretch")
     else:
         st.info("Insufficient data to display capital flow chart.")
 
@@ -753,7 +753,7 @@ def plot_investment_net_position(df: pd.DataFrame):
 
         zero_line = alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(strokeDash=[2, 2], color="gray", strokeWidth=1).encode(y="y:Q")
 
-        st.altair_chart(chart + zero_line, use_container_width=True)
+        st.altair_chart(chart + zero_line, width="stretch")
         st.caption("Net Position: Capital still deployed (positive) or profit after recovery (negative).")
     else:
         st.info("Insufficient data for net position analysis.")
@@ -825,7 +825,7 @@ def plot_payment_performance_by_cohort(df: pd.DataFrame):
         y="y:Q", y2="y2:Q"
     )
 
-    st.altair_chart(target_zone + bars + text + ref_line, use_container_width=True)
+    st.altair_chart(target_zone + bars + text + ref_line, width="stretch")
     st.caption("On-Target Zone: -5% to +5%. Positive = ahead of schedule, negative = behind schedule.")
 
 def plot_fico_performance_analysis(df: pd.DataFrame):
@@ -842,7 +842,7 @@ def plot_fico_performance_analysis(df: pd.DataFrame):
     fico_df["fico"] = pd.to_numeric(fico_df["fico"], errors="coerce")
     fico_df["fico_band"] = pd.cut(fico_df["fico"], bins=fico_bins, labels=fico_labels, right=False)
 
-    fico_metrics = fico_df.groupby("fico_band").agg(
+    fico_metrics = fico_df.groupby("fico_band", observed=True).agg(
         deal_count=("loan_id", "count"),
         capital_deployed=("csl_participation_amount", "sum"),
         outstanding_balance=("net_balance", "sum"),
@@ -853,14 +853,14 @@ def plot_fico_performance_analysis(df: pd.DataFrame):
 
     fico_metrics["actual_return_rate"] = fico_metrics["total_paid"] / fico_metrics["total_invested"]
 
-    status_by_fico = fico_df.groupby(["fico_band", "loan_status"]).size().reset_index(name="count")
-    total_by_fico = fico_df.groupby("fico_band").size().reset_index(name="total")
+    status_by_fico = fico_df.groupby(["fico_band", "loan_status"], observed=True).size().reset_index(name="count")
+    total_by_fico = fico_df.groupby("fico_band", observed=True).size().reset_index(name="total")
     status_by_fico = status_by_fico.merge(total_by_fico, on="fico_band")
     status_by_fico["pct"] = status_by_fico["count"] / status_by_fico["total"]
 
     problem_statuses = ["Late", "Default", "Bankrupt", "Severe", "Severe Delinquency", "Moderate Delinquency"]
     problem_loans = status_by_fico[status_by_fico["loan_status"].isin(problem_statuses)]
-    problem_rate = problem_loans.groupby("fico_band")["pct"].sum().reset_index(name="problem_rate")
+    problem_rate = problem_loans.groupby("fico_band", observed=True)["pct"].sum().reset_index(name="problem_rate")
 
     fico_metrics = fico_metrics.merge(problem_rate, on="fico_band", how="left")
     fico_metrics["problem_rate"] = fico_metrics["problem_rate"].fillna(0)
@@ -882,7 +882,7 @@ def plot_fico_performance_analysis(df: pd.DataFrame):
                 alt.Tooltip("deal_count:Q", title="Loan Count"),
             ],
         ).properties(width=350, height=300, title="Payment Performance by FICO Score")
-        st.altair_chart(perf_chart, use_container_width=True)
+        st.altair_chart(perf_chart, width="stretch")
 
     with col2:
         problem_chart = alt.Chart(fico_metrics).mark_bar().encode(
@@ -899,7 +899,7 @@ def plot_fico_performance_analysis(df: pd.DataFrame):
                 alt.Tooltip("deal_count:Q", title="Total Loans"),
             ],
         ).properties(width=350, height=300, title="Problem Loan Rate by FICO Score")
-        st.altair_chart(problem_chart, use_container_width=True)
+        st.altair_chart(problem_chart, width="stretch")
 
     return_chart = alt.Chart(fico_metrics).mark_bar().encode(
         x=alt.X("fico_band:N", title="FICO Score Band", sort=fico_labels),
@@ -915,7 +915,7 @@ def plot_fico_performance_analysis(df: pd.DataFrame):
             alt.Tooltip("deal_count:Q", title="Loan Count"),
         ],
     ).properties(width=700, height=300, title="Actual Return Rate by FICO Score")
-    st.altair_chart(return_chart, use_container_width=True)
+    st.altair_chart(return_chart, width="stretch")
 
     st.subheader("FICO Performance Summary")
     display_df = fico_metrics.copy()
@@ -928,7 +928,7 @@ def plot_fico_performance_analysis(df: pd.DataFrame):
         "avg_payment_performance", "actual_return_rate", "problem_rate"
     ]]
     display_df.columns = ["FICO Band", "Loan Count", "Outstanding Balance", "Avg Payment Performance", "Actual Return Rate", "Problem Loan Rate"]
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(display_df, width="stretch", hide_index=True)
 
 def plot_tib_performance_analysis(df: pd.DataFrame):
     st.header("Time in Business Performance Analysis")
@@ -944,7 +944,7 @@ def plot_tib_performance_analysis(df: pd.DataFrame):
     tib_df["tib"] = pd.to_numeric(tib_df["tib"], errors="coerce")
     tib_df["tib_band"] = pd.cut(tib_df["tib"], bins=tib_bins, labels=tib_labels, right=False)
 
-    tib_metrics = tib_df.groupby("tib_band").agg(
+    tib_metrics = tib_df.groupby("tib_band", observed=True).agg(
         deal_count=("loan_id", "count"),
         capital_deployed=("csl_participation_amount", "sum"),
         outstanding_balance=("net_balance", "sum"),
@@ -955,14 +955,14 @@ def plot_tib_performance_analysis(df: pd.DataFrame):
 
     tib_metrics["actual_return_rate"] = tib_metrics["total_paid"] / tib_metrics["total_invested"]
 
-    status_by_tib = tib_df.groupby(["tib_band", "loan_status"]).size().reset_index(name="count")
-    total_by_tib = tib_df.groupby("tib_band").size().reset_index(name="total")
+    status_by_tib = tib_df.groupby(["tib_band", "loan_status"], observed=True).size().reset_index(name="count")
+    total_by_tib = tib_df.groupby("tib_band", observed=True).size().reset_index(name="total")
     status_by_tib = status_by_tib.merge(total_by_tib, on="tib_band")
     status_by_tib["pct"] = status_by_tib["count"] / status_by_tib["total"]
 
     problem_statuses = ["Late", "Default", "Bankrupt", "Severe", "Severe Delinquency", "Moderate Delinquency"]
     problem_loans = status_by_tib[status_by_tib["loan_status"].isin(problem_statuses)]
-    problem_rate = problem_loans.groupby("tib_band")["pct"].sum().reset_index(name="problem_rate")
+    problem_rate = problem_loans.groupby("tib_band", observed=True)["pct"].sum().reset_index(name="problem_rate")
 
     tib_metrics = tib_metrics.merge(problem_rate, on="tib_band", how="left")
     tib_metrics["problem_rate"] = tib_metrics["problem_rate"].fillna(0)
@@ -984,7 +984,7 @@ def plot_tib_performance_analysis(df: pd.DataFrame):
                 alt.Tooltip("deal_count:Q", title="Loan Count"),
             ],
         ).properties(width=350, height=300, title="Payment Performance by Time in Business")
-        st.altair_chart(perf_chart, use_container_width=True)
+        st.altair_chart(perf_chart, width="stretch")
 
     with col2:
         problem_chart = alt.Chart(tib_metrics).mark_bar().encode(
@@ -1001,7 +1001,7 @@ def plot_tib_performance_analysis(df: pd.DataFrame):
                 alt.Tooltip("deal_count:Q", title="Total Loans"),
             ],
         ).properties(width=350, height=300, title="Problem Loan Rate by Time in Business")
-        st.altair_chart(problem_chart, use_container_width=True)
+        st.altair_chart(problem_chart, width="stretch")
 
     return_chart = alt.Chart(tib_metrics).mark_bar().encode(
         x=alt.X("tib_band:N", title="Time in Business (Years)", sort=tib_labels),
@@ -1017,7 +1017,7 @@ def plot_tib_performance_analysis(df: pd.DataFrame):
             alt.Tooltip("deal_count:Q", title="Loan Count"),
         ],
     ).properties(width=700, height=300, title="Actual Return Rate by Time in Business")
-    st.altair_chart(return_chart, use_container_width=True)
+    st.altair_chart(return_chart, width="stretch")
 
     st.subheader("Time in Business Performance Summary")
     display_df = tib_metrics.copy()
@@ -1030,7 +1030,7 @@ def plot_tib_performance_analysis(df: pd.DataFrame):
         "avg_payment_performance", "actual_return_rate", "problem_rate"
     ]]
     display_df.columns = ["TIB Band", "Loan Count", "Outstanding Balance", "Avg Payment Performance", "Actual Return Rate", "Problem Loan Rate"]
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(display_df, width="stretch", hide_index=True)
 
 def plot_industry_performance_analysis(df: pd.DataFrame):
     st.header("Industry Performance Analysis")
@@ -1087,7 +1087,7 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
             alt.Tooltip("net_balance:Q", title="Outstanding Balance", format="$,.0f"),
         ],
     ).properties(width=700, height=400, title="Industry Risk Score vs Payment Performance")
-    st.altair_chart(scatter, use_container_width=True)
+    st.altair_chart(scatter, width="stretch")
 
     st.subheader("Problem Loan Rate by Industry")
     top_sectors = sector_metrics.nlargest(10, "net_balance")
@@ -1106,7 +1106,7 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
             alt.Tooltip("loan_count:Q", title="Total Loans"),
         ],
     ).properties(width=700, height=400, title="Problem Loan Rate by Industry (Top 10)")
-    st.altair_chart(problem_bar, use_container_width=True)
+    st.altair_chart(problem_bar, width="stretch")
 
     st.subheader("Actual Return Rate by Industry")
     return_bar = alt.Chart(top_sectors).mark_bar().encode(
@@ -1123,7 +1123,7 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
             alt.Tooltip("loan_count:Q", title="Loan Count"),
         ],
     ).properties(width=700, height=400, title="Actual Return Rate by Industry (Top 10)")
-    st.altair_chart(return_bar, use_container_width=True)
+    st.altair_chart(return_bar, width="stretch")
 
 def plot_status_distribution(df: pd.DataFrame):
     active_df = df[df.get("loan_status", "") != "Paid Off"].copy()
@@ -1163,7 +1163,7 @@ def plot_status_distribution(df: pd.DataFrame):
         ],
     ).properties(width=600, height=400, title="Distribution of Active Loan Status")
 
-    st.altair_chart(pie_chart, use_container_width=True)
+    st.altair_chart(pie_chart, width="stretch")
 
 def plot_roi_distribution(df: pd.DataFrame):
     roi_df = df[df["total_invested"] > 0].copy()
@@ -1191,7 +1191,7 @@ def plot_roi_distribution(df: pd.DataFrame):
         ],
     ).properties(width=800, height=400, title="Return on Investment by Loan")
 
-    st.altair_chart(roi_chart, use_container_width=True)
+    st.altair_chart(roi_chart, width="stretch")
 
 def plot_irr_by_partner(df: pd.DataFrame):
     paid_df = df[df.get("loan_status", "") == "Paid Off"].copy()
@@ -1225,7 +1225,7 @@ def plot_irr_by_partner(df: pd.DataFrame):
         ],
     ).properties(width=700, height=400, title="Average IRR by Partner")
 
-    st.altair_chart(irr_chart, use_container_width=True)
+    st.altair_chart(irr_chart, width="stretch")
 
 def display_irr_analysis(df: pd.DataFrame):
     st.subheader("IRR Analysis for Paid-Off Loans")
@@ -1413,12 +1413,12 @@ def main():
                 "Days Funded", "Days Overdue", "Status Mult",
                 "Risk Score", "Net Balance",
             ]
-            st.dataframe(top_risk_display, use_container_width=True, hide_index=True)
+            st.dataframe(top_risk_display, width="stretch", hide_index=True)
 
             st.markdown("---")
             st.subheader("Risk Score Distribution")
 
-            band_summary = risk_df.groupby("risk_band").agg(
+            band_summary = risk_df.groupby("risk_band", observed=True).agg(
                 loan_count=("loan_id", "count"),
                 net_balance=("net_balance", "sum"),
             ).reset_index()
@@ -1445,7 +1445,7 @@ def main():
                     ],
                 ).properties(width=700, height=350, title="Loan Count by Risk Band (Active Loans Only)")
 
-                st.altair_chart(risk_bar, use_container_width=True)
+                st.altair_chart(risk_bar, width="stretch")
         else:
             st.info("No active loans to calculate risk scores.")
 
@@ -1476,7 +1476,7 @@ def main():
         }
 
         loan_tape = format_dataframe_for_display(filtered_df, display_columns, column_rename)
-        st.dataframe(loan_tape, use_container_width=True, hide_index=True)
+        st.dataframe(loan_tape, width="stretch", hide_index=True)
 
         csv = loan_tape.to_csv(index=False).encode("utf-8")
         st.download_button(
@@ -1506,9 +1506,9 @@ def main():
             with col4: st.caption(f"n={metrics['n_samples']}, positive rate={metrics['pos_rate']:.2f}")
     
             st.write("**Top Risk-Increasing Signals (coefficients)**")
-            st.dataframe(top_pos.assign(coef=lambda s: s["coef"].map(lambda x: f"{x:.3f}")), use_container_width=True, hide_index=True)
+            st.dataframe(top_pos.assign(coef=lambda s: s["coef"].map(lambda x: f"{x:.3f}")), width="stretch", hide_index=True)
             st.write("**Top Risk-Decreasing Signals (coefficients)**")
-            st.dataframe(top_neg.assign(coef=lambda s: s["coef"].map(lambda x: f"{x:.3f}")), use_container_width=True, hide_index=True)
+            st.dataframe(top_neg.assign(coef=lambda s: s["coef"].map(lambda x: f"{x:.3f}")), width="stretch", hide_index=True)
         except ImportError:
             st.warning("scikit-learn or scipy not installed. `pip install scikit-learn scipy` to enable modeling.")
         except Exception as e:
