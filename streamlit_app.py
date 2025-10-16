@@ -662,111 +662,55 @@ mp_filtered = monthly_participation[monthly_participation["month_date"] >= six_m
 for df in [mf_filtered, md_filtered, mp_filtered]:
     df["month_period"] = df["month_date"].dt.to_period("M")
 
-# Group by period and aggregate to eliminate duplicates
-mf = (mf_filtered.groupby("month_period")
-      .agg({"total_funded_amount": "sum", "month_date": "first"})
-      .reset_index(drop=True)
-      .sort_values("month_date"))
+def _render_line(df_, x_field, y_field, y_title, tooltip_fmt=None, color="#2e7d32"):
+    if df_.empty:
+        st.info(f"No data for {y_title.lower()} in the selected range.")
+        return
 
-md = (md_filtered.groupby("month_period")
-      .agg({"deal_count": "sum", "month_date": "first"})
-      .reset_index(drop=True)
-      .sort_values("month_date"))
+    # NaN safe
+    df_ = df_.copy()
+    df_[y_field] = df_[y_field].fillna(0)
 
-mp = (mp_filtered.groupby("month_period")
-      .agg({"deal_count": "sum", "total_amount": "sum", "month_date": "first"})
-      .reset_index(drop=True)
-      .sort_values("month_date"))
-def avg_rule(df, field, title, fmt="$,.2f", color="gray"):
-    return (
-        alt.Chart(df)
-        .transform_aggregate(avg_val=f"mean({field})")
-        .mark_rule(color=color, strokeDash=[4,2], strokeWidth=2)
-        .encode(
-            y=alt.Y("avg_val:Q"),
-            tooltip=alt.Tooltip("avg_val:Q", title=title, format=fmt)
-        )
-    )
-
-st.caption("Monthly debug")
-st.write("mf rows / unique months:", len(mf), mf["month_date"].nunique())
-st.write("md rows / unique months:", len(md), md["month_date"].nunique())
-st.write("mp rows / unique months:", len(mp), mp["month_date"].nunique())
-
-# --- REBUILD monthly tables from canonical month_start ---
-
-# 100% canonical month start (if you didn't already create it earlier)
-df["month_start"] = df["date_created"].dt.to_period("M").dt.to_timestamp(how="start")
-
-# base sorts
-df = df.sort_values("month_start")
-
-# one row per month for total funded
-mf = (
-    df.groupby("month_start", as_index=False)
-      .agg(total_funded_amount=("total_funded_amount", "sum"))
-      .rename(columns={"month_start": "month_date"})
-      .sort_values("month_date")
-)
-
-# one row per month for deal count
-md = (
-    df.groupby("month_start", as_index=False)
-      .size()
-      .rename(columns={"month_start": "month_date", "size": "deal_count"})
-      .sort_values("month_date")
-)
-
-# one row per month for participated deals
-participated_only = df[df["is_participated"] == True]
-
-mp = (
-    participated_only.groupby("month_start", as_index=False)
-      .size()
-      .rename(columns={"month_start": "month_date", "size": "deal_count"})
-      .sort_values("month_date")
-)
-
-# final safety: drop any accidental dupes (shouldn't be any after groupby)
-mf = mf.drop_duplicates(subset=["month_date"], keep="first")
-md = md.drop_duplicates(subset=["month_date"], keep="first")
-mp = mp.drop_duplicates(subset=["month_date"], keep="first")
-
-st.subheader("Total Funded Amount by Month")
-
-_mf = (
-    mf.copy()
-    .dropna(subset=["month_date"])
-    .sort_values("month_date")
-)
-# guard against NaNs in y
-_mf["total_funded_amount"] = _mf["total_funded_amount"].fillna(0)
-
-if _mf.empty:
-    st.info("No monthly funding data in the selected range.")
-else:
-    base_fund = alt.Chart(_mf).encode(
-        x=alt.X("month_date:T", title="",
-                axis=alt.Axis(format="%b %Y", labelAngle=-45)),
-        y=alt.Y("total_funded_amount:Q", title="Total Funded ($)",
-                axis=alt.Axis(format="$,.0f", grid=True)),
+    base = alt.Chart(df_).encode(
+        x=alt.X("month_date:T", title="", axis=alt.Axis(format="%b %Y", labelAngle=-45)),
+        y=alt.Y(f"{y_field}:Q", title=y_title, axis=alt.Axis(grid=True)),
         tooltip=[
             alt.Tooltip("month_date:T", title="Month", format="%B %Y"),
-            alt.Tooltip("total_funded_amount:Q", title="Total Funded", format="$,.0f"),
+            alt.Tooltip(f"{y_field}:Q", title=y_title,
+                        format=tooltip_fmt if tooltip_fmt else ",.0f"),
         ],
     )
-    fund_line = base_fund.mark_line(color=PRIMARY_COLOR, strokeWidth=3)
-    fund_pts  = base_fund.mark_point(size=60, filled=True, color=PRIMARY_COLOR)
-    fund_avg  = (
-        alt.Chart(_mf)
-        .transform_aggregate(avg_val="mean(total_funded_amount)")
+    line = base.mark_line(color=color, strokeWidth=3)
+    pts  = base.mark_point(size=60, filled=True, color=color)
+    avg  = (
+        alt.Chart(df_)
+        .transform_aggregate(avg_val=f"mean({y_field})")
         .mark_rule(color="gray", strokeDash=[4,2], strokeWidth=2)
         .encode(y="avg_val:Q",
-                tooltip=alt.Tooltip("avg_val:Q", title="Avg Total Funded", format="$,.0f"))
+                tooltip=alt.Tooltip("avg_val:Q", title=f"Avg {y_title}",
+                                    format=tooltip_fmt if tooltip_fmt else ",.0f"))
     )
-    st.altair_chart((fund_line + fund_pts + fund_avg)
-                    .properties(height=350, padding={"bottom": 80}),
+    st.altair_chart((line + pts + avg).properties(height=350, padding={"bottom": 80}),
                     use_container_width=True)
+
+# 1) Total Funded
+st.subheader("Total Funded Amount by Month")
+_render_line(mf, "month_date", "total_funded_amount",
+             y_title="Total Funded ($)", tooltip_fmt="$,.0f",
+             color=PRIMARY_COLOR)
+
+# 2) Deal Count
+st.subheader("Total Deal Count by Month")
+_render_line(md, "month_date", "deal_count",
+             y_title="Deal Count", tooltip_fmt=",.0f",
+             color=COLOR_PALETTE[2])
+
+# 3) Participation Trends (by count)
+st.subheader("Participation Trends by Month")
+_render_line(mp, "month_date", "deal_count",
+             y_title="Participated Deals", tooltip_fmt=",.0f",
+             color=PRIMARY_COLOR)
+
 # ----------------------------
 # PARTNER SUMMARY TABLES
 # ----------------------------
