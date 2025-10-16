@@ -36,8 +36,18 @@ today = pd.to_datetime("today").normalize()
 # Data preprocessing
 # ----------------------------
 cols_to_convert = ["amount", "total_funded_amount", "factor_rate", "loan_term", "commission"]
-df["date_created"] = pd.to_datetime(df["date_created"], errors="coerce")
+
+# --- Canonical date handling ---
+# Make sure date_created is tz-naive and valid
+df["date_created"] = pd.to_datetime(df["date_created"], errors="coerce", utc=True).dt.tz_localize(None)
+df = df.dropna(subset=["date_created"])
+
+# Keep your original string month (for any legacy use)
 df["month"] = df["date_created"].dt.to_period("M").astype(str)
+
+# NEW: canonical month-start timestamp (no day ambiguity)
+df["month_start"] = df["date_created"].dt.to_period("M").dt.to_timestamp(how="start")
+
 df[cols_to_convert] = df[cols_to_convert].apply(pd.to_numeric, errors="coerce")
 df["loan_id"] = df["loan_id"].astype("string")
 df["is_participated"] = df["is_closed_won"] == True
@@ -147,28 +157,41 @@ flow_df = pd.DataFrame(flow_data)
 deals_last_30 = df[df["date_created"] >= today - pd.Timedelta(days=30)].shape[0]
 
 # Monthly aggregations
-monthly_funded = df.groupby("month")["total_funded_amount"].sum().reset_index()
-monthly_funded["month_date"] = pd.to_datetime(monthly_funded["month"])
+monthly_funded = (
+    df.groupby("month_start", as_index=False)["total_funded_amount"].sum()
+    .rename(columns={"month_start": "month_date"})
+)
 
-monthly_deals = df.groupby("month").size().reset_index(name="deal_count")
-monthly_deals["month_date"] = pd.to_datetime(monthly_deals["month"])
+monthly_deals = (
+    df.groupby("month_start", as_index=False)
+      .size()
+      .rename(columns={"month_start": "month_date", "size": "deal_count"})
+)
 
 participated_only = df[df["is_participated"] == True]
-monthly_participation = participated_only.groupby("month").agg(
-    deal_count=("id", "count"),
-    total_amount=("amount", "sum")
-).reset_index()
-monthly_participation["month_date"] = pd.to_datetime(monthly_participation["month"])
 
-monthly_participation_ratio = df.groupby("month").agg(
-    total_deals=("id", "count"),
-    participated_deals=("is_participated", "sum")
-).reset_index()
-monthly_participation_ratio["participation_pct"] = (
-    monthly_participation_ratio["participated_deals"] / 
-    monthly_participation_ratio["total_deals"]
+monthly_participation = (
+    participated_only.groupby("month_start", as_index=False)
+    .agg(deal_count=("id", "count"), total_amount=("amount", "sum"))
+    .rename(columns={"month_start": "month_date"})
 )
-monthly_participation_ratio["month_date"] = pd.to_datetime(monthly_participation_ratio["month"])
+
+monthly_participation_ratio = (
+    df.groupby("month_start", as_index=False)
+      .agg(total_deals=("id", "count"),
+           participated_deals=("is_participated", "sum"))
+      .assign(participation_pct=lambda x: x["participated_deals"] / x["total_deals"])
+      .rename(columns={"month_start": "month_date"})
+)
+
+# Dollar-based participation ratio
+monthly_participation_ratio_dollar = (
+    df.groupby("month_start", as_index=False)
+      .agg(total_funded_amount=("total_funded_amount", "sum"),
+           participated_amount=("amount", "sum"))
+      .assign(participation_pct_dollar=lambda x: (x["participated_amount"] / x["total_funded_amount"]).fillna(0))
+      .rename(columns={"month_start": "month_date"})
+)
 
 # Partner summary calculations
 all_deals = df.groupby("partner_source").agg(
@@ -588,25 +611,18 @@ monthly_participation_ratio_dollar["month_date"] = pd.to_datetime(monthly_partic
 # ----------------------------
 st.subheader("Monthly Participation Rate by Deal Count")
 rate_line = alt.Chart(monthly_participation_ratio).mark_line(
-    color="#e45756", 
-    strokeWidth=4,
+    color="#e45756", strokeWidth=4,
     point=alt.OverlayMarkDef(color="#e45756", size=80, filled=True)
 ).encode(
-    x=alt.X("month_date:T", 
-            title="Month", 
-            axis=alt.Axis(labelAngle=-45, format="%b %Y", labelPadding=10)),
-    y=alt.Y("participation_pct:Q", 
-            title="Participation Rate (by Count)", 
+    x=alt.X("yearmonth(month_date):T", title="Month",
+            axis=alt.Axis(labelAngle=-45, format="%b %Y", labelPadding=10), sort="ascending"),
+    y=alt.Y("participation_pct:Q", title="Participation Rate (by Count)",
             axis=alt.Axis(format=".0%", titlePadding=20, labelPadding=5)),
     tooltip=[
-        alt.Tooltip("month_date:T", title="Month", format="%B %Y"),
+        alt.Tooltip("yearmonth(month_date):T", title="Month", format="%B %Y"),
         alt.Tooltip("participation_pct:Q", title="Participation Rate", format=".1%")
     ]
-).properties(
-    height=350,
-    width=800,
-    padding={"left": 80, "top": 20, "right": 20, "bottom": 60}
-)
+).properties(height=350, width=800, padding={"left": 80, "top": 20, "right": 20, "bottom": 60})
 
 st.altair_chart(rate_line, use_container_width=True)
 
@@ -615,27 +631,20 @@ st.altair_chart(rate_line, use_container_width=True)
 # ----------------------------
 st.subheader("Monthly Participation Rate by Dollar Amount")
 rate_line_dollar = alt.Chart(monthly_participation_ratio_dollar).mark_line(
-    color="#17a2b8", 
-    strokeWidth=4,
+    color="#17a2b8", strokeWidth=4,
     point=alt.OverlayMarkDef(color="#17a2b8", size=80, filled=True)
 ).encode(
-    x=alt.X("month_date:T", 
-            title="Month", 
-            axis=alt.Axis(labelAngle=-45, format="%b %Y", labelPadding=10)),
-    y=alt.Y("participation_pct_dollar:Q", 
-            title="Participation Rate (by $)", 
+    x=alt.X("yearmonth(month_date):T", title="Month",
+            axis=alt.Axis(labelAngle=-45, format="%b %Y", labelPadding=10), sort="ascending"),
+    y=alt.Y("participation_pct_dollar:Q", title="Participation Rate (by $)",
             axis=alt.Axis(format=".0%", titlePadding=20, labelPadding=5)),
     tooltip=[
-        alt.Tooltip("month_date:T", title="Month", format="%B %Y"),
+        alt.Tooltip("yearmonth(month_date):T", title="Month", format="%B %Y"),
         alt.Tooltip("participation_pct_dollar:Q", title="Participation Rate ($)", format=".1%"),
         alt.Tooltip("total_funded_amount:Q", title="Total Opportunities", format="$,.0f"),
         alt.Tooltip("participated_amount:Q", title="Amount Participated", format="$,.0f")
     ]
-).properties(
-    height=350,
-    width=800,
-    padding={"left": 80, "top": 20, "right": 20, "bottom": 60}
-)
+).properties(height=350, width=800, padding={"left": 80, "top": 20, "right": 20, "bottom": 60})
 
 st.altair_chart(rate_line_dollar, use_container_width=True)
 
