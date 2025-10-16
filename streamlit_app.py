@@ -688,6 +688,45 @@ def avg_rule(df, field, title, fmt="$,.2f", color="gray"):
         )
     )
 
+# --- REBUILD monthly tables from canonical month_start ---
+
+# 100% canonical month start (if you didn't already create it earlier)
+df["month_start"] = df["date_created"].dt.to_period("M").dt.to_timestamp(how="start")
+
+# base sorts
+df = df.sort_values("month_start")
+
+# one row per month for total funded
+mf = (
+    df.groupby("month_start", as_index=False)
+      .agg(total_funded_amount=("total_funded_amount", "sum"))
+      .rename(columns={"month_start": "month_date"})
+      .sort_values("month_date")
+)
+
+# one row per month for deal count
+md = (
+    df.groupby("month_start", as_index=False)
+      .size()
+      .rename(columns={"month_start": "month_date", "size": "deal_count"})
+      .sort_values("month_date")
+)
+
+# one row per month for participated deals
+participated_only = df[df["is_participated"] == True]
+
+mp = (
+    participated_only.groupby("month_start", as_index=False)
+      .size()
+      .rename(columns={"month_start": "month_date", "size": "deal_count"})
+      .sort_values("month_date")
+)
+
+# final safety: drop any accidental dupes (shouldn't be any after groupby)
+mf = mf.drop_duplicates(subset=["month_date"], keep="first")
+md = md.drop_duplicates(subset=["month_date"], keep="first")
+mp = mp.drop_duplicates(subset=["month_date"], keep="first")
+
 st.subheader("Total Funded Amount by Month")
 
 _mf = (
