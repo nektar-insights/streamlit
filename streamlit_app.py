@@ -648,69 +648,90 @@ rate_line_dollar = alt.Chart(monthly_participation_ratio_dollar).mark_line(
 
 st.altair_chart(rate_line_dollar, use_container_width=True)
 
+# ================== SAFE MONTHLY TABLES + CHARTS ==================
 
-# ----------------------------
-# Monthly trend charts (last 6 months only)
-# ----------------------------
-six_months_ago = today - pd.DateOffset(months=6)
+# 1) Ensure we have a clean datetime and month_start
+if "date_created" not in df.columns:
+    st.error("Missing required column 'date_created' for monthly charts.")
+else:
+    # make sure datetime is valid and tz-naive
+    df["date_created"] = pd.to_datetime(df["date_created"], errors="coerce", utc=True).dt.tz_localize(None)
+    df = df.dropna(subset=["date_created"]).copy()
 
-# Filter and dedupe - use period format to avoid duplicates
-mf_filtered = monthly_funded[monthly_funded["month_date"] >= six_months_ago].copy()
-md_filtered = monthly_deals[monthly_deals["month_date"] >= six_months_ago].copy()
-mp_filtered = monthly_participation[monthly_participation["month_date"] >= six_months_ago].copy()
+    if "month_start" not in df.columns:
+        df["month_start"] = df["date_created"].dt.to_period("M").dt.to_timestamp(how="start")
 
-# Convert month_date to period for grouping (year-month format)
-for df in [mf_filtered, md_filtered, mp_filtered]:
-    df["month_period"] = df["month_date"].dt.to_period("M")
+    # 2) Build monthly tables (ONE row per month)
+    base = df.dropna(subset=["month_start"]).copy()
+    base["month_date"] = base["month_start"]
 
-def _render_line(df_, x_field, y_field, y_title, tooltip_fmt=None, color="#2e7d32"):
-    if df_.empty:
-        st.info(f"No data for {y_title.lower()} in the selected range.")
-        return
-
-    # NaN safe
-    df_ = df_.copy()
-    df_[y_field] = df_[y_field].fillna(0)
-
-    base = alt.Chart(df_).encode(
-        x=alt.X("month_date:T", title="", axis=alt.Axis(format="%b %Y", labelAngle=-45)),
-        y=alt.Y(f"{y_field}:Q", title=y_title, axis=alt.Axis(grid=True)),
-        tooltip=[
-            alt.Tooltip("month_date:T", title="Month", format="%B %Y"),
-            alt.Tooltip(f"{y_field}:Q", title=y_title,
-                        format=tooltip_fmt if tooltip_fmt else ",.0f"),
-        ],
+    mf = (
+        base.groupby("month_date", as_index=False)
+            .agg(total_funded_amount=("total_funded_amount", "sum"))
+            .sort_values("month_date")
     )
-    line = base.mark_line(color=color, strokeWidth=3)
-    pts  = base.mark_point(size=60, filled=True, color=color)
-    avg  = (
-        alt.Chart(df_)
-        .transform_aggregate(avg_val=f"mean({y_field})")
-        .mark_rule(color="gray", strokeDash=[4,2], strokeWidth=2)
-        .encode(y="avg_val:Q",
-                tooltip=alt.Tooltip("avg_val:Q", title=f"Avg {y_title}",
-                                    format=tooltip_fmt if tooltip_fmt else ",.0f"))
+
+    md = (
+        base.groupby("month_date", as_index=False)
+            .size()
+            .rename(columns={"size": "deal_count"})
+            .sort_values("month_date")
     )
-    st.altair_chart((line + pts + avg).properties(height=350, padding={"bottom": 80}),
-                    use_container_width=True)
 
-# 1) Total Funded
-st.subheader("Total Funded Amount by Month")
-_render_line(mf, "month_date", "total_funded_amount",
-             y_title="Total Funded ($)", tooltip_fmt="$,.0f",
-             color=PRIMARY_COLOR)
+    mp = (
+        base.loc[base["is_participated"] == True]
+            .groupby("month_date", as_index=False)
+            .size()
+            .rename(columns={"size": "deal_count"})
+            .sort_values("month_date")
+    )
 
-# 2) Deal Count
-st.subheader("Total Deal Count by Month")
-_render_line(md, "month_date", "deal_count",
-             y_title="Deal Count", tooltip_fmt=",.0f",
-             color=COLOR_PALETTE[2])
+    # 3) Tiny helper to render a consistent line chart
+    def _render_line(df_, y_field, y_title, tooltip_fmt, color):
+        if df_.empty:
+            st.info(f"No data for {y_title.lower()} in the selected range.")
+            return
+        df_ = df_.copy()
+        df_[y_field] = df_[y_field].fillna(0)
 
-# 3) Participation Trends (by count)
-st.subheader("Participation Trends by Month")
-_render_line(mp, "month_date", "deal_count",
-             y_title="Participated Deals", tooltip_fmt=",.0f",
-             color=PRIMARY_COLOR)
+        base_chart = alt.Chart(df_).encode(
+            x=alt.X("month_date:T", title="", axis=alt.Axis(format="%b %Y", labelAngle=-45)),
+            y=alt.Y(f"{y_field}:Q", title=y_title, axis=alt.Axis(grid=True)),
+            tooltip=[
+                alt.Tooltip("month_date:T", title="Month", format="%B %Y"),
+                alt.Tooltip(f"{y_field}:Q", title=y_title, format=tooltip_fmt),
+            ],
+        )
+        line = base_chart.mark_line(color=color, strokeWidth=3)
+        pts  = base_chart.mark_point(size=60, filled=True, color=color)
+        avg  = (
+            alt.Chart(df_)
+            .transform_aggregate(avg_val=f"mean({y_field})")
+            .mark_rule(color="gray", strokeDash=[4, 2], strokeWidth=2)
+            .encode(y="avg_val:Q",
+                    tooltip=alt.Tooltip("avg_val:Q", title=f"Avg {y_title}", format=tooltip_fmt))
+        )
+        st.altair_chart(
+            (line + pts + avg).properties(height=350, padding={"bottom": 80}),
+            use_container_width=True,
+        )
+
+    # 4) Charts
+
+    # Total Funded Amount by Month
+    st.subheader("Total Funded Amount by Month")
+    _render_line(mf, "total_funded_amount", "Total Funded ($)", "$,.0f", PRIMARY_COLOR)
+
+    # Total Deal Count by Month
+    st.subheader("Total Deal Count by Month")
+    _render_line(md, "deal_count", "Deal Count", ",.0f", COLOR_PALETTE[2])
+
+    # Participation Trends by Month (by count)
+    st.subheader("Participation Trends by Month")
+    _render_line(mp, "deal_count", "Participated Deals", ",.0f", PRIMARY_COLOR)
+# ================== END SAFE MONTHLY TABLES + CHARTS ==================
+
+
 
 # ----------------------------
 # PARTNER SUMMARY TABLES
