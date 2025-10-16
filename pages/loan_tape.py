@@ -288,7 +288,7 @@ def calculate_risk_scores(df: pd.DataFrame) -> pd.DataFrame:
 
     today = pd.Timestamp.today().tz_localize(None)
     risk_df["days_past_maturity"] = risk_df["maturity_date"].apply(
-        lambda x: max(0, (today - pd.to_datetime(x).tz_localize(None)).days) if pd.notnull(x) else 0
+        lambda x: max(0, (today - pd.to_datetime(x)).days) if pd.notnull(x) else 0
     )
     # clamp at 12 months past due in factor
     risk_df["overdue_factor"] = (risk_df["days_past_maturity"] / 30).clip(upper=12) / 12
@@ -359,6 +359,265 @@ def format_dataframe_for_display(df: pd.DataFrame, columns=None, rename_map=None
         pass
 
     return display_df
+
+def make_problem_label(df: pd.DataFrame, perf_cutoff: float = 0.90) -> pd.Series:
+    status_bad = df.get("loan_status", "").isin(PROBLEM_STATUSES)
+    perf_bad = pd.to_numeric(df.get("payment_performance", np.nan), errors="coerce") < perf_cutoff
+    return (status_bad | perf_bad).astype(int)
+
+def safe_kfold(n_items: int, preferred: int = 5) -> int:
+    # ensure at least 2 folds and at least 2 items per fold
+    return max(2, min(preferred, n_items if n_items >= preferred else max(2, n_items // 2)))
+
+def compute_correlations(base_df: pd.DataFrame) -> pd.DataFrame:
+    df = base_df.copy()
+    # attach risk score from sector table if available
+    try:
+        sr = load_naics_sector_risk()
+        if "sector_code" not in df.columns and "industry" in df.columns:
+            df["sector_code"] = df["industry"].astype(str).str[:2]
+        if not sr.empty and "sector_code" in df.columns:
+            df = df.merge(sr[["sector_code","risk_score"]], on="sector_code", how="left")
+    except:
+        pass
+
+    # numeric candidates
+    num_cols = []
+    for c in ["fico","tib","risk_score","total_invested","total_paid","net_balance","commission_fee","remaining_maturity_months","days_since_funding"]:
+        if c in df.columns:
+            num_cols.append(c)
+
+    y_perf = pd.to_numeric(df.get("payment_performance", np.nan), errors="coerce")
+    y_clf = make_problem_label(df)
+
+    rows = []
+    for col in num_cols:
+        x = pd.to_numeric(df[col], errors="coerce")
+        mask_perf = x.notna() & y_perf.notna()
+        mask_clf  = x.notna() & y_clf.notna()
+        if mask_perf.sum() >= 8:
+            try:
+                pr, pp = pearsonr(x[mask_perf], y_perf[mask_perf])
+            except:
+                pr, pp = np.nan, np.nan
+            try:
+                srho, sp = spearmanr(x[mask_perf], y_perf[mask_perf])
+            except:
+                srho, sp = np.nan, np.nan
+        else:
+            pr=pp=srho=sp=np.nan
+        if mask_clf.sum() >= 8 and y_clf[mask_clf].nunique() > 1:
+            try:
+                pbr, pbr_p = pointbiserialr(y_clf[mask_clf], x[mask_clf])
+            except:
+                pbr, pbr_p = np.nan, np.nan
+        else:
+            pbr=pbr_p=np.nan
+
+        rows.append({
+            "feature": col,
+            "pearson_r_vs_performance": pr,
+            "pearson_p": pp,
+            "spearman_rho_vs_performance": srho,
+            "spearman_p": sp,
+            "pointbiserial_vs_problem": pbr,
+            "pointbiserial_p": pbr_p
+        })
+
+    out = pd.DataFrame(rows).sort_values("spearman_rho_vs_performance", ascending=False)
+    return out
+
+def build_feature_matrix(df: pd.DataFrame):
+    # minimal, robust set
+    X = pd.DataFrame({
+        "fico": pd.to_numeric(df.get("fico"), errors="coerce"),
+        "tib": pd.to_numeric(df.get("tib"), errors="coerce"),
+        "total_invested": pd.to_numeric(df.get("total_invested"), errors="coerce"),
+        "net_balance": pd.to_numeric(df.get("net_balance"), errors="coerce"),
+    })
+    # join sector risk if available
+    try:
+        sr = load_naics_sector_risk()
+        if "sector_code" not in df.columns and "industry" in df.columns:
+            sec = df["industry"].astype(str).str[:2]
+        else:
+            sec = df.get("sector_code")
+        if sr is not None and not sr.empty and sec is not None:
+            risk_map = dict(zip(sr["sector_code"], sr["risk_score"]))
+            X["sector_risk"] = sec.map(risk_map)
+    except:
+        pass
+
+    # categorical
+    cat_df = pd.DataFrame()
+    for c in ["industry", "partner_source"]:
+        if c in df.columns:
+            cat_df[c] = df[c].astype(str)
+    if not cat_df.empty:
+        X = pd.concat([X, cat_df], axis=1)
+    return X
+
+def train_classification_small(df: pd.DataFrame):
+    y = make_problem_label(df)
+    X = build_feature_matrix(df)
+
+    num_cols = X.select_dtypes(include=[np.number]).columns.tolist()
+    cat_cols = [c for c in X.columns if c not in num_cols]
+
+    pre = ColumnTransformer([
+        ("num", Pipeline([("imp", SimpleImputer(strategy="median")), ("sc", StandardScaler())]), num_cols),
+        ("cat", OneHotEncoder(handle_unknown="ignore", min_frequency=0.05), cat_cols)
+    ])
+
+    model = Pipeline([
+        ("pre", pre),
+        ("clf", LogisticRegression(max_iter=2000, class_weight="balanced", C=1.0, solver="lbfgs"))
+    ])
+
+    # CV folds
+    skf = StratifiedKFold(n_splits=safe_kfold(len(df)), shuffle=True, random_state=42)
+    Xy = df.index  # dummy to align lengths
+
+    # fit and CV
+    aucs, precs, recs = [], [], []
+    for tr, te in skf.split(X, y):
+        model.fit(X.iloc[tr], y.iloc[tr])
+        p = model.predict_proba(X.iloc[te])[:,1]
+        yhat = (p >= 0.5).astype(int)
+        try: aucs.append(roc_auc_score(y.iloc[te], p))
+        except: pass
+        precs.append(precision_score(y.iloc[te], yhat, zero_division=0))
+        recs.append(recall_score(y.iloc[te], yhat, zero_division=0))
+
+    # final fit on all data for coefficients
+    model.fit(X, y)
+
+    # extract top coefficients
+    try:
+        # get feature names after preprocessing
+        ohe = model.named_steps["pre"].named_transformers_["cat"]
+        num_names = num_cols
+        cat_names = ohe.get_feature_names_out(cat_cols).tolist() if cat_cols else []
+        feat_names = num_names + cat_names
+        coefs = model.named_steps["clf"].coef_.ravel()
+        coef_df = pd.DataFrame({"feature": feat_names, "coef": coefs}).sort_values("coef", ascending=False)
+        top_pos = coef_df.head(10)
+        top_neg = coef_df.tail(10).iloc[::-1]
+    except Exception as e:
+        top_pos = pd.DataFrame(columns=["feature","coef"])
+        top_neg = pd.DataFrame(columns=["feature","coef"])
+
+    metrics = {
+        "ROC AUC": (np.mean(aucs) if aucs else np.nan, np.std(aucs) if aucs else np.nan),
+        "Precision": (np.mean(precs), np.std(precs)),
+        "Recall": (np.mean(recs), np.std(recs)),
+        "n_samples": len(df),
+        "pos_rate": float(y.mean())
+    }
+    return model, metrics, top_pos, top_neg
+
+def train_regression_small(df: pd.DataFrame):
+    y = pd.to_numeric(df.get("payment_performance"), errors="coerce")
+    mask = y.notna()
+    X = build_feature_matrix(df.loc[mask])
+
+    num_cols = X.select_dtypes(include=[np.number]).columns.tolist()
+    cat_cols = [c for c in X.columns if c not in num_cols]
+
+    pre = ColumnTransformer([
+        ("num", Pipeline([("imp", SimpleImputer(strategy="median")), ("sc", StandardScaler())]), num_cols),
+        ("cat", OneHotEncoder(handle_unknown="ignore", min_frequency=0.05), cat_cols)
+    ])
+
+    model = Pipeline([
+        ("pre", pre),
+        ("reg", Ridge(alpha=1.0))
+    ])
+
+    kf = KFold(n_splits=safe_kfold(mask.sum()), shuffle=True, random_state=42)
+    r2s, rmses = [], []
+    for tr, te in kf.split(X):
+        model.fit(X.iloc[tr], y.iloc[mask].iloc[tr])
+        yhat = model.predict(X.iloc[te])
+        ytrue = y.iloc[mask].iloc[te]
+        r2s.append(1 - np.sum((ytrue - yhat)**2)/np.sum((ytrue - ytrue.mean())**2) if ytrue.nunique()>1 else np.nan)
+        rmses.append(np.sqrt(np.mean((ytrue - yhat)**2)))
+
+    model.fit(X, y.loc[mask])
+
+    return model, {
+        "R2": (np.nanmean(r2s), np.nanstd(r2s)),
+        "RMSE": (np.mean(rmses), np.std(rmses)),
+        "n_samples": int(mask.sum())
+    }
+
+def render_corr_outputs(df: pd.DataFrame):
+    st.subheader("Correlation Snapshot")
+    corr_df = compute_correlations(df)
+    if corr_df.empty:
+        st.info("Not enough numeric data for correlations.")
+        return
+
+    # table
+    disp = corr_df.copy()
+    for c in ["pearson_r_vs_performance","spearman_rho_vs_performance","pointbiserial_vs_problem"]:
+        if c in disp.columns:
+            disp[c] = disp[c].map(lambda x: f"{x:.3f}" if pd.notnull(x) else "")
+    st.dataframe(disp, use_container_width=True, hide_index=True)
+
+    # heatmap vs performance (Spearman)
+    hm = corr_df[["feature","spearman_rho_vs_performance"]].dropna()
+    if not hm.empty:
+        chart = alt.Chart(hm).mark_rect().encode(
+            x=alt.X("feature:N", sort=None, title="Feature"),
+            y=alt.Y("var:N", sort=None, title="Target", axis=alt.Axis(labels=True))
+            color=alt.Color("value:Q", scale=alt.Scale(scheme="redblue", domain=[-1,1]), title="Spearman ρ"),
+            tooltip=[alt.Tooltip("feature:N"), alt.Tooltip("value:Q", title="ρ", format=".3f")]
+        ).transform_calculate(var="'payment_performance'").transform_calculate(value="datum.spearman_rho_vs_performance"
+        ).properties(width=700, height=150, title="Correlation with Payment Performance")
+        st.altair_chart(chart, use_container_width=True)
+
+    st.download_button(
+        "Download correlations (CSV)",
+        corr_df.to_csv(index=False).encode("utf-8"),
+        file_name="correlations.csv",
+        mime="text/csv"
+    )
+
+def render_fico_tib_heatmap(df: pd.DataFrame):
+    st.subheader("FICO × TIB: Avg Payment Performance")
+    if "fico" not in df.columns or "tib" not in df.columns:
+        st.info("Need both FICO and TIB for this view.")
+        return
+    d = df.copy()
+    d["fico"] = pd.to_numeric(d["fico"], errors="coerce")
+    d["tib"]  = pd.to_numeric(d["tib"], errors="coerce")
+    fico_bins = [0, 580, 620, 660, 700, 740, 850]
+    tib_bins  = [0, 5, 10, 15, 20, 100]
+    d["fico_band"] = pd.cut(d["fico"], bins=fico_bins, labels=["<580","580-619","620-659","660-699","700-739","740+"], right=False)
+    d["tib_band"]  = pd.cut(d["tib"],  bins=tib_bins,  labels=["≤5","5-10","10-15","15-20","20+"], right=False)
+
+    m = d.groupby(["fico_band","tib_band"]).agg(
+        avg_perf=("payment_performance","mean"),
+        n=("loan_id","count")
+    ).reset_index().dropna()
+
+    if m.empty:
+        st.info("Insufficient data to render heatmap.")
+        return
+
+    heat = alt.Chart(m).mark_rect().encode(
+        x=alt.X("fico_band:N", title="FICO Band"),
+        y=alt.Y("tib_band:N", title="TIB Band"),
+        color=alt.Color("avg_perf:Q", scale=alt.Scale(domain=[0.6, 1.0], scheme="greens"), title="Avg Perf"),
+        tooltip=[
+            alt.Tooltip("fico_band:N", title="FICO"),
+            alt.Tooltip("tib_band:N", title="TIB"),
+            alt.Tooltip("avg_perf:Q", title="Avg Performance", format=".1%"),
+            alt.Tooltip("n:Q", title="Loans")
+        ]
+    ).properties(width=600, height=300, title="Avg Payment Performance by FICO × TIB")
+    st.altair_chart(heat, use_container_width=True)
 
 # -------------------
 # Charts & Visuals
