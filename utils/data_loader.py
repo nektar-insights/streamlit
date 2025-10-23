@@ -190,6 +190,91 @@ class DataLoader:
             return pd.DataFrame(), pd.DataFrame()
     
     @st.cache_data(ttl=3600)
+    def load_loan_summaries(_self) -> pd.DataFrame:
+        """
+        Load and preprocess loan summaries data
+
+        Returns:
+            pd.DataFrame: Processed loan summaries data
+        """
+        try:
+            df = _self._fetch_all_rows("loan_summaries")
+            df = _self._preprocess_data(df)
+
+            print(f"Loaded and processed {len(df)} loan summaries")
+            return df
+
+        except Exception as e:
+            print(f"Error loading loan summaries: {e}")
+            return pd.DataFrame()
+
+    @st.cache_data(ttl=3600)
+    def load_loan_schedules(_self) -> pd.DataFrame:
+        """
+        Load and preprocess loan schedules data
+
+        Returns:
+            pd.DataFrame: Processed loan schedules data
+        """
+        try:
+            df = _self._fetch_all_rows("loan_schedules")
+            df = _self._preprocess_data(df)
+
+            print(f"Loaded and processed {len(df)} loan schedules")
+            return df
+
+        except Exception as e:
+            print(f"Error loading loan schedules: {e}")
+            return pd.DataFrame()
+
+    @st.cache_data(ttl=3600)
+    def load_naics_sector_risk(_self) -> pd.DataFrame:
+        """
+        Load and preprocess NAICS sector risk profile data
+
+        Returns:
+            pd.DataFrame: Processed NAICS sector risk data
+        """
+        try:
+            df = _self._fetch_all_rows("naics_sector_risk_profile")
+            df = _self._preprocess_data(df)
+
+            print(f"Loaded and processed {len(df)} NAICS sector risk profiles")
+            return df
+
+        except Exception as e:
+            print(f"Error loading NAICS sector risk: {e}")
+            return pd.DataFrame()
+
+    @st.cache_data(ttl=3600)
+    def get_last_updated(_self) -> str:
+        """
+        Get the last updated timestamp from key tables
+
+        Returns:
+            str: Formatted timestamp of the most recent update
+        """
+        try:
+            timestamps = []
+            for table in ["loan_summaries", "deals", "loan_schedules", "mca_deals"]:
+                try:
+                    res = _self.supabase.table(table).select("updated_at").order("updated_at", desc=True).limit(1).execute()
+                    if res.data and res.data[0].get("updated_at"):
+                        timestamps.append(pd.to_datetime(res.data[0]["updated_at"]))
+                except:
+                    try:
+                        res = _self.supabase.table(table).select("created_at").order("created_at", desc=True).limit(1).execute()
+                        if res.data and res.data[0].get("created_at"):
+                            timestamps.append(pd.to_datetime(res.data[0]["created_at"]))
+                    except:
+                        pass
+            if timestamps:
+                return max(timestamps).strftime("%B %d, %Y at %I:%M %p")
+            return "Unable to determine"
+        except Exception as e:
+            return f"Error: {str(e)}"
+
+    @st.cache_data(ttl=3600)
     def load_combined_mca_deals(_self) -> pd.DataFrame:
         """
         Load combined MCA deals using the combine_deals function
@@ -371,6 +456,22 @@ def load_qbo_data() -> Tuple[pd.DataFrame, pd.DataFrame]:
 def load_combined_mca_deals() -> pd.DataFrame:
     """Load combined MCA deals data"""
     return data_loader.load_combined_mca_deals()
+
+def load_loan_summaries() -> pd.DataFrame:
+    """Load loan summaries data"""
+    return data_loader.load_loan_summaries()
+
+def load_loan_schedules() -> pd.DataFrame:
+    """Load loan schedules data"""
+    return data_loader.load_loan_schedules()
+
+def load_naics_sector_risk() -> pd.DataFrame:
+    """Load NAICS sector risk data"""
+    return data_loader.load_naics_sector_risk()
+
+def get_last_updated() -> str:
+    """Get last updated timestamp"""
+    return data_loader.get_last_updated()
 
 def get_data_diagnostics() -> dict:
     """Get data diagnostics"""

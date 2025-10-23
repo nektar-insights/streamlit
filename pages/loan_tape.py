@@ -19,25 +19,28 @@ from sklearn.metrics import roc_auc_score, precision_score, recall_score, roc_cu
 from scipy.stats import pearsonr, spearmanr, pointbiserialr
 
 from utils.config import (
-    inject_global_styles,
-    inject_logo,
-    get_supabase_client,
-    PRIMARY_COLOR,      # not directly used but kept for consistency
-    COLOR_PALETTE,      # not directly used but kept for consistency
-    PLATFORM_FEE_RATE,  # not directly used; we set PLATFORM_FEE below
+    setup_page,
+    PRIMARY_COLOR,
+    COLOR_PALETTE,
+    PLATFORM_FEE_RATE,
+)
+from utils.data_loader import (
+    load_loan_summaries,
+    load_deals,
+    load_naics_sector_risk,
+    load_loan_schedules,
+    get_last_updated,
 )
 
 # ---------------------------
 # Page Configuration & Styles
 # ---------------------------
-st.set_page_config(page_title="CSL Capital | Loan Tape", layout="wide")
-inject_global_styles()
-inject_logo()
+setup_page("CSL Capital | Loan Tape")
 
 # -------------
 # Constants
 # -------------
-PLATFORM_FEE = 0.03  # keep as requested
+PLATFORM_FEE = PLATFORM_FEE_RATE  # Use centralized constant
 LOAN_STATUS_COLORS = {
     "Active": "#2ca02c",
     "Late": "#ffbb78",
@@ -67,53 +70,6 @@ STATUS_RISK_MULTIPLIERS = {
 }
 
 PROBLEM_STATUSES = {"Late","Default","Bankrupt","Severe","Severe Delinquency","Moderate Delinquency","Active - Frequently Late"}
-
-# -------------
-# Supabase
-# -------------
-supabase = get_supabase_client()
-
-@st.cache_data(ttl=3600)
-def load_loan_summaries() -> pd.DataFrame:
-    res = supabase.table("loan_summaries").select("*").execute()
-    return pd.DataFrame(res.data or [])
-
-@st.cache_data(ttl=3600)
-def load_deals() -> pd.DataFrame:
-    res = supabase.table("deals").select("*").execute()
-    return pd.DataFrame(res.data or [])
-
-@st.cache_data(ttl=3600)
-def load_naics_sector_risk() -> pd.DataFrame:
-    res = supabase.table("naics_sector_risk_profile").select("*").execute()
-    return pd.DataFrame(res.data or [])
-
-@st.cache_data(ttl=3600)
-def load_loan_schedules() -> pd.DataFrame:
-    res = supabase.table("loan_schedules").select("*").execute()
-    return pd.DataFrame(res.data or [])
-
-@st.cache_data(ttl=3600)
-def get_last_updated() -> str:
-    try:
-        timestamps = []
-        for table in ["loan_summaries", "deals", "loan_schedules"]:
-            try:
-                res = supabase.table(table).select("updated_at").order("updated_at", desc=True).limit(1).execute()
-                if res.data and res.data[0].get("updated_at"):
-                    timestamps.append(pd.to_datetime(res.data[0]["updated_at"]))
-            except:
-                try:
-                    res = supabase.table(table).select("created_at").order("created_at", desc=True).limit(1).execute()
-                    if res.data and res.data[0].get("created_at"):
-                        timestamps.append(pd.to_datetime(res.data[0]["created_at"]))
-                except:
-                    pass
-        if timestamps:
-            return max(timestamps).strftime("%B %d, %Y at %I:%M %p")
-        return "Unable to determine"
-    except Exception as e:
-        return f"Error: {str(e)}"
 
 # ----------------------
 # Data Preparation Utils

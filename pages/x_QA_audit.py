@@ -1,56 +1,23 @@
 # pages/comprehensive_audit.py
 from utils.imports import *
+from utils.config import (
+    setup_page,
+    PRIMARY_COLOR,
+    COLOR_PALETTE,
+)
+from utils.data_loader import (
+    load_deals,
+    load_qbo_data,
+    load_mca_deals,
+    load_combined_mca_deals,
+)
 import numpy as np
 from scripts.combine_hubspot_mca import combine_deals
-st.set_page_config(layout="wide")
 
 # ----------------------------
-# Supabase connection
+# Page Configuration & Styles
 # ----------------------------
-supabase = get_supabase_client()
-
-# ----------------------------
-# Load and prepare data
-# ----------------------------
-def fetch_all_rows(table_name: str, chunk_size: int = 1000) -> pd.DataFrame:
-    """Fetch all rows from a Supabase table using pagination to avoid limits"""
-    rows = []
-    start = 0
-    while True:
-        end = start + chunk_size - 1
-        response = (
-            supabase.table(table_name)
-            .select("*")
-            .range(start, end)
-            .execute()
-        )
-        batch = response.data
-        if not batch:
-            break  # no more rows
-        rows.extend(batch)
-        start += chunk_size
-    return pd.DataFrame(rows)
-
-@st.cache_data(ttl=3600)
-def load_deals():
-    return fetch_all_rows("deals")
-
-@st.cache_data(ttl=3600)
-def load_qbo_data():
-    """Load QBO data using pagination to get all records"""
-    df_txn = fetch_all_rows("qbo_invoice_payments")
-    df_gl = fetch_all_rows("qbo_general_ledger")
-    return df_txn, df_gl
-
-@st.cache_data(ttl=3600)
-def load_mca_deals():
-    """Load MCA deals from Supabase using pagination"""
-    return fetch_all_rows("mca_deals")
-
-@st.cache_data(ttl=3600)
-def load_combined_mca_deals():
-    """Load combined MCA deals using the combine_deals function"""
-    return combine_deals()
+setup_page("CSL Capital | QA Audit")
 
 def preprocess_data(dataframe):
     """Clean and preprocess dataframe"""
@@ -86,10 +53,8 @@ mca_deals_raw = preprocess_data(mca_deals_raw)
 mca_deals_combined = preprocess_data(mca_deals_combined)
 
 # ----------------------------
-# Page setup
+# Combined Deals Section
 # ----------------------------
-
-st.set_page_config(page_title="Combined Deals", layout="wide")
 
 st.title("Combined Deals")
 

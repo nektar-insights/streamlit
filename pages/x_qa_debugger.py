@@ -1,17 +1,10 @@
 # pages/debugger.py
 import streamlit as st
 import pandas as pd
+from utils.config import setup_page
 
-# 1) Page config
-st.set_page_config(
-    page_title="🔍 Debug DataFrame Issue",
-    layout="wide",
-)
-
-# 2) Style & branding
-from utils.config import inject_global_styles, inject_logo
-inject_global_styles()
-inject_logo()
+# 1) Page config & branding
+setup_page("🔍 Debug DataFrame Issue")
 
 # 3) Page header
 with st.container():
