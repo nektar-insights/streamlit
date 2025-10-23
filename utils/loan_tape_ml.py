@@ -20,6 +20,84 @@ from sklearn.metrics import roc_auc_score, precision_score, recall_score
 from utils.loan_tape_analytics import make_problem_label, build_feature_matrix, safe_kfold
 
 
+def create_coefficient_chart(coef_df: pd.DataFrame, title: str, color: str = "#1f77b4") -> alt.Chart:
+    """
+    Create a horizontal bar chart for model coefficients.
+
+    Args:
+        coef_df: DataFrame with 'feature' and 'coef' columns
+        title: Chart title
+        color: Bar color
+
+    Returns:
+        Altair chart object
+    """
+    chart = alt.Chart(coef_df).mark_bar(color=color).encode(
+        x=alt.X("coef:Q", title="Coefficient Value"),
+        y=alt.Y("feature:N", title="Feature", sort="-x"),
+        tooltip=[
+            alt.Tooltip("feature:N", title="Feature"),
+            alt.Tooltip("coef:Q", title="Coefficient", format=".4f")
+        ]
+    ).properties(
+        title=title,
+        width=700,
+        height=300
+    )
+    return chart
+
+
+def render_ml_explainer(metric_type: str = "classification"):
+    """
+    Render an explainer box for ML metrics and their directionality.
+
+    Args:
+        metric_type: Type of model ("classification" or "regression")
+    """
+    if metric_type == "classification":
+        st.info("""
+        **📊 Understanding Classification Metrics:**
+
+        - **ROC AUC (Area Under ROC Curve)**: Measures model's ability to distinguish problem vs. non-problem loans
+          - **Higher is better** (Range: 0.5-1.0, where 0.5 = random guess, 1.0 = perfect)
+          - **Direction: ↑** Good performance is closer to 1.0
+
+        - **Precision**: Of all loans predicted as problems, what % were actually problems?
+          - **Higher is better** (Range: 0-1)
+          - **Direction: ↑** Minimizes false alarms
+
+        - **Recall**: Of all actual problem loans, what % did we correctly identify?
+          - **Higher is better** (Range: 0-1)
+          - **Direction: ↑** Minimizes missed problems
+
+        - **Positive Coefficients (Risk-Increasing)**: Features that increase probability of loan problems
+          - **Red flags** - Higher values mean higher risk
+
+        - **Negative Coefficients (Risk-Decreasing)**: Features that decrease probability of loan problems
+          - **Green flags** - Higher values mean lower risk
+        """)
+    else:  # regression
+        st.info("""
+        **📊 Understanding Regression Metrics:**
+
+        - **R² (R-Squared)**: Proportion of variance in payment performance explained by the model
+          - **Higher is better** (Range: -∞ to 1.0, where 1.0 = perfect prediction)
+          - **Direction: ↑** Good performance is closer to 1.0
+          - Values below 0 mean model performs worse than simply predicting the mean
+
+        - **RMSE (Root Mean Squared Error)**: Average prediction error in payment performance
+          - **Lower is better** (Range: 0 to ∞)
+          - **Direction: ↓** Smaller values indicate more accurate predictions
+          - Measured in same units as payment_performance (percentage points)
+
+        - **Coefficients**: Show relationship between features and payment performance
+          - **Positive**: Feature increases payment performance (better for us)
+          - **Negative**: Feature decreases payment performance (worse for us)
+        """)
+
+    st.markdown("---")
+
+
 def train_classification_small(df: pd.DataFrame) -> Tuple[Pipeline, Dict, pd.DataFrame, pd.DataFrame]:
     """
     Train a logistic regression model to predict problem loans.

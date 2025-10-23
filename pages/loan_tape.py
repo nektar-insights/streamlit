@@ -43,6 +43,8 @@ from utils.loan_tape_ml import (
     train_regression_small,
     render_corr_outputs,
     render_fico_tib_heatmap,
+    create_coefficient_chart,
+    render_ml_explainer,
 )
 from utils.display_components import (
     create_date_range_filter,
@@ -181,20 +183,24 @@ def plot_capital_flow(df: pd.DataFrame):
         unified = pd.DataFrame(index=date_range)
         unified["capital_deployed"] = deploy_timeline.reindex(date_range).ffill().fillna(0)
         unified["capital_returned"] = return_timeline.reindex(date_range).ffill().fillna(0)
-        unified["date"] = unified.index
+
+        # Aggregate by month to avoid duplicate dates and improve readability
+        unified['month_date'] = unified.index.to_period('M').to_timestamp()
+        monthly = unified.groupby('month_date').last().reset_index()
 
         st.caption(
-            f"Chart shows: Deployed ${unified['capital_deployed'].iloc[-1]:,.0f} | "
-            f"Returned ${unified['capital_returned'].iloc[-1]:,.0f}"
+            f"Chart shows: Deployed ${monthly['capital_deployed'].iloc[-1]:,.0f} | "
+            f"Returned ${monthly['capital_returned'].iloc[-1]:,.0f}"
         )
 
         plot_df = pd.concat([
-            pd.DataFrame({"date": unified.index, "amount": unified["capital_deployed"].values, "series": "Capital Deployed"}),
-            pd.DataFrame({"date": unified.index, "amount": unified["capital_returned"].values, "series": "Capital Returned"})
+            pd.DataFrame({"month_date": monthly['month_date'], "amount": monthly["capital_deployed"].values, "series": "Capital Deployed"}),
+            pd.DataFrame({"month_date": monthly['month_date'], "amount": monthly["capital_returned"].values, "series": "Capital Returned"})
         ], ignore_index=True)
 
-        chart = alt.Chart(plot_df).mark_line().encode(
-            x=alt.X("date:T", title="Date", axis=alt.Axis(format="%b %Y")),
+        chart = alt.Chart(plot_df).mark_line(point=True).encode(
+            x=alt.X("yearmonth(month_date):T", title="Month",
+                   axis=alt.Axis(format="%b %Y", labelAngle=-45), sort="ascending"),
             y=alt.Y("amount:Q", title="Cumulative Amount ($)", axis=alt.Axis(format="$,.0f")),
             color=alt.Color(
                 "series:N",
@@ -202,7 +208,7 @@ def plot_capital_flow(df: pd.DataFrame):
                 legend=alt.Legend(title="Capital Flow")
             ),
             tooltip=[
-                alt.Tooltip("date:T", title="Date", format="%Y-%m-%d"),
+                alt.Tooltip("yearmonth(month_date):T", title="Month", format="%B %Y"),
                 alt.Tooltip("amount:Q", title="Amount", format="$,.0f"),
                 alt.Tooltip("series:N", title="Type"),
             ],
@@ -245,16 +251,20 @@ def plot_investment_net_position(df: pd.DataFrame):
         unified["cum_deployed"] = deploy_timeline.reindex(date_range).ffill().fillna(0)
         unified["cum_returned"] = return_timeline.reindex(date_range).ffill().fillna(0)
         unified["net_position"] = unified["cum_deployed"] - unified["cum_returned"]
-        unified["date"] = unified.index
+
+        # Aggregate by month to avoid duplicate dates and improve readability
+        unified['month_date'] = unified.index.to_period('M').to_timestamp()
+        monthly = unified.groupby('month_date').last().reset_index()
 
         plot_df = pd.concat([
-            pd.DataFrame({"date": unified.index, "amount": unified["cum_deployed"].values, "Type": "Cumulative Deployed"}),
-            pd.DataFrame({"date": unified.index, "amount": unified["cum_returned"].values, "Type": "Cumulative Returned"}),
-            pd.DataFrame({"date": unified.index, "amount": unified["net_position"].values, "Type": "Net Position"}),
+            pd.DataFrame({"month_date": monthly['month_date'], "amount": monthly["cum_deployed"].values, "Type": "Cumulative Deployed"}),
+            pd.DataFrame({"month_date": monthly['month_date'], "amount": monthly["cum_returned"].values, "Type": "Cumulative Returned"}),
+            pd.DataFrame({"month_date": monthly['month_date'], "amount": monthly["net_position"].values, "Type": "Net Position"}),
         ], ignore_index=True)
 
-        chart = alt.Chart(plot_df).mark_line().encode(
-            x=alt.X("date:T", title="Date"),
+        chart = alt.Chart(plot_df).mark_line(point=True).encode(
+            x=alt.X("yearmonth(month_date):T", title="Month",
+                   axis=alt.Axis(format="%b %Y", labelAngle=-45), sort="ascending"),
             y=alt.Y("amount:Q", title="Amount ($)", axis=alt.Axis(format="$,.0f")),
             color=alt.Color(
                 "Type:N",
@@ -264,8 +274,8 @@ def plot_investment_net_position(df: pd.DataFrame):
                 ),
             ),
             tooltip=[
-                alt.Tooltip("date:T", title="Date", format="%Y-%m-%d"),
-                alt.Tooltip("amount:Q", title="Amount", format="$,.2f"),
+                alt.Tooltip("yearmonth(month_date):T", title="Month", format="%B %Y"),
+                alt.Tooltip("amount:Q", title="Amount", format="$,.0f"),
                 alt.Tooltip("Type:N", title="Metric"),
             ],
         ).properties(width=800, height=500, title="Portfolio Net Position Over Time")
@@ -942,18 +952,50 @@ def main():
 
         st.markdown("---")
         st.subheader("Small Classification Model: Predict Problem Loans")
+
+        # Add explainer
+        with st.expander("📖 How to interpret these metrics", expanded=False):
+            render_ml_explainer(metric_type="classification")
+
         try:
             model, metrics, top_pos, top_neg = train_classification_small(filtered_df)
-            col1, col2, col3, col4 = st.columns(4)
-            with col1: st.metric("ROC AUC (CV)", f"{metrics['ROC AUC'][0]:.3f}" if pd.notnull(metrics['ROC AUC'][0]) else "N/A")
-            with col2: st.metric("Precision (CV)", f"{metrics['Precision'][0]:.3f}")
-            with col3: st.metric("Recall (CV)", f"{metrics['Recall'][0]:.3f}")
-            with col4: st.caption(f"n={metrics['n_samples']}, positive rate={metrics['pos_rate']:.2f}")
 
-            st.write("**Top Risk-Increasing Signals (coefficients)**")
-            st.dataframe(top_pos.assign(coef=lambda s: s["coef"].map(lambda x: f"{x:.3f}")), use_container_width=True, hide_index=True)
-            st.write("**Top Risk-Decreasing Signals (coefficients)**")
-            st.dataframe(top_neg.assign(coef=lambda s: s["coef"].map(lambda x: f"{x:.3f}")), use_container_width=True, hide_index=True)
+            # Metrics row
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                roc_val = metrics['ROC AUC'][0]
+                st.metric("ROC AUC (CV)", f"{roc_val:.3f}" if pd.notnull(roc_val) else "N/A",
+                         delta="Higher is better ↑" if pd.notnull(roc_val) and roc_val > 0.7 else None)
+            with col2:
+                prec_val = metrics['Precision'][0]
+                st.metric("Precision (CV)", f"{prec_val:.3f}",
+                         delta="Higher is better ↑" if prec_val > 0.5 else None)
+            with col3:
+                recall_val = metrics['Recall'][0]
+                st.metric("Recall (CV)", f"{recall_val:.3f}",
+                         delta="Higher is better ↑" if recall_val > 0.5 else None)
+            with col4:
+                st.caption(f"n={metrics['n_samples']}, positive rate={metrics['pos_rate']:.2f}")
+
+            # Coefficient visualizations
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write("**Top Risk-Increasing Signals**")
+                if not top_pos.empty:
+                    chart = create_coefficient_chart(top_pos, "Risk-Increasing Features (Red Flags)", "#d62728")
+                    st.altair_chart(chart, use_container_width=True)
+                    st.dataframe(top_pos.assign(coef=lambda s: s["coef"].map(lambda x: f"{x:.4f}")),
+                               use_container_width=True, hide_index=True)
+
+            with col2:
+                st.write("**Top Risk-Decreasing Signals**")
+                if not top_neg.empty:
+                    # Reverse order for neg coefficients to show most negative at top
+                    chart = create_coefficient_chart(top_neg, "Risk-Decreasing Features (Green Flags)", "#2ca02c")
+                    st.altair_chart(chart, use_container_width=True)
+                    st.dataframe(top_neg.assign(coef=lambda s: s["coef"].map(lambda x: f"{x:.4f}")),
+                               use_container_width=True, hide_index=True)
+
         except ImportError:
             st.warning("scikit-learn or scipy not installed. `pip install scikit-learn scipy` to enable modeling.")
         except Exception as e:
@@ -961,11 +1003,22 @@ def main():
 
         st.markdown("---")
         st.subheader("Small Regression Model: Predict Payment Performance")
+
+        # Add explainer
+        with st.expander("📖 How to interpret these metrics", expanded=False):
+            render_ml_explainer(metric_type="regression")
+
         try:
             r_model, r_metrics = train_regression_small(filtered_df)
             c1, c2 = st.columns(2)
-            with c1: st.metric("R² (CV)", f"{r_metrics['R2'][0]:.3f}" if pd.notnull(r_metrics['R2'][0]) else "N/A")
-            with c2: st.metric("RMSE (CV)", f"{r_metrics['RMSE'][0]:.3f}")
+            with c1:
+                r2_val = r_metrics['R2'][0]
+                st.metric("R² (CV)", f"{r2_val:.3f}" if pd.notnull(r2_val) else "N/A",
+                         delta="Higher is better ↑" if pd.notnull(r2_val) and r2_val > 0.3 else "Lower is worse ↓")
+            with c2:
+                rmse_val = r_metrics['RMSE'][0]
+                st.metric("RMSE (CV)", f"{rmse_val:.3f}",
+                         delta="Lower is better ↓")
             st.caption(f"n={r_metrics['n_samples']} (rows with non-null payment_performance)")
         except ImportError:
             st.warning("scikit-learn not installed. `pip install scikit-learn`.")

@@ -331,10 +331,11 @@ def create_time_series_chart(
     date_col: str,
     value_col: str,
     title: str = "",
-    color: str = "#1f77b4"
+    color: str = "#1f77b4",
+    aggregate_by: str = "month"
 ) -> alt.Chart:
     """
-    Create a time series line chart.
+    Create a time series line chart with proper date formatting.
 
     Args:
         df: DataFrame with time series data
@@ -342,20 +343,140 @@ def create_time_series_chart(
         value_col: Column with values
         title: Chart title
         color: Line color
+        aggregate_by: Aggregation period ("day", "month", "quarter", "year")
 
     Returns:
         alt.Chart: Altair chart object
     """
-    chart = alt.Chart(df).mark_line(point=True, color=color).encode(
-        x=alt.X(f"{date_col}:T", title="Date"),
+    # Prepare data
+    plot_df = df[[date_col, value_col]].copy()
+    plot_df = plot_df.dropna(subset=[date_col])
+    plot_df[date_col] = pd.to_datetime(plot_df[date_col])
+
+    # Remove timezone if present
+    if plot_df[date_col].dt.tz is not None:
+        plot_df[date_col] = plot_df[date_col].dt.tz_localize(None)
+
+    # Sort and drop duplicates
+    plot_df = plot_df.sort_values(date_col).drop_duplicates(subset=[date_col])
+
+    # Determine x-axis encoding based on aggregation
+    if aggregate_by == "month":
+        x_encoding = alt.X("yearmonth({}):T".format(date_col),
+                          title="Month",
+                          axis=alt.Axis(format="%b %Y", labelAngle=-45))
+        tooltip_date = alt.Tooltip("yearmonth({}):T".format(date_col),
+                                   title="Month", format="%B %Y")
+    elif aggregate_by == "quarter":
+        x_encoding = alt.X("yearquarter({}):T".format(date_col),
+                          title="Quarter",
+                          axis=alt.Axis(format="%Y Q%q", labelAngle=-45))
+        tooltip_date = alt.Tooltip("yearquarter({}):T".format(date_col),
+                                   title="Quarter", format="%Y Q%q")
+    elif aggregate_by == "year":
+        x_encoding = alt.X("year({}):T".format(date_col),
+                          title="Year",
+                          axis=alt.Axis(format="%Y"))
+        tooltip_date = alt.Tooltip("year({}):T".format(date_col),
+                                   title="Year", format="%Y")
+    else:  # day
+        x_encoding = alt.X("{}:T".format(date_col),
+                          title="Date",
+                          axis=alt.Axis(format="%b %d, %Y", labelAngle=-45))
+        tooltip_date = alt.Tooltip("{}:T".format(date_col),
+                                   title="Date", format="%Y-%m-%d")
+
+    chart = alt.Chart(plot_df).mark_line(point=True, color=color).encode(
+        x=x_encoding,
         y=alt.Y(f"{value_col}:Q", title=value_col.replace('_', ' ').title()),
         tooltip=[
-            alt.Tooltip(f"{date_col}:T", title="Date", format="%Y-%m-%d"),
+            tooltip_date,
             alt.Tooltip(f"{value_col}:Q", title=value_col.replace('_', ' ').title())
         ]
     ).properties(
         title=title,
         width=700,
+        height=400
+    )
+
+    return chart
+
+
+def create_monthly_time_series(
+    df: pd.DataFrame,
+    date_col: str,
+    value_cols: list,
+    title: str = "",
+    colors: list = None,
+    value_format: str = ",.0f"
+) -> alt.Chart:
+    """
+    Create a multi-line time series chart aggregated by month with proper date formatting.
+
+    Args:
+        df: DataFrame with time series data
+        date_col: Column with dates
+        value_cols: List of column names to plot
+        title: Chart title
+        colors: List of colors for each line (optional)
+        value_format: Format string for values
+
+    Returns:
+        alt.Chart: Altair chart object
+
+    Example:
+        chart = create_monthly_time_series(
+            df,
+            date_col="funding_date",
+            value_cols=["capital_deployed", "capital_returned"],
+            title="Capital Flow Over Time",
+            colors=["#ff7f0e", "#2ca02c"]
+        )
+    """
+    # Prepare data
+    plot_df = df.copy()
+    plot_df[date_col] = pd.to_datetime(plot_df[date_col])
+
+    # Remove timezone if present
+    if plot_df[date_col].dt.tz is not None:
+        plot_df[date_col] = plot_df[date_col].dt.tz_localize(None)
+
+    # Aggregate by month
+    plot_df['month_date'] = plot_df[date_col].dt.to_period('M').dt.to_timestamp()
+    monthly_df = plot_df.groupby('month_date')[value_cols].sum().reset_index()
+
+    # Reshape to long format
+    long_df = monthly_df.melt(
+        id_vars=['month_date'],
+        value_vars=value_cols,
+        var_name='series',
+        value_name='value'
+    )
+
+    # Create color scale
+    if colors is None:
+        colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]
+
+    color_scale = alt.Scale(domain=value_cols, range=colors[:len(value_cols)])
+
+    chart = alt.Chart(long_df).mark_line(point=True).encode(
+        x=alt.X("yearmonth(month_date):T",
+               title="Month",
+               axis=alt.Axis(format="%b %Y", labelAngle=-45)),
+        y=alt.Y("value:Q",
+               title="Amount",
+               axis=alt.Axis(format=value_format)),
+        color=alt.Color("series:N",
+                       scale=color_scale,
+                       legend=alt.Legend(title="")),
+        tooltip=[
+            alt.Tooltip("yearmonth(month_date):T", title="Month", format="%B %Y"),
+            alt.Tooltip("series:N", title="Type"),
+            alt.Tooltip("value:Q", title="Amount", format=value_format)
+        ]
+    ).properties(
+        title=title,
+        width=800,
         height=400
     )
 
