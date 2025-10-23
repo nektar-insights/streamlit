@@ -12,7 +12,7 @@ from utils.data_loader import (
     load_combined_mca_deals,
 )
 from utils.preprocessing import preprocess_dataframe
-from utils.display_components import create_partner_source_filter
+from utils.display_components import create_partner_source_filter, create_date_range_filter, create_status_filter
 import numpy as np
 from scripts.combine_hubspot_mca import combine_deals
 
@@ -22,17 +22,63 @@ from scripts.combine_hubspot_mca import combine_deals
 setup_page("CSL Capital | QA Audit")
 
 # Load all data
-deals_df = load_deals()
-qbo_txn_df, qbo_gl_df = load_qbo_data()
-mca_deals_raw = load_mca_deals()
-mca_deals_combined = load_combined_mca_deals()
+deals_df_original = load_deals()
+qbo_txn_df_original, qbo_gl_df_original = load_qbo_data()
+mca_deals_raw_original = load_mca_deals()
+mca_deals_combined_original = load_combined_mca_deals()
 
 # Preprocess all datasets using centralized function
-deals_df = preprocess_dataframe(deals_df)
-qbo_txn_df = preprocess_dataframe(qbo_txn_df)
-qbo_gl_df = preprocess_dataframe(qbo_gl_df)
-mca_deals_raw = preprocess_dataframe(mca_deals_raw)
-mca_deals_combined = preprocess_dataframe(mca_deals_combined)
+deals_df = preprocess_dataframe(deals_df_original)
+qbo_txn_df = preprocess_dataframe(qbo_txn_df_original)
+qbo_gl_df = preprocess_dataframe(qbo_gl_df_original)
+mca_deals_raw = preprocess_dataframe(mca_deals_raw_original)
+mca_deals_combined = preprocess_dataframe(mca_deals_combined_original)
+
+# -------------------------
+# Sidebar Filters
+# -------------------------
+st.sidebar.header("Filters")
+st.sidebar.caption("Filters apply to Deals and QBO sections")
+
+# Date range filter for deals
+with st.sidebar:
+    deals_df, _ = create_date_range_filter(
+        deals_df,
+        date_col="date_created",
+        label="Deals - Date Created Range",
+        checkbox_label="Filter Deals by Date Created",
+        default_enabled=False,
+        key_prefix="qa_audit_deals_date"
+    )
+
+# Status filter for deals
+status_col = "dealstage" if "dealstage" in deals_df.columns else ("stage" if "stage" in deals_df.columns else None)
+if status_col:
+    with st.sidebar:
+        deals_df, _ = create_status_filter(
+            deals_df,
+            status_col=status_col,
+            label="Deals - Stage Filter",
+            include_all_option=True,
+            key_prefix="qa_audit_deals_stage"
+        )
+
+st.sidebar.markdown("---")
+
+# Date range filter for QBO
+with st.sidebar:
+    qbo_txn_df, _ = create_date_range_filter(
+        qbo_txn_df,
+        date_col="txn_date",
+        label="QBO - Transaction Date Range",
+        checkbox_label="Filter QBO by Transaction Date",
+        default_enabled=False,
+        key_prefix="qa_audit_qbo_date"
+    )
+
+st.sidebar.markdown("---")
+st.sidebar.write(f"**Deals:** {len(deals_df)} of {len(deals_df_original)}")
+st.sidebar.write(f"**QBO Txns:** {len(qbo_txn_df)} of {len(qbo_txn_df_original)}")
 
 # ----------------------------
 # Combined Deals Section
