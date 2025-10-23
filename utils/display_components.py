@@ -331,10 +331,11 @@ def create_time_series_chart(
     date_col: str,
     value_col: str,
     title: str = "",
-    color: str = "#1f77b4"
+    color: str = "#1f77b4",
+    aggregate_by: str = "month"
 ) -> alt.Chart:
     """
-    Create a time series line chart.
+    Create a time series line chart with proper date formatting.
 
     Args:
         df: DataFrame with time series data
@@ -342,15 +343,54 @@ def create_time_series_chart(
         value_col: Column with values
         title: Chart title
         color: Line color
+        aggregate_by: Aggregation period ("day", "month", "quarter", "year")
 
     Returns:
         alt.Chart: Altair chart object
     """
-    chart = alt.Chart(df).mark_line(point=True, color=color).encode(
-        x=alt.X(f"{date_col}:T", title="Date"),
+    # Prepare data
+    plot_df = df[[date_col, value_col]].copy()
+    plot_df = plot_df.dropna(subset=[date_col])
+    plot_df[date_col] = pd.to_datetime(plot_df[date_col])
+
+    # Remove timezone if present
+    if plot_df[date_col].dt.tz is not None:
+        plot_df[date_col] = plot_df[date_col].dt.tz_localize(None)
+
+    # Sort and drop duplicates
+    plot_df = plot_df.sort_values(date_col).drop_duplicates(subset=[date_col])
+
+    # Determine x-axis encoding based on aggregation
+    if aggregate_by == "month":
+        x_encoding = alt.X("yearmonth({}):T".format(date_col),
+                          title="Month",
+                          axis=alt.Axis(format="%b %Y", labelAngle=-45))
+        tooltip_date = alt.Tooltip("yearmonth({}):T".format(date_col),
+                                   title="Month", format="%B %Y")
+    elif aggregate_by == "quarter":
+        x_encoding = alt.X("yearquarter({}):T".format(date_col),
+                          title="Quarter",
+                          axis=alt.Axis(format="%Y Q%q", labelAngle=-45))
+        tooltip_date = alt.Tooltip("yearquarter({}):T".format(date_col),
+                                   title="Quarter", format="%Y Q%q")
+    elif aggregate_by == "year":
+        x_encoding = alt.X("year({}):T".format(date_col),
+                          title="Year",
+                          axis=alt.Axis(format="%Y"))
+        tooltip_date = alt.Tooltip("year({}):T".format(date_col),
+                                   title="Year", format="%Y")
+    else:  # day
+        x_encoding = alt.X("{}:T".format(date_col),
+                          title="Date",
+                          axis=alt.Axis(format="%b %d, %Y", labelAngle=-45))
+        tooltip_date = alt.Tooltip("{}:T".format(date_col),
+                                   title="Date", format="%Y-%m-%d")
+
+    chart = alt.Chart(plot_df).mark_line(point=True, color=color).encode(
+        x=x_encoding,
         y=alt.Y(f"{value_col}:Q", title=value_col.replace('_', ' ').title()),
         tooltip=[
-            alt.Tooltip(f"{date_col}:T", title="Date", format="%Y-%m-%d"),
+            tooltip_date,
             alt.Tooltip(f"{value_col}:Q", title=value_col.replace('_', ' ').title())
         ]
     ).properties(
@@ -360,3 +400,266 @@ def create_time_series_chart(
     )
 
     return chart
+
+
+def create_monthly_time_series(
+    df: pd.DataFrame,
+    date_col: str,
+    value_cols: list,
+    title: str = "",
+    colors: list = None,
+    value_format: str = ",.0f"
+) -> alt.Chart:
+    """
+    Create a multi-line time series chart aggregated by month with proper date formatting.
+
+    Args:
+        df: DataFrame with time series data
+        date_col: Column with dates
+        value_cols: List of column names to plot
+        title: Chart title
+        colors: List of colors for each line (optional)
+        value_format: Format string for values
+
+    Returns:
+        alt.Chart: Altair chart object
+
+    Example:
+        chart = create_monthly_time_series(
+            df,
+            date_col="funding_date",
+            value_cols=["capital_deployed", "capital_returned"],
+            title="Capital Flow Over Time",
+            colors=["#ff7f0e", "#2ca02c"]
+        )
+    """
+    # Prepare data
+    plot_df = df.copy()
+    plot_df[date_col] = pd.to_datetime(plot_df[date_col])
+
+    # Remove timezone if present
+    if plot_df[date_col].dt.tz is not None:
+        plot_df[date_col] = plot_df[date_col].dt.tz_localize(None)
+
+    # Aggregate by month
+    plot_df['month_date'] = plot_df[date_col].dt.to_period('M').dt.to_timestamp()
+    monthly_df = plot_df.groupby('month_date')[value_cols].sum().reset_index()
+
+    # Reshape to long format
+    long_df = monthly_df.melt(
+        id_vars=['month_date'],
+        value_vars=value_cols,
+        var_name='series',
+        value_name='value'
+    )
+
+    # Create color scale
+    if colors is None:
+        colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]
+
+    color_scale = alt.Scale(domain=value_cols, range=colors[:len(value_cols)])
+
+    chart = alt.Chart(long_df).mark_line(point=True).encode(
+        x=alt.X("yearmonth(month_date):T",
+               title="Month",
+               axis=alt.Axis(format="%b %Y", labelAngle=-45)),
+        y=alt.Y("value:Q",
+               title="Amount",
+               axis=alt.Axis(format=value_format)),
+        color=alt.Color("series:N",
+                       scale=color_scale,
+                       legend=alt.Legend(title="")),
+        tooltip=[
+            alt.Tooltip("yearmonth(month_date):T", title="Month", format="%B %Y"),
+            alt.Tooltip("series:N", title="Type"),
+            alt.Tooltip("value:Q", title="Amount", format=value_format)
+        ]
+    ).properties(
+        title=title,
+        width=800,
+        height=400
+    )
+
+    return chart
+
+
+def create_date_range_filter(
+    df: pd.DataFrame,
+    date_col: str,
+    label: str = "Filter by Date Range",
+    checkbox_label: str = "Enable Date Filter",
+    default_enabled: bool = False,
+    key_prefix: str = "date_filter"
+) -> Tuple[pd.DataFrame, bool]:
+    """
+    Standardized date range filter with checkbox toggle.
+
+    Args:
+        df: DataFrame to filter
+        date_col: Name of the date column
+        label: Label for the date input widget
+        checkbox_label: Label for the checkbox toggle
+        default_enabled: Whether filter is enabled by default
+        key_prefix: Prefix for widget keys (for multiple filters on same page)
+
+    Returns:
+        Tuple of (filtered_df, is_filter_active)
+
+    Example:
+        filtered_df, is_active = create_date_range_filter(
+            df,
+            "funding_date",
+            label="Select Funding Date Range",
+            checkbox_label="Filter by Funding Date"
+        )
+    """
+    if date_col not in df.columns or df[date_col].isna().all():
+        st.info(f"No date data available in column '{date_col}'")
+        return df.copy(), False
+
+    # Extract min and max dates
+    min_date = df[date_col].min().date()
+    max_date = df[date_col].max().date()
+
+    # Checkbox to enable/disable filter
+    use_filter = st.checkbox(checkbox_label, value=default_enabled, key=f"{key_prefix}_checkbox")
+
+    if use_filter:
+        # Date range picker
+        date_range = st.date_input(
+            label,
+            value=[min_date, max_date],
+            min_value=min_date,
+            max_value=max_date,
+            key=f"{key_prefix}_input"
+        )
+
+        # Apply filter if valid range
+        if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
+            filtered_df = df[
+                (df[date_col].dt.date >= date_range[0]) &
+                (df[date_col].dt.date <= date_range[1])
+            ].copy()
+            return filtered_df, True
+        else:
+            return df.copy(), False
+    else:
+        return df.copy(), False
+
+
+def create_partner_source_filter(
+    df: pd.DataFrame,
+    partner_col: str = "partner_source",
+    label: str = "Filter by Partner Source",
+    default_all: bool = True,
+    key_prefix: str = "partner_filter"
+) -> Tuple[pd.DataFrame, List[str]]:
+    """
+    Standardized partner source multiselect filter.
+
+    Args:
+        df: DataFrame to filter
+        partner_col: Name of the partner source column
+        label: Label for the multiselect widget
+        default_all: Whether to select all partners by default
+        key_prefix: Prefix for widget keys (for multiple filters on same page)
+
+    Returns:
+        Tuple of (filtered_df, selected_partners)
+
+    Example:
+        filtered_df, selected = create_partner_source_filter(
+            df,
+            partner_col="partner_source",
+            label="Select Partner Sources"
+        )
+    """
+    if partner_col not in df.columns:
+        st.warning(f"Column '{partner_col}' not found in data")
+        return df.copy(), []
+
+    # Get unique partner sources
+    partners = sorted(df[partner_col].dropna().unique().tolist())
+
+    if not partners:
+        st.info(f"No partner source data available")
+        return df.copy(), []
+
+    # Multiselect widget
+    selected_partners = st.multiselect(
+        label,
+        options=partners,
+        default=partners if default_all else [],
+        key=f"{key_prefix}_multiselect"
+    )
+
+    # Apply filter if selections made
+    if selected_partners:
+        filtered_df = df[df[partner_col].isin(selected_partners)].copy()
+        return filtered_df, selected_partners
+    else:
+        # If nothing selected, return empty or all (based on default_all)
+        if default_all:
+            return df.copy(), partners
+        else:
+            return df[df[partner_col].isin([])].copy(), []
+
+
+def create_status_filter(
+    df: pd.DataFrame,
+    status_col: str,
+    label: str = "Filter by Status",
+    include_all_option: bool = True,
+    key_prefix: str = "status_filter"
+) -> Tuple[pd.DataFrame, str]:
+    """
+    Standardized status selectbox filter.
+
+    Args:
+        df: DataFrame to filter
+        status_col: Name of the status column
+        label: Label for the selectbox widget
+        include_all_option: Whether to include "All" option
+        key_prefix: Prefix for widget keys (for multiple filters on same page)
+
+    Returns:
+        Tuple of (filtered_df, selected_status)
+
+    Example:
+        filtered_df, status = create_status_filter(
+            df,
+            status_col="loan_status",
+            label="Filter by Loan Status"
+        )
+    """
+    if status_col not in df.columns:
+        st.warning(f"Column '{status_col}' not found in data")
+        return df.copy(), "All"
+
+    # Get unique statuses
+    statuses = sorted(df[status_col].dropna().unique().tolist())
+
+    if not statuses:
+        st.info(f"No status data available")
+        return df.copy(), "All"
+
+    # Add "All" option if requested
+    if include_all_option:
+        options = ["All"] + statuses
+    else:
+        options = statuses
+
+    # Selectbox widget
+    selected_status = st.selectbox(
+        label,
+        options=options,
+        index=0,
+        key=f"{key_prefix}_selectbox"
+    )
+
+    # Apply filter if not "All"
+    if selected_status == "All":
+        return df.copy(), selected_status
+    else:
+        filtered_df = df[df[status_col] == selected_status].copy()
+        return filtered_df, selected_status
