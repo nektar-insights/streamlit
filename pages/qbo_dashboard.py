@@ -1,4 +1,10 @@
 # pages/qbo_dashboard.py
+"""
+QBO Dashboard - QuickBooks Online financial analysis
+
+Provides comprehensive analysis of financial transactions, general ledger,
+and integration with loan tape data.
+"""
 
 from utils.imports import *
 from utils.config import (
@@ -8,6 +14,7 @@ from utils.config import (
     PLATFORM_FEE_RATE,
 )
 from utils.data_loader import load_qbo_data, load_deals, load_mca_deals
+from utils.preprocessing import preprocess_dataframe, add_derived_date_features
 from utils.loan_tape_loader import (
     load_loan_tape_data,
     load_unified_loan_customer_data,
@@ -41,37 +48,29 @@ unified_data_df = load_unified_loan_customer_data()
 diagnostics = get_data_diagnostics()
 
 # -------------------------
-# Enhanced Data Preprocessing
+# Preprocess using centralized utility
 # -------------------------
-def preprocess_financial_data(dataframe):
-    """Enhanced preprocessing for financial transaction data"""
-    if dataframe.empty:
-        return dataframe
-    
-    # Convert numeric columns
-    numeric_cols = ["total_amount", "balance", "amount"]
-    for col in numeric_cols:
-        if col in dataframe.columns:
-            dataframe[col] = pd.to_numeric(dataframe[col], errors="coerce")
-    
-    # Convert date columns
-    date_cols = ["date", "txn_date", "due_date", "created_date"]
-    for col in date_cols:
-        if col in dataframe.columns:
-            dataframe[col] = pd.to_datetime(dataframe[col], errors="coerce")
-    
-    # Create derived columns for analysis
-    if "txn_date" in dataframe.columns:
-        dataframe["year_month"] = dataframe["txn_date"].dt.to_period("M")
-        dataframe["week"] = dataframe["txn_date"].dt.isocalendar().week
-        dataframe["day_of_week"] = dataframe["txn_date"].dt.day_name()
-        dataframe["days_since_txn"] = (pd.Timestamp.now() - dataframe["txn_date"]).dt.days
-    
-    return dataframe
+# Preprocess QBO transaction data
+df = preprocess_dataframe(
+    df,
+    numeric_cols=["total_amount", "balance", "amount"],
+    date_cols=["date", "txn_date", "due_date", "created_date"]
+)
 
-# Apply enhanced preprocessing
-df = preprocess_financial_data(df)
-gl_df = preprocess_financial_data(gl_df)
+# Add derived date features for QBO data
+if "txn_date" in df.columns:
+    df = add_derived_date_features(df, "txn_date", prefix="")
+    # Add specific fields for QBO analysis
+    df["year_month"] = df["txn_date"].dt.to_period("M")
+
+# Preprocess general ledger data
+gl_df = preprocess_dataframe(
+    gl_df,
+    numeric_cols=["total_amount", "balance", "amount"],
+    date_cols=["date", "txn_date", "due_date", "created_date"]
+)
+if "txn_date" in gl_df.columns:
+    gl_df = add_derived_date_features(gl_df, "txn_date", prefix="")
 
 st.title("QBO Dashboard")
 st.markdown("---")
