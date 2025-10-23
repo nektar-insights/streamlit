@@ -11,6 +11,7 @@ from utils.data_loader import (
     load_mca_deals,
     load_combined_mca_deals,
 )
+from utils.preprocessing import preprocess_dataframe
 import numpy as np
 from scripts.combine_hubspot_mca import combine_deals
 
@@ -19,38 +20,18 @@ from scripts.combine_hubspot_mca import combine_deals
 # ----------------------------
 setup_page("CSL Capital | QA Audit")
 
-def preprocess_data(dataframe):
-    """Clean and preprocess dataframe"""
-    df_clean = dataframe.copy()
-    
-    # Handle numeric columns (updated for new schema)
-    numeric_cols = ['total_amount', 'balance', 'debit', 'credit', 'amount', 'purchase_price', 'receivables_amount', 
-                   'current_balance', 'past_due_amount', 'principal_amount', 'rtr_balance', 
-                   'amount_hubspot', 'total_funded_amount']
-    for col in numeric_cols:
-        if col in df_clean.columns:
-            df_clean[col] = pd.to_numeric(df_clean[col], errors='coerce')
-    
-    # Handle date columns (updated for new schema)
-    date_cols = ['txn_date', 'due_date', 'date', 'date_created', 'funding_date', 'created_time', 'last_updated_time']
-    for col in date_cols:
-        if col in df_clean.columns:
-            df_clean[col] = pd.to_datetime(df_clean[col], errors='coerce')
-    
-    return df_clean
-
 # Load all data
 deals_df = load_deals()
 qbo_txn_df, qbo_gl_df = load_qbo_data()
 mca_deals_raw = load_mca_deals()
 mca_deals_combined = load_combined_mca_deals()
 
-# Preprocess all datasets
-deals_df = preprocess_data(deals_df)
-qbo_txn_df = preprocess_data(qbo_txn_df)
-qbo_gl_df = preprocess_data(qbo_gl_df)
-mca_deals_raw = preprocess_data(mca_deals_raw)
-mca_deals_combined = preprocess_data(mca_deals_combined)
+# Preprocess all datasets using centralized function
+deals_df = preprocess_dataframe(deals_df)
+qbo_txn_df = preprocess_dataframe(qbo_txn_df)
+qbo_gl_df = preprocess_dataframe(qbo_gl_df)
+mca_deals_raw = preprocess_dataframe(mca_deals_raw)
+mca_deals_combined = preprocess_dataframe(mca_deals_combined)
 
 # ----------------------------
 # Combined Deals Section
