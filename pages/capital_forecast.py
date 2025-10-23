@@ -1,31 +1,18 @@
 # pages/capital_forecast.py
 from utils.imports import *
-from utils.config import (
-    inject_global_styles,
-    inject_logo,
-    get_supabase_client,
-)
-from utils.qbo_data_loader import load_qbo_data
+from utils.config import setup_page
+from utils.data_loader import load_deals, load_qbo_data
 from utils.cash_flow_forecast import create_cash_flow_forecast
 
-# Page config & branding
-st.set_page_config(
-    page_title="CSL Capital | Capital Forecast",
-    layout="wide",
-)
-inject_global_styles()
-inject_logo()
+# ----------------------------
+# Page Configuration & Styles
+# ----------------------------
+setup_page("CSL Capital | Capital Forecast")
 
+# ----------------------------
 # Load data
-supabase = get_supabase_client()
-
-# Load deals data
-@st.cache_data(ttl=3600)
-def load_deals():
-    res = supabase.table("deals").select("*").execute()
-    return pd.DataFrame(res.data)
-
-# Load QBO data using your existing loader
+# ----------------------------
+# Load QBO data
 qbo_df, gl_df = load_qbo_data()
 
 # Load and preprocess deals

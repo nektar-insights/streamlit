@@ -2,15 +2,12 @@
 
 from utils.imports import *
 from utils.config import (
-    inject_global_styles,
-    inject_logo,
-    get_supabase_client,
+    setup_page,
     PRIMARY_COLOR,
     COLOR_PALETTE,
     PLATFORM_FEE_RATE,
 )
-
-from utils.qbo_data_loader import load_qbo_data, load_deals, load_mca_deals
+from utils.data_loader import load_qbo_data, load_deals, load_mca_deals
 from utils.loan_tape_loader import (
     load_loan_tape_data,
     load_unified_loan_customer_data,
@@ -26,18 +23,11 @@ warnings.filterwarnings('ignore')
 # -------------------------
 # Page config & branding
 # -------------------------
-st.set_page_config(
-    page_title="CSL Capital | QBO Dashboard",
-    layout="wide",
-)
-inject_global_styles()
-inject_logo()
+setup_page("CSL Capital | QBO Dashboard")
 
 # -------------------------
-# Setup: Supabase Connection & Load Data
+# Load Data
 # -------------------------
-supabase = get_supabase_client()
-
 # Load data using centralized functions
 df, gl_df = load_qbo_data()
 deals_df = load_deals()

@@ -1,34 +1,21 @@
 # streamlit_app.py
-from utils.imports import *  
+from utils.imports import *
 from utils.config import (
-    inject_global_styles,
-    inject_logo,
-    get_supabase_client,
+    setup_page,
     PRIMARY_COLOR,
     COLOR_PALETTE,
     PLATFORM_FEE_RATE,
 )
+from utils.data_loader import load_deals
 
 # ----------------------------
 # Apply Branding
 # ----------------------------
-st.set_page_config(page_title="CSL Capital | Dashboard", layout="wide")
-inject_global_styles()
-inject_logo()
-
-# ----------------------------
-# Supabase connection
-# ----------------------------
-supabase = get_supabase_client()
+setup_page("CSL Capital | Dashboard")
 
 # ----------------------------
 # Load and prepare data
 # ----------------------------
-@st.cache_data(ttl=3600)
-def load_deals():
-    res = supabase.table("deals").select("*").execute()
-    return pd.DataFrame(res.data)
-
 df = load_deals()
 today = pd.to_datetime("today").normalize()
 

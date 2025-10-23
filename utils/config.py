@@ -34,6 +34,25 @@ COLOR_PALETTE = [
 PLATFORM_FEE_RATE = 0.03
 
 # ----------------------------
+# Page Setup Functions
+# ----------------------------
+def setup_page(title: str = "CSL Capital | Dashboard", layout: str = "wide"):
+    """
+    Centralized page setup function that applies consistent configuration and branding
+
+    Args:
+        title: Page title to display in browser tab
+        layout: Page layout ('wide' or 'centered')
+
+    Usage:
+        from utils.config import setup_page
+        setup_page("CSL Capital | My Page")
+    """
+    st.set_page_config(page_title=title, layout=layout)
+    inject_global_styles()
+    inject_logo()
+
+# ----------------------------
 # Branding Functions
 # ----------------------------
 def inject_logo():
