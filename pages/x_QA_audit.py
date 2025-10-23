@@ -12,6 +12,7 @@ from utils.data_loader import (
     load_combined_mca_deals,
 )
 from utils.preprocessing import preprocess_dataframe
+from utils.display_components import create_partner_source_filter
 import numpy as np
 from scripts.combine_hubspot_mca import combine_deals
 
@@ -649,21 +650,32 @@ else:
         st.success("All won deals have loan IDs assigned!")
     else:
         st.warning(f"⚠️ Found {len(missing_loan_ids)} won deals missing loan IDs")
-        
+
         # Display detailed table of missing loan IDs
         st.subheader("Deals Missing Loan IDs")
-        
+
+        # Standardized partner source filter
+        if "partner_source" in missing_loan_ids.columns:
+            missing_loan_ids, selected_partners = create_partner_source_filter(
+                missing_loan_ids,
+                partner_col="partner_source",
+                label="Filter by Partner Source",
+                default_all=True,
+                key_prefix="qa_audit_missing_ids_partner"
+            )
+            st.write(f"**Filtered Results:** {len(missing_loan_ids)} deals")
+
         # Select relevant columns for display
         possible_deal_name_fields = ["deal_name", "name", "company_name", "business_name", "dba", "client_name"]
         deal_name_field = None
-        
+
         for field in possible_deal_name_fields:
             if field in missing_loan_ids.columns:
                 deal_name_field = field
                 break
-        
+
         # Base columns always included
-        display_columns = ["id", "date_created", "partner_source", "amount", 
+        display_columns = ["id", "date_created", "partner_source", "amount",
                           "total_funded_amount", "factor_rate", "loan_term", "loan_id"]
         
         # Add deal name field if found

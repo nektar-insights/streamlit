@@ -360,3 +360,185 @@ def create_time_series_chart(
     )
 
     return chart
+
+
+def create_date_range_filter(
+    df: pd.DataFrame,
+    date_col: str,
+    label: str = "Filter by Date Range",
+    checkbox_label: str = "Enable Date Filter",
+    default_enabled: bool = False,
+    key_prefix: str = "date_filter"
+) -> Tuple[pd.DataFrame, bool]:
+    """
+    Standardized date range filter with checkbox toggle.
+
+    Args:
+        df: DataFrame to filter
+        date_col: Name of the date column
+        label: Label for the date input widget
+        checkbox_label: Label for the checkbox toggle
+        default_enabled: Whether filter is enabled by default
+        key_prefix: Prefix for widget keys (for multiple filters on same page)
+
+    Returns:
+        Tuple of (filtered_df, is_filter_active)
+
+    Example:
+        filtered_df, is_active = create_date_range_filter(
+            df,
+            "funding_date",
+            label="Select Funding Date Range",
+            checkbox_label="Filter by Funding Date"
+        )
+    """
+    if date_col not in df.columns or df[date_col].isna().all():
+        st.info(f"No date data available in column '{date_col}'")
+        return df.copy(), False
+
+    # Extract min and max dates
+    min_date = df[date_col].min().date()
+    max_date = df[date_col].max().date()
+
+    # Checkbox to enable/disable filter
+    use_filter = st.checkbox(checkbox_label, value=default_enabled, key=f"{key_prefix}_checkbox")
+
+    if use_filter:
+        # Date range picker
+        date_range = st.date_input(
+            label,
+            value=[min_date, max_date],
+            min_value=min_date,
+            max_value=max_date,
+            key=f"{key_prefix}_input"
+        )
+
+        # Apply filter if valid range
+        if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
+            filtered_df = df[
+                (df[date_col].dt.date >= date_range[0]) &
+                (df[date_col].dt.date <= date_range[1])
+            ].copy()
+            return filtered_df, True
+        else:
+            return df.copy(), False
+    else:
+        return df.copy(), False
+
+
+def create_partner_source_filter(
+    df: pd.DataFrame,
+    partner_col: str = "partner_source",
+    label: str = "Filter by Partner Source",
+    default_all: bool = True,
+    key_prefix: str = "partner_filter"
+) -> Tuple[pd.DataFrame, List[str]]:
+    """
+    Standardized partner source multiselect filter.
+
+    Args:
+        df: DataFrame to filter
+        partner_col: Name of the partner source column
+        label: Label for the multiselect widget
+        default_all: Whether to select all partners by default
+        key_prefix: Prefix for widget keys (for multiple filters on same page)
+
+    Returns:
+        Tuple of (filtered_df, selected_partners)
+
+    Example:
+        filtered_df, selected = create_partner_source_filter(
+            df,
+            partner_col="partner_source",
+            label="Select Partner Sources"
+        )
+    """
+    if partner_col not in df.columns:
+        st.warning(f"Column '{partner_col}' not found in data")
+        return df.copy(), []
+
+    # Get unique partner sources
+    partners = sorted(df[partner_col].dropna().unique().tolist())
+
+    if not partners:
+        st.info(f"No partner source data available")
+        return df.copy(), []
+
+    # Multiselect widget
+    selected_partners = st.multiselect(
+        label,
+        options=partners,
+        default=partners if default_all else [],
+        key=f"{key_prefix}_multiselect"
+    )
+
+    # Apply filter if selections made
+    if selected_partners:
+        filtered_df = df[df[partner_col].isin(selected_partners)].copy()
+        return filtered_df, selected_partners
+    else:
+        # If nothing selected, return empty or all (based on default_all)
+        if default_all:
+            return df.copy(), partners
+        else:
+            return df[df[partner_col].isin([])].copy(), []
+
+
+def create_status_filter(
+    df: pd.DataFrame,
+    status_col: str,
+    label: str = "Filter by Status",
+    include_all_option: bool = True,
+    key_prefix: str = "status_filter"
+) -> Tuple[pd.DataFrame, str]:
+    """
+    Standardized status selectbox filter.
+
+    Args:
+        df: DataFrame to filter
+        status_col: Name of the status column
+        label: Label for the selectbox widget
+        include_all_option: Whether to include "All" option
+        key_prefix: Prefix for widget keys (for multiple filters on same page)
+
+    Returns:
+        Tuple of (filtered_df, selected_status)
+
+    Example:
+        filtered_df, status = create_status_filter(
+            df,
+            status_col="loan_status",
+            label="Filter by Loan Status"
+        )
+    """
+    if status_col not in df.columns:
+        st.warning(f"Column '{status_col}' not found in data")
+        return df.copy(), "All"
+
+    # Get unique statuses
+    statuses = sorted(df[status_col].dropna().unique().tolist())
+
+    if not statuses:
+        st.info(f"No status data available")
+        return df.copy(), "All"
+
+    # Add "All" option if requested
+    if include_all_option:
+        options = ["All"] + statuses
+    else:
+        options = statuses
+
+    # Selectbox widget
+    selected_status = st.selectbox(
+        label,
+        options=options,
+        index=0,
+        key=f"{key_prefix}_selectbox"
+    )
+
+    # Apply filter if not "All"
+    if selected_status == "All":
+        return df.copy(), selected_status
+    else:
+        filtered_df = df[df[status_col] == selected_status].copy()
+        return filtered_df, selected_status

@@ -44,6 +44,11 @@ from utils.loan_tape_ml import (
     render_corr_outputs,
     render_fico_tib_heatmap,
 )
+from utils.display_components import (
+    create_date_range_filter,
+    create_partner_source_filter,
+    create_status_filter,
+)
 
 # ---------------------------
 # Page Configuration & Styles
@@ -703,33 +708,36 @@ def main():
     # Sidebar Filters
     st.sidebar.header("Filters")
 
-    if "funding_date" in df.columns and not df["funding_date"].isna().all():
-        min_date = df["funding_date"].min().date()
-        max_date = df["funding_date"].max().date()
+    # Standardized date range filter
+    with st.sidebar:
+        filtered_df, _ = create_date_range_filter(
+            df,
+            date_col="funding_date",
+            label="Select Date Range",
+            checkbox_label="Filter by Funding Date",
+            default_enabled=False,
+            key_prefix="loan_tape_date"
+        )
 
-        use_date_filter = st.sidebar.checkbox("Filter by Funding Date", value=False)
+    # Standardized partner source filter
+    with st.sidebar:
+        filtered_df, selected_partners = create_partner_source_filter(
+            filtered_df,
+            partner_col="partner_source",
+            label="Select Partner Sources",
+            default_all=True,
+            key_prefix="loan_tape_partner"
+        )
 
-        if use_date_filter:
-            date_range = st.sidebar.date_input(
-                "Select Date Range", [min_date, max_date], min_value=min_date, max_value=max_date
-            )
-            if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
-                filtered_df = df[
-                    (df["funding_date"].dt.date >= date_range[0]) &
-                    (df["funding_date"].dt.date <= date_range[1])
-                ].copy()
-            else:
-                filtered_df = df.copy()
-        else:
-            filtered_df = df.copy()
-    else:
-        filtered_df = df.copy()
-
-    all_statuses = ["All"] + sorted(df["loan_status"].dropna().unique().tolist())
-    selected_status = st.sidebar.selectbox("Filter by Status", all_statuses, index=0)
-
-    if selected_status != "All":
-        filtered_df = filtered_df[filtered_df["loan_status"] == selected_status]
+    # Standardized status filter
+    with st.sidebar:
+        filtered_df, selected_status = create_status_filter(
+            filtered_df,
+            status_col="loan_status",
+            label="Filter by Status",
+            include_all_option=True,
+            key_prefix="loan_tape_status"
+        )
 
     st.sidebar.markdown("---")
     st.sidebar.write(f"**Showing:** {len(filtered_df)} of {len(df)} loans")
