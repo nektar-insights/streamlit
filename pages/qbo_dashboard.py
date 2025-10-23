@@ -15,6 +15,7 @@ from utils.config import (
 )
 from utils.data_loader import load_qbo_data, load_deals, load_mca_deals
 from utils.preprocessing import preprocess_dataframe, add_derived_date_features
+from utils.display_components import create_date_range_filter, create_status_filter
 from utils.loan_tape_loader import (
     load_loan_tape_data,
     load_unified_loan_customer_data,
@@ -71,6 +72,36 @@ gl_df = preprocess_dataframe(
 )
 if "txn_date" in gl_df.columns:
     gl_df = add_derived_date_features(gl_df, "txn_date", prefix="")
+
+# -------------------------
+# Sidebar Filters
+# -------------------------
+st.sidebar.header("Filters")
+
+# Date range filter for QBO transactions
+with st.sidebar:
+    df, _ = create_date_range_filter(
+        df,
+        date_col="txn_date",
+        label="Select Transaction Date Range",
+        checkbox_label="Filter by Transaction Date",
+        default_enabled=False,
+        key_prefix="qbo_date"
+    )
+
+# Transaction type filter (status filter for txn_type)
+if "txn_type" in df.columns:
+    with st.sidebar:
+        df, selected_type = create_status_filter(
+            df,
+            status_col="txn_type",
+            label="Filter by Transaction Type",
+            include_all_option=True,
+            key_prefix="qbo_txn_type"
+        )
+
+st.sidebar.markdown("---")
+st.sidebar.write(f"**Showing:** {len(df)} transactions")
 
 st.title("QBO Dashboard")
 st.markdown("---")
