@@ -44,7 +44,7 @@ def prepare_loan_data(loans_df: pd.DataFrame, deals_df: pd.DataFrame) -> pd.Data
     """
     if not loans_df.empty and not deals_df.empty:
         # Merge with deals data
-        merge_cols = ["loan_id", "deal_name", "partner_source", "industry", "commission_fee", "fico", "tib"]
+        merge_cols = ["loan_id", "deal_name", "partner_source", "industry", "commission_fee", "fico", "tib", "factor_rate"]
         merge_cols = [c for c in merge_cols if c in deals_df.columns]
         df = loans_df.merge(deals_df[merge_cols], on="loan_id", how="left")
     else:
