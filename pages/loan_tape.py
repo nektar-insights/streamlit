@@ -923,7 +923,7 @@ def main():
             "loan_status": "Status",
             "industry": "Industry (NAICS)",
             "fico": "FICO",
-            "tib": "TIB (Months)",
+            "tib": "TIB (Years)",
             "funding_date": "Funded",
             "maturity_date": "Maturity",
             "factor_rate": "Factor Rate",
