@@ -909,7 +909,9 @@ def main():
 
         display_columns = [
             "loan_id", "deal_name", "partner_source", "loan_status",
+            "industry", "fico", "tib",
             "funding_date", "maturity_date",
+            "factor_rate", "commission_fee",
             "csl_participation_amount", "total_invested", "total_paid", "net_balance",
             "current_roi", "payment_performance", "remaining_maturity_months",
         ]
@@ -919,8 +921,13 @@ def main():
             "deal_name": "Deal Name",
             "partner_source": "Partner",
             "loan_status": "Status",
+            "industry": "Industry (NAICS)",
+            "fico": "FICO",
+            "tib": "TIB (Months)",
             "funding_date": "Funded",
             "maturity_date": "Maturity",
+            "factor_rate": "Factor Rate",
+            "commission_fee": "Commission %",
             "csl_participation_amount": "Capital Deployed",
             "total_invested": "Total Invested",
             "total_paid": "Total Paid",
