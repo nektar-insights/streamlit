@@ -105,9 +105,35 @@ def prepare_loan_data(loans_df: pd.DataFrame, deals_df: pd.DataFrame) -> pd.Data
         df["cohort"] = "Unknown"
         df["funding_month"] = pd.NaT
 
-    # Sector code (first two digits of NAICS)
+    # Sector code (first two digits of NAICS) and load sector names
     if "industry" in df.columns:
-        df["sector_code"] = df["industry"].astype(str).str[:2]
+        df["naics_code"] = df["industry"].astype(str).str.strip()
+        df["sector_code"] = df["naics_code"].str[:2]
+
+        # Load NAICS sector risk data to get sector names
+        try:
+            from utils.data_loader import load_naics_sector_risk
+            naics_df = load_naics_sector_risk()
+            if not naics_df.empty and "sector_code" in naics_df.columns and "sector_name" in naics_df.columns:
+                # Ensure sector_code is string and zero-padded
+                naics_df["sector_code"] = naics_df["sector_code"].astype(str).str.zfill(2)
+                df["sector_code"] = df["sector_code"].str.zfill(2)
+
+                # Merge to get sector names
+                df = df.merge(
+                    naics_df[["sector_code", "sector_name"]].drop_duplicates(),
+                    on="sector_code",
+                    how="left"
+                )
+
+                # Use sector_name as industry_name, fallback to NAICS code if not available
+                df["industry_name"] = df["sector_name"].fillna(df["naics_code"])
+            else:
+                # Fallback: use NAICS code as industry name
+                df["industry_name"] = df["naics_code"]
+        except Exception as e:
+            # Fallback: use NAICS code as industry name
+            df["industry_name"] = df.get("naics_code", "Unknown")
 
     # Payment performance calculation
     if "payment_performance" not in df.columns or df["payment_performance"].isna().all():
@@ -327,7 +353,7 @@ def format_dataframe_for_display(
     # Format numeric columns based on column name patterns
     for col in display_df.select_dtypes(include=["float64", "float32"]).columns:
         col_upper = col.upper()
-        if any(term in col_upper for term in ["ROI", "RATE", "PERCENTAGE", "PERFORMANCE"]):
+        if any(term in col_upper for term in ["ROI", "RATE", "PERCENTAGE", "PERFORMANCE", "IRR"]):
             display_df[col] = display_df[col].map(lambda x: f"{x:.2%}" if pd.notnull(x) else "")
         elif any(term in col_upper for term in ["MATURITY", "MONTHS"]):
             display_df[col] = display_df[col].map(lambda x: f"{x:.1f}" if pd.notnull(x) else "")
