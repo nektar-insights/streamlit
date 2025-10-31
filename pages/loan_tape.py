@@ -152,8 +152,17 @@ def plot_capital_flow(df: pd.DataFrame):
     d = df.copy()
     d["funding_date"] = pd.to_datetime(d["funding_date"], errors="coerce").dt.tz_localize(None)
 
+    # Calculate total deployed from the dataframe
     total_deployed = d["csl_participation_amount"].sum()
-    total_returned = d["total_paid"].sum()
+
+    # Calculate total returned from loan schedules actual payments to ensure consistency
+    if not schedules.empty and "actual_payment" in schedules.columns:
+        schedules_copy = schedules.copy()
+        schedules_copy["actual_payment"] = pd.to_numeric(schedules_copy["actual_payment"], errors="coerce")
+        total_returned = schedules_copy[schedules_copy["actual_payment"] > 0]["actual_payment"].sum()
+    else:
+        # Fallback to total_paid from dataframe if schedules not available
+        total_returned = d["total_paid"].sum()
 
     col1, col2 = st.columns(2)
     with col1:
@@ -166,6 +175,7 @@ def plot_capital_flow(df: pd.DataFrame):
 
     if not schedules.empty and "payment_date" in schedules.columns:
         schedules["payment_date"] = pd.to_datetime(schedules["payment_date"], errors="coerce").dt.tz_localize(None)
+        schedules["actual_payment"] = pd.to_numeric(schedules["actual_payment"], errors="coerce")
         payment_data = schedules[
             schedules["actual_payment"].notna() &
             (schedules["actual_payment"] > 0) &
@@ -233,6 +243,7 @@ def plot_investment_net_position(df: pd.DataFrame):
 
     if not schedules.empty and "payment_date" in schedules.columns:
         schedules["payment_date"] = pd.to_datetime(schedules["payment_date"], errors="coerce").dt.tz_localize(None)
+        schedules["actual_payment"] = pd.to_numeric(schedules["actual_payment"], errors="coerce")
         payment_data = schedules[
             schedules["actual_payment"].notna() &
             (schedules["actual_payment"] > 0) &
@@ -361,14 +372,17 @@ def plot_payment_performance_by_cohort(df: pd.DataFrame):
 
 
 def plot_industry_performance_analysis(df: pd.DataFrame):
-    """Plot performance metrics by industry"""
+    """Plot performance metrics by industry (grouped by 2-digit NAICS sector code)"""
     st.header("Industry Performance Analysis")
 
-    if "industry" not in df.columns or df["industry"].isna().all():
-        st.warning("Industry data not available.")
+    # Check if we have sector_code and industry_name columns
+    if "sector_code" not in df.columns or df["sector_code"].isna().all():
+        st.warning("Industry sector data not available.")
         return
 
-    industry_metrics = df.groupby("industry").agg(
+    # Group by sector_code and get the industry_name
+    industry_metrics = df.groupby("sector_code").agg(
+        industry_name=("industry_name", "first"),  # Get the industry name
         deal_count=("loan_id", "count"),
         capital_deployed=("csl_participation_amount", "sum"),
         outstanding_balance=("net_balance", "sum"),
@@ -381,11 +395,14 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
     industry_metrics["actual_return_rate"] = industry_metrics["total_paid"] / industry_metrics["total_invested"]
     industry_metrics = industry_metrics.sort_values("capital_deployed", ascending=False).head(15)
 
+    # Create display label with sector code and name
+    industry_metrics["display_label"] = industry_metrics["sector_code"] + " - " + industry_metrics["industry_name"]
+
     col1, col2 = st.columns(2)
 
     with col1:
         perf_chart = alt.Chart(industry_metrics).mark_bar().encode(
-            x=alt.X("industry:N", title="Industry", sort="-y"),
+            x=alt.X("display_label:N", title="Industry (NAICS 2-Digit)", sort="-y"),
             y=alt.Y("avg_payment_performance:Q", title="Avg Payment Performance", axis=alt.Axis(format=".0%")),
             color=alt.Color(
                 "avg_payment_performance:Q",
@@ -393,7 +410,7 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
                 legend=None,
             ),
             tooltip=[
-                alt.Tooltip("industry:N", title="Industry"),
+                alt.Tooltip("display_label:N", title="Industry"),
                 alt.Tooltip("avg_payment_performance:Q", title="Avg Payment Performance", format=".1%"),
                 alt.Tooltip("deal_count:Q", title="Loan Count"),
             ],
@@ -402,7 +419,7 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
 
     with col2:
         return_chart = alt.Chart(industry_metrics).mark_bar().encode(
-            x=alt.X("industry:N", title="Industry", sort="-y"),
+            x=alt.X("display_label:N", title="Industry (NAICS 2-Digit)", sort="-y"),
             y=alt.Y("actual_return_rate:Q", title="Actual Return Rate", axis=alt.Axis(format=".0%")),
             color=alt.Color(
                 "actual_return_rate:Q",
@@ -410,7 +427,7 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
                 legend=None,
             ),
             tooltip=[
-                alt.Tooltip("industry:N", title="Industry"),
+                alt.Tooltip("display_label:N", title="Industry"),
                 alt.Tooltip("actual_return_rate:Q", title="Return Rate", format=".2%"),
                 alt.Tooltip("deal_count:Q", title="Loan Count"),
             ],
@@ -422,8 +439,8 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
     display_df["outstanding_balance"] = display_df["outstanding_balance"].map(lambda x: f"${x:,.0f}")
     display_df["avg_payment_performance"] = display_df["avg_payment_performance"].map(lambda x: f"{x:.1%}")
     display_df["actual_return_rate"] = display_df["actual_return_rate"].map(lambda x: f"{x:.2%}")
-    display_df = display_df[["industry", "deal_count", "outstanding_balance", "avg_payment_performance", "actual_return_rate"]]
-    display_df.columns = ["Industry", "Loan Count", "Outstanding Balance", "Avg Payment Performance", "Actual Return Rate"]
+    display_df = display_df[["display_label", "deal_count", "outstanding_balance", "avg_payment_performance", "actual_return_rate"]]
+    display_df.columns = ["Industry (NAICS 2-Digit)", "Loan Count", "Outstanding Balance", "Avg Payment Performance", "Actual Return Rate"]
     st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 
@@ -909,19 +926,24 @@ def main():
 
         display_columns = [
             "loan_id", "deal_name", "partner_source", "loan_status",
-            "industry", "fico", "tib",
+            "industry_name", "sector_code", "fico", "tib",
             "funding_date", "maturity_date",
             "factor_rate", "commission_fee",
             "csl_participation_amount", "total_invested", "total_paid", "net_balance",
             "current_roi", "payment_performance", "remaining_maturity_months",
         ]
 
+        # Add IRR columns for Paid Off loans
+        if "realized_irr" in filtered_df.columns:
+            display_columns.append("realized_irr")
+
         column_rename = {
             "loan_id": "Loan ID",
             "deal_name": "Deal Name",
             "partner_source": "Partner",
             "loan_status": "Status",
-            "industry": "Industry (NAICS)",
+            "industry_name": "Industry",
+            "sector_code": "NAICS 2-Digit",
             "fico": "FICO",
             "tib": "TIB (Years)",
             "funding_date": "Funded",
@@ -935,10 +957,28 @@ def main():
             "current_roi": "ROI",
             "payment_performance": "Payment Perf",
             "remaining_maturity_months": "Months Left",
+            "realized_irr": "IRR (Paid Off)",
         }
 
         loan_tape = format_dataframe_for_display(filtered_df, display_columns, column_rename)
-        st.dataframe(loan_tape, use_container_width=True, hide_index=True)
+
+        # Apply conditional formatting for past maturity dates
+        def highlight_past_maturity(row):
+            """Highlight rows with maturity date in the past"""
+            try:
+                maturity_date = pd.to_datetime(row.get("Maturity"), errors="coerce")
+                today = pd.Timestamp.today().normalize()
+
+                if pd.notna(maturity_date) and maturity_date < today and row.get("Status") != "Paid Off":
+                    # Return red color for all cells in the row
+                    return ["color: red"] * len(row)
+                return [""] * len(row)
+            except:
+                return [""] * len(row)
+
+        # Display with conditional formatting
+        styled_df = loan_tape.style.apply(highlight_past_maturity, axis=1)
+        st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
         csv = loan_tape.to_csv(index=False).encode("utf-8")
         st.download_button(
