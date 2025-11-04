@@ -144,83 +144,175 @@ def prepare_loan_data(loans_df: pd.DataFrame, deals_df: pd.DataFrame) -> pd.Data
     return df
 
 
-def calculate_irr(df: pd.DataFrame) -> pd.DataFrame:
+def calculate_irr(df: pd.DataFrame, schedules_df: Optional[pd.DataFrame] = None) -> pd.DataFrame:
     """
-    Calculate realized and expected Internal Rate of Return (IRR) for loans.
+    Calculate realized and expected Internal Rate of Return (IRR) for loans using actual payment schedules.
+
+    This is a TRUE IRR calculation that uses all intermediate cash flows with their actual dates,
+    not just a simple CAGR calculation.
 
     Args:
         df: Dataframe with loan data including funding/payoff dates and amounts
+        schedules_df: Optional dataframe with loan payment schedules (loan_id, payment_date, actual_payment)
 
     Returns:
         pd.DataFrame: Dataframe with added IRR columns
     """
     result_df = df.copy()
 
+    # Load schedules if not provided
+    if schedules_df is None:
+        try:
+            from utils.data_loader import load_loan_schedules
+            schedules_df = load_loan_schedules()
+        except:
+            schedules_df = pd.DataFrame()
+
+    # Preprocess schedules
+    if not schedules_df.empty and "loan_id" in schedules_df.columns:
+        schedules_df = schedules_df.copy()
+        schedules_df["payment_date"] = pd.to_datetime(schedules_df["payment_date"], errors="coerce").dt.tz_localize(None)
+        schedules_df["actual_payment"] = pd.to_numeric(schedules_df["actual_payment"], errors="coerce")
+        # Filter to valid payments only
+        schedules_df = schedules_df[
+            schedules_df["actual_payment"].notna() &
+            (schedules_df["actual_payment"] > 0) &
+            schedules_df["payment_date"].notna()
+        ]
+    else:
+        schedules_df = pd.DataFrame()
+
     def calc_realized_irr(row):
-        """Calculate IRR for paid-off loans"""
-        if pd.isna(row.get("funding_date")) or pd.isna(row.get("payoff_date")) or row.get("total_invested", 0) <= 0:
+        """Calculate TRUE IRR for paid-off loans using all actual payment cash flows"""
+        if pd.isna(row.get("funding_date")) or row.get("total_invested", 0) <= 0:
             return None
+
         try:
             funding_date = pd.to_datetime(row["funding_date"]).tz_localize(None)
+            loan_id = row.get("loan_id")
+
+            # Get all actual payments for this loan from schedules
+            if not schedules_df.empty and loan_id:
+                loan_payments = schedules_df[schedules_df["loan_id"] == loan_id].copy()
+
+                if not loan_payments.empty:
+                    # Sort by payment date
+                    loan_payments = loan_payments.sort_values("payment_date")
+
+                    # Build cash flow series with dates
+                    cash_flows = []
+                    dates = []
+
+                    # Initial investment (negative cash flow)
+                    cash_flows.append(-row["total_invested"])
+                    dates.append(funding_date)
+
+                    # All actual payments (positive cash flows)
+                    for _, payment in loan_payments.iterrows():
+                        cash_flows.append(payment["actual_payment"])
+                        dates.append(payment["payment_date"])
+
+                    # Check we have at least 2 cash flows
+                    if len(cash_flows) < 2:
+                        return None
+
+                    # Calculate time periods in years from funding date
+                    years = [(d - funding_date).days / 365.0 for d in dates]
+
+                    # Use XIRR-style calculation (IRR with irregular periods)
+                    # For numpy-financial, we need to convert to periodic cash flows
+                    # We'll use daily periods and place cash flows on the correct days
+
+                    if len(set(dates)) == len(dates):  # All unique dates
+                        # Calculate using Newton's method for XIRR
+                        irr = calculate_xirr(cash_flows, dates)
+                        if irr is not None and -0.99 <= irr <= 10:
+                            return irr
+
+            # Fallback: Use simple 2-cash-flow method if schedules not available
+            if pd.isna(row.get("payoff_date")) or row.get("total_paid", 0) <= 0:
+                return None
+
             payoff_date = pd.to_datetime(row["payoff_date"]).tz_localize(None)
             if payoff_date <= funding_date:
                 return None
 
-            days = (payoff_date - funding_date).days
-            years = days / 365.0
-
+            years = (payoff_date - funding_date).days / 365.0
             if years < 0.01:
-                simple = (row["total_paid"] / row["total_invested"]) - 1
-                return (1 + simple) ** (1 / max(years, 1e-6)) - 1
+                return None
 
-            try:
-                irr = npf.irr([-row["total_invested"], row["total_paid"]])
-                if irr is None or irr < -1 or irr > 10:
-                    simple = (row["total_paid"] / row["total_invested"]) - 1
-                    return (1 + simple) ** (1 / years) - 1
-                return irr
-            except:
-                simple = (row["total_paid"] / row["total_invested"]) - 1
-                return (1 + simple) ** (1 / years) - 1
-        except:
+            # CAGR fallback (annualized return)
+            simple = (row["total_paid"] / row["total_invested"]) - 1
+            return (1 + simple) ** (1 / years) - 1
+
+        except Exception as e:
             return None
 
     def calc_expected_irr(row):
-        """Calculate expected IRR for active loans"""
+        """Calculate expected IRR for active loans using actual payments + expected remaining"""
         if pd.isna(row.get("funding_date")) or pd.isna(row.get("maturity_date")) or row.get("total_invested", 0) <= 0:
             return None
+
         try:
             funding_date = pd.to_datetime(row["funding_date"]).tz_localize(None)
             maturity_date = pd.to_datetime(row["maturity_date"]).tz_localize(None)
+            loan_id = row.get("loan_id")
+
             if maturity_date <= funding_date:
                 return None
 
-            # Determine expected payment
+            # Determine expected total payment
             if "our_rtr" in row and pd.notnull(row["our_rtr"]):
-                expected_payment = row["our_rtr"]
+                expected_total_payment = row["our_rtr"]
             elif "roi" in row and pd.notnull(row["roi"]):
-                expected_payment = row["total_invested"] * (1 + row["roi"])
+                expected_total_payment = row["total_invested"] * (1 + row["roi"])
             else:
-                # Fallback: assume 1.2x return
-                expected_payment = row["total_invested"] * 1.2
+                expected_total_payment = row["total_invested"] * 1.2
 
-            days = (maturity_date - funding_date).days
-            years = days / 365.0
+            # Get actual payments received so far
+            total_paid_so_far = row.get("total_paid", 0)
+            expected_remaining = max(0, expected_total_payment - total_paid_so_far)
 
+            # Build cash flow series
+            cash_flows = []
+            dates = []
+
+            # Initial investment
+            cash_flows.append(-row["total_invested"])
+            dates.append(funding_date)
+
+            # Add actual payments from schedules if available
+            if not schedules_df.empty and loan_id:
+                loan_payments = schedules_df[schedules_df["loan_id"] == loan_id].copy()
+
+                if not loan_payments.empty:
+                    loan_payments = loan_payments.sort_values("payment_date")
+                    for _, payment in loan_payments.iterrows():
+                        cash_flows.append(payment["actual_payment"])
+                        dates.append(payment["payment_date"])
+
+            # Add expected remaining payment at maturity
+            if expected_remaining > 0:
+                cash_flows.append(expected_remaining)
+                dates.append(maturity_date)
+
+            if len(cash_flows) < 2:
+                return None
+
+            # Calculate XIRR
+            if len(set(dates)) == len(dates):
+                irr = calculate_xirr(cash_flows, dates)
+                if irr is not None and -0.99 <= irr <= 10:
+                    return irr
+
+            # Fallback to simple CAGR
+            years = (maturity_date - funding_date).days / 365.0
             if years < 0.01:
-                simple = (expected_payment / row["total_invested"]) - 1
-                return (1 + simple) ** (1 / max(years, 1e-6)) - 1
+                return None
+            simple = (expected_total_payment / row["total_invested"]) - 1
+            return (1 + simple) ** (1 / years) - 1
 
-            try:
-                irr = npf.irr([-row["total_invested"], expected_payment])
-                if irr is None or irr < -1 or irr > 10:
-                    simple = (expected_payment / row["total_invested"]) - 1
-                    return (1 + simple) ** (1 / years) - 1
-                return irr
-            except:
-                simple = (expected_payment / row["total_invested"]) - 1
-                return (1 + simple) ** (1 / years) - 1
-        except:
+        except Exception as e:
             return None
 
     try:
@@ -232,13 +324,73 @@ def calculate_irr(df: pd.DataFrame) -> pd.DataFrame:
         result_df["expected_irr_pct"] = result_df["expected_irr"].apply(
             lambda x: f"{x:.2%}" if pd.notnull(x) else "N/A"
         )
-    except:
+    except Exception as e:
         result_df["realized_irr"] = None
         result_df["expected_irr"] = None
         result_df["realized_irr_pct"] = "N/A"
         result_df["expected_irr_pct"] = "N/A"
 
     return result_df
+
+
+def calculate_xirr(cash_flows: list, dates: list, guess: float = 0.1) -> Optional[float]:
+    """
+    Calculate IRR for irregular cash flows (XIRR).
+
+    Uses Newton's method to find the rate that makes NPV = 0.
+
+    Args:
+        cash_flows: List of cash flow amounts
+        dates: List of dates corresponding to each cash flow
+        guess: Initial guess for IRR
+
+    Returns:
+        float: Annualized IRR, or None if calculation fails
+    """
+    if len(cash_flows) != len(dates) or len(cash_flows) < 2:
+        return None
+
+    try:
+        # Convert dates to years from first date
+        start_date = dates[0]
+        years = [(d - start_date).days / 365.0 for d in dates]
+
+        # Newton's method to find IRR
+        rate = guess
+        max_iterations = 100
+        tolerance = 1e-6
+
+        for i in range(max_iterations):
+            # Calculate NPV and its derivative
+            npv = sum(cf / ((1 + rate) ** y) for cf, y in zip(cash_flows, years))
+            dnpv = sum(-y * cf / ((1 + rate) ** (y + 1)) for cf, y in zip(cash_flows, years))
+
+            if abs(dnpv) < 1e-10:
+                break
+
+            # Newton's method update
+            new_rate = rate - npv / dnpv
+
+            if abs(new_rate - rate) < tolerance:
+                return new_rate
+
+            rate = new_rate
+
+            # Keep rate in reasonable bounds
+            if rate < -0.99:
+                rate = -0.99
+            elif rate > 10:
+                rate = 10
+
+        # Check if we converged to a reasonable solution
+        npv = sum(cf / ((1 + rate) ** y) for cf, y in zip(cash_flows, years))
+        if abs(npv) < 0.01:  # NPV close enough to zero
+            return rate
+
+        return None
+
+    except Exception as e:
+        return None
 
 
 def calculate_risk_scores(df: pd.DataFrame) -> pd.DataFrame:
