@@ -17,6 +17,10 @@ from utils.display_components import (
     create_status_filter,
 )
 
+# Import canonical maturity service
+from services.maturity import MaturityService
+from datetime import date
+
 # Setup page
 setup_page("CSL Capital | Loan QA")
 
@@ -32,62 +36,89 @@ def load_qa_data():
 # Main QA Logic
 def identify_date_issues(df):
     """
-    Identify loans where maturity_date <= funding_date
+    Identify loans where maturity_date <= funding_date using canonical maturity service.
     Only checks non-matured loans (not "Paid Off")
     """
     # Filter to non-matured loans
     active_loans = df[df['loan_status'] != 'Paid Off'].copy()
 
-    # Find loans with invalid date logic
+    if active_loans.empty:
+        return active_loans
+
+    # Use MaturityService to validate maturity dates
+    active_loans['maturity_quality'] = active_loans.apply(
+        lambda row: MaturityService.validate_maturity(
+            maturity_date=MaturityService._parse_date(row.get('maturity_date')),
+            funding_date=MaturityService._parse_date(row.get('funding_date'))
+        ),
+        axis=1
+    )
+
+    # Filter to invalid dates only
     invalid_dates = active_loans[
-        (active_loans['maturity_date'].notna()) &
-        (active_loans['funding_date'].notna()) &
-        (active_loans['maturity_date'] <= active_loans['funding_date'])
+        active_loans['maturity_quality'] == 'invalid'
     ].copy()
 
     return invalid_dates
 
 def identify_expiring_soon(df, days=30):
     """
-    Identify loans expiring in the next X days that are not matured
+    Identify loans expiring in the next X days using canonical maturity service.
     """
-    today = pd.Timestamp.now().normalize()
-    cutoff_date = today + pd.Timedelta(days=days)
+    today = date.today()
 
     # Filter to non-matured loans
     active_loans = df[df['loan_status'] != 'Paid Off'].copy()
 
-    # Find loans expiring soon
+    if active_loans.empty:
+        return active_loans
+
+    # Calculate days to maturity using MaturityService
+    active_loans['days_until_maturity'] = active_loans['maturity_date'].apply(
+        lambda x: MaturityService.days_to_maturity(
+            as_of=today,
+            maturity_date=MaturityService._parse_date(x)
+        )
+    )
+
+    # Filter to loans expiring in the next X days
     expiring_soon = active_loans[
-        (active_loans['maturity_date'].notna()) &
-        (active_loans['maturity_date'] >= today) &
-        (active_loans['maturity_date'] <= cutoff_date)
+        (active_loans['days_until_maturity'].notna()) &
+        (active_loans['days_until_maturity'] >= 0) &
+        (active_loans['days_until_maturity'] <= days)
     ].copy()
 
-    # Calculate days until maturity
-    expiring_soon['days_until_maturity'] = (
-        expiring_soon['maturity_date'] - today
-    ).dt.days
+    # Add maturity bucket for visualization
+    expiring_soon['maturity_bucket'] = expiring_soon['days_until_maturity'].apply(
+        lambda x: MaturityService.bucket_maturity(int(x)) if pd.notnull(x) else 'unknown'
+    )
 
     return expiring_soon.sort_values('days_until_maturity')
 
 def identify_matured_not_paid(df):
     """
-    Identify loans that are past maturity date but not marked as paid off
+    Identify loans that are past maturity date using canonical maturity service.
     """
-    today = pd.Timestamp.now().normalize()
+    today = date.today()
 
-    # Filter to non-matured loans that are past maturity
-    overdue_loans = df[
-        (df['loan_status'] != 'Paid Off') &
-        (df['maturity_date'].notna()) &
-        (df['maturity_date'] < today)
+    # Filter to non-matured loans
+    active_loans = df[df['loan_status'] != 'Paid Off'].copy()
+
+    if active_loans.empty:
+        return active_loans
+
+    # Calculate days overdue using MaturityService
+    active_loans['days_overdue'] = active_loans['maturity_date'].apply(
+        lambda x: MaturityService.calculate_days_past_maturity(
+            as_of=today,
+            maturity_date=MaturityService._parse_date(x)
+        )
+    )
+
+    # Filter to only overdue loans (days_overdue > 0)
+    overdue_loans = active_loans[
+        active_loans['days_overdue'] > 0
     ].copy()
-
-    # Calculate days overdue
-    overdue_loans['days_overdue'] = (
-        today - overdue_loans['maturity_date']
-    ).dt.days
 
     return overdue_loans.sort_values('days_overdue', ascending=False)
 

@@ -8,9 +8,13 @@ import pandas as pd
 import numpy as np
 import numpy_financial as npf
 from typing import Optional
+from datetime import date, datetime
 
 # Import constants from main config
 from utils.config import PLATFORM_FEE_RATE
+
+# Import canonical maturity service
+from services.maturity import MaturityService
 
 # Platform fee for calculations
 PLATFORM_FEE = PLATFORM_FEE_RATE
@@ -50,10 +54,14 @@ def prepare_loan_data(loans_df: pd.DataFrame, deals_df: pd.DataFrame) -> pd.Data
     else:
         df = loans_df.copy()
 
-    # Normalize date fields
-    for date_col in ["funding_date", "maturity_date", "payoff_date"]:
+    # Normalize date fields using canonical maturity service
+    for date_col in ["funding_date", "payoff_date"]:
         if date_col in df.columns:
             df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+
+    # Handle maturity_date specially using canonical service
+    if "maturity_date" in df.columns:
+        df["maturity_date"] = pd.to_datetime(df["maturity_date"], errors="coerce")
 
     # Convert numeric fields
     df["commission_fee"] = pd.to_numeric(df.get("commission_fee", 0), errors="coerce").fillna(0.0)
@@ -85,16 +93,23 @@ def prepare_loan_data(loans_df: pd.DataFrame, deals_df: pd.DataFrame) -> pd.Data
     except:
         df["days_since_funding"] = 0
 
-    # Months left to maturity
+    # Months left to maturity - using canonical maturity service
     df["remaining_maturity_months"] = 0.0
     try:
         if "maturity_date" in df.columns:
-            today = pd.Timestamp.today().tz_localize(None)
-            active_mask = (df.get("loan_status", "") != "Paid Off") & (df["maturity_date"] > today)
+            today = date.today()
+            active_mask = df.get("loan_status", "") != "Paid Off"
+
+            # Use MaturityService for remaining maturity calculation
             df.loc[active_mask, "remaining_maturity_months"] = df.loc[active_mask, "maturity_date"].apply(
-                lambda x: (pd.to_datetime(x).tz_localize(None) - today).days / 30 if pd.notnull(x) else 0
+                lambda x: MaturityService.calculate_remaining_maturity_months(
+                    as_of=today,
+                    maturity_date=MaturityService._parse_date(x),
+                    only_active=True
+                ) if pd.notnull(x) else 0.0
             )
-    except:
+    except Exception as e:
+        print(f"Warning: Could not calculate remaining_maturity_months: {e}")
         pass
 
     # Cohort analysis fields
@@ -416,10 +431,13 @@ def calculate_risk_scores(df: pd.DataFrame) -> pd.DataFrame:
     # Apply status multipliers
     risk_df["status_multiplier"] = risk_df["loan_status"].map(STATUS_RISK_MULTIPLIERS).fillna(1.0)
 
-    # Calculate overdue factor
-    today = pd.Timestamp.today().tz_localize(None)
+    # Calculate overdue factor using canonical maturity service
+    today = date.today()
     risk_df["days_past_maturity"] = risk_df["maturity_date"].apply(
-        lambda x: max(0, (today - pd.to_datetime(x)).days) if pd.notnull(x) else 0
+        lambda x: MaturityService.calculate_days_past_maturity(
+            as_of=today,
+            maturity_date=MaturityService._parse_date(x)
+        ) if pd.notnull(x) else 0
     )
     # Clamp at 12 months past due
     risk_df["overdue_factor"] = (risk_df["days_past_maturity"] / 30).clip(upper=12) / 12
