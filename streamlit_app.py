@@ -37,7 +37,8 @@ df["month_start"] = df["date_created"].dt.to_period("M").dt.to_timestamp(how="st
 
 df[cols_to_convert] = df[cols_to_convert].apply(pd.to_numeric, errors="coerce")
 df["loan_id"] = df["loan_id"].astype("string")
-df["is_participated"] = df["is_closed_won"] == True
+# Deals participated = is_closed_won AND has a loan_id
+df["is_participated"] = (df["is_closed_won"] == True) & df["loan_id"].notna() & (df["loan_id"] != "") & (df["loan_id"] != "nan")
 
 # ----------------------------
 # Filters
@@ -77,8 +78,10 @@ elif participation_filter == "Not Participated":
 # Calculate all metrics
 # ----------------------------
 closed_won = df[df["is_closed_won"] == True]
-total_deals = len(df)
-participation_ratio = len(closed_won) / total_deals if total_deals > 0 else 0
+participated = df[df["is_participated"] == True]  # Closed won AND has loan_id
+total_deals = len(df)  # Total deals reviewed
+total_participated = len(participated)  # Total deals participated
+participation_ratio = total_participated / total_deals if total_deals > 0 else 0
 months = df["month"].nunique()
 
 # Calculate date range and deal flow metrics
@@ -86,9 +89,9 @@ date_range_days = (df["date_created"].max() - df["date_created"].min()).days + 1
 date_range_weeks = date_range_days / 7
 date_range_months = date_range_days / 30.44  # Average days per month
 
-# Deal flow averages (across ALL deals, not just participated)
+# AVG Deals/Week = Total Deals Reviewed / Total Deals Participated
+avg_deals_per_week = total_deals / total_participated if total_participated > 0 else 0
 avg_deals_per_day = total_deals / date_range_days if date_range_days > 0 else 0
-avg_deals_per_week = total_deals / date_range_weeks if date_range_weeks > 0 else 0
 avg_deals_per_month = total_deals / date_range_months if date_range_months > 0 else 0
 
 # Average deal characteristics (across ALL deals, not just participated)
@@ -109,13 +112,13 @@ has_fico_data = "fico" in closed_won.columns and closed_won["fico"].count() > 0
 avg_tib = closed_won["tib"].mean() if has_tib_data else None
 avg_fico = closed_won["fico"].mean() if has_fico_data else None
 
-# Financial calculations
-total_capital_deployed = closed_won["amount"].sum()
-total_commissions_paid = (closed_won["amount"] * closed_won["commission"]).sum()
+# Financial calculations (use participated deals - those with loan_id)
+total_capital_deployed = participated["amount"].sum()
+total_commissions_paid = (participated["amount"] * participated["commission"]).sum()
 total_platform_fee = total_capital_deployed * PLATFORM_FEE_RATE
-total_expected_return = ((closed_won["amount"] * closed_won["factor_rate"]) - 
-                        closed_won["commission"] - 
-                        (closed_won["amount"] * PLATFORM_FEE_RATE))
+total_expected_return = ((participated["amount"] * participated["factor_rate"]) -
+                        participated["commission"] -
+                        (participated["amount"] * PLATFORM_FEE_RATE))
 total_expected_return_sum = total_expected_return.sum()
 moic = total_expected_return_sum / total_capital_deployed if total_capital_deployed > 0 else 0
 projected_irr = (moic ** (12 / avg_term) - 1) if avg_term > 0 else 0
@@ -199,29 +202,29 @@ partner_summary["avg_participation_pct"] = partner_summary["participated_amount"
 # ----------------------------
 st.subheader("Deal Overview")
 col1, col2, col3 = st.columns(3)
-col1.metric("Total Deals", total_deals)
-col2.metric("Closed Won", len(closed_won))
-col3.metric("Close Ratio", f"{participation_ratio:.2%}")
+col1.metric("Total Deals Reviewed", total_deals)
+col2.metric("Deals Participated", total_participated)
+col3.metric("Participation Ratio", f"{participation_ratio:.2%}")
 
 # New Deal Flow Metrics
 st.write("**Deal Flow Averages**")
 col4, col5, col6 = st.columns(3)
-col4.metric("Avg Deals/Week", f"{avg_deals_per_week:.1f}")
-col5.metric("Avg Deals/Month", f"{avg_deals_per_month:.1f}")
-col6.metric("Total Deals/30 Days", f"{deals_last_30:.1f}")
+col4.metric("AVG Deals/Week", f"{avg_deals_per_week:.2f}", help="Total Deals Reviewed / Total Deals Participated")
+col5.metric("Avg Deals/Day", f"{avg_deals_per_day:.2f}")
+col6.metric("Avg Deals/Month", f"{avg_deals_per_month:.1f}")
 
 st.write("**Average Participation Amounts**")
 col4a, col5a, col6a = st.columns(3)
 # Calculate average participation amount per week
-avg_participation_per_week = closed_won["amount"].sum() / date_range_weeks if date_range_weeks > 0 else 0
+avg_participation_per_week = participated["amount"].sum() / date_range_weeks if date_range_weeks > 0 else 0
 col4a.metric("Avg Participation/Week", f"${avg_participation_per_week:,.0f}")
 
 # Calculate average participation amount per month
-avg_participation_per_month = closed_won["amount"].sum() / date_range_months if date_range_months > 0 else 0
+avg_participation_per_month = participated["amount"].sum() / date_range_months if date_range_months > 0 else 0
 col5a.metric("Avg Participation/Month", f"${avg_participation_per_month:,.0f}")
 
 # Calculate participation amount for last 30 days
-participation_last_30 = closed_won[closed_won["date_created"] >= today - pd.Timedelta(days=30)]["amount"].sum()
+participation_last_30 = participated[participated["date_created"] >= today - pd.Timedelta(days=30)]["amount"].sum()
 col6a.metric("Total Participation/30 Days", f"${participation_last_30:,.0f}")
 
 # New Average Deal Characteristics 
