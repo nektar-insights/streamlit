@@ -741,60 +741,37 @@ partner_summary_enhanced["dollar_participation_rate"] = (
 ).fillna(0)
 
 # ----------------------------
-# DEAL COUNT SUMMARY TABLE
+# COMBINED PARTNER SUMMARY TABLE
 # ----------------------------
-st.write("**Deal Count Performance**")
-
-deal_summary = partner_summary_enhanced.reset_index()[[
-    "partner_source", "total_deals", "participated_deal_count", "deal_participation_rate", "total_amount"
+# Build comprehensive summary combining deal count and dollar metrics
+combined_summary = partner_summary_enhanced.reset_index()[[
+    "partner_source", "total_deals", "participated_deal_count", "deal_participation_rate",
+    "total_amount", "participated_amount"
 ]].copy()
 
-# Calculate average per deal
-deal_summary["avg_per_deal"] = deal_summary["total_amount"] / deal_summary["total_deals"]
-
-# Format the deal summary
-deal_summary["Deal Participation Rate"] = deal_summary["deal_participation_rate"].apply(lambda x: f"{x:.2%}")
-deal_summary["Avg per Deal"] = deal_summary["avg_per_deal"].apply(lambda x: f"${x:,.0f}")
-deal_summary = deal_summary.rename(columns={
-    "partner_source": "Partner",
-    "total_deals": "Total Deals",
-    "participated_deal_count": "CSL Deals"
-})[["Partner", "Total Deals", "CSL Deals", "Deal Participation Rate", "Avg per Deal"]]
-
-st.dataframe(deal_summary, use_container_width=True)
-
-# ----------------------------
-# DOLLAR AMOUNT SUMMARY TABLE
-# ----------------------------
-st.write("**Dollar Amount Performance**")
-
-# Build base summary
-dollar_summary = (
-    partner_summary_enhanced
-    .reset_index()[["partner_source", "participated_amount", "participated_deals"]]
-    .copy()
-)
-
-# Calculate % of capital deployed per partner
-dollar_summary["pct_cap_deployed"] = dollar_summary["participated_amount"] / total_capital_deployed
-
-# Calculate average per CSL deal
-dollar_summary["avg_per_deal"] = dollar_summary["participated_amount"] / dollar_summary["participated_deals"]
-dollar_summary["avg_per_deal"] = dollar_summary["avg_per_deal"].fillna(0)
+# Calculate additional metrics
+combined_summary["avg_deal_size"] = combined_summary["total_amount"] / combined_summary["total_deals"]
+combined_summary["pct_cap_deployed"] = combined_summary["participated_amount"] / total_capital_deployed
+combined_summary["avg_participation_size"] = (
+    combined_summary["participated_amount"] / combined_summary["participated_deal_count"]
+).fillna(0)
 
 # Format for display
-dollar_summary["Partner"]            = dollar_summary["partner_source"]
-dollar_summary["$ Participated"]     = dollar_summary["participated_amount"].map(lambda x: f"${x:,.0f}")
-dollar_summary["% of Capital Deployed"] = dollar_summary["pct_cap_deployed"].map(lambda x: f"{x:.2%}")
-dollar_summary["Avg per Deal"]       = dollar_summary["avg_per_deal"].map(lambda x: f"${x:,.0f}")
+combined_summary_display = pd.DataFrame({
+    "Partner": combined_summary["partner_source"],
+    "Total Deals": combined_summary["total_deals"].astype(int),
+    "CSL Deals": combined_summary["participated_deal_count"].astype(int),
+    "Deal Rate": combined_summary["deal_participation_rate"].apply(lambda x: f"{x:.2%}"),
+    "Avg Deal Size": combined_summary["avg_deal_size"].apply(lambda x: f"${x:,.0f}"),
+    "$ Participated": combined_summary["participated_amount"].apply(lambda x: f"${x:,.0f}"),
+    "% of Capital": combined_summary["pct_cap_deployed"].apply(lambda x: f"{x:.2%}"),
+    "Avg Participation": combined_summary["avg_participation_size"].apply(lambda x: f"${x:,.0f}")
+})
 
-# Select & order columns
-dollar_summary = dollar_summary[["Partner", "$ Participated", "% of Capital Deployed", "Avg per Deal"]]
-
-st.dataframe(dollar_summary, use_container_width=True)
+st.dataframe(combined_summary_display, use_container_width=True, height=400)
 
 # ----------------------------
-# DOWNLOAD FUNCTIONS FOR BOTH TABLES
+# DOWNLOAD FUNCTIONS
 # ----------------------------
 def create_pdf_from_html(html: str):
     result = io.BytesIO()
@@ -802,44 +779,27 @@ def create_pdf_from_html(html: str):
     return result.getvalue()
 
 # ----------------------------
-# DOWNLOAD BUTTONS FOR BOTH TABLES
+# DOWNLOAD BUTTONS FOR COMBINED TABLE
 # ----------------------------
 col_download1, col_download2 = st.columns(2)
 
 with col_download1:
-    # Deal Count Summary Downloads
-    deal_csv = deal_summary.to_csv(index=False).encode("utf-8")
+    # Combined Summary CSV Download
+    combined_csv = combined_summary_display.to_csv(index=False).encode("utf-8")
     st.download_button(
-        label="Download Deal Count Summary (CSV)",
-        data=deal_csv,
-        file_name="partner_deal_count_summary.csv",
+        label="Download Partner Summary (CSV)",
+        data=combined_csv,
+        file_name="partner_performance_summary.csv",
         mime="text/csv"
-    )
-    
-    deal_html = deal_summary.to_html(index=False)
-    deal_pdf = create_pdf_from_html(deal_html)
-    st.download_button(
-        label="Download Deal Count Summary (PDF)",
-        data=deal_pdf,
-        file_name="partner_deal_count_summary.pdf",
-        mime="application/pdf"
     )
 
 with col_download2:
-    # Dollar Summary Downloads
-    dollar_csv = dollar_summary.to_csv(index=False).encode("utf-8")
+    # Combined Summary PDF Download
+    combined_html = combined_summary_display.to_html(index=False)
+    combined_pdf = create_pdf_from_html(combined_html)
     st.download_button(
-        label="Download Dollar Summary (CSV)",
-        data=dollar_csv,
-        file_name="partner_dollar_summary.csv",
-        mime="text/csv"
-    )
-    
-    dollar_html = dollar_summary.to_html(index=False)
-    dollar_pdf = create_pdf_from_html(dollar_html)
-    st.download_button(
-        label="Download Dollar Summary (PDF)",
-        data=dollar_pdf,
-        file_name="partner_dollar_summary.pdf",
+        label="Download Partner Summary (PDF)",
+        data=combined_pdf,
+        file_name="partner_performance_summary.pdf",
         mime="application/pdf"
     )
