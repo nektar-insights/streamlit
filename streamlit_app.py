@@ -77,8 +77,10 @@ elif participation_filter == "Not Participated":
 # Calculate all metrics
 # ----------------------------
 closed_won = df[df["is_closed_won"] == True]
-total_deals = len(df)
-participation_ratio = len(closed_won) / total_deals if total_deals > 0 else 0
+participated = df[df["is_participated"] == True]  # Closed won AND has loan_id
+total_deals = len(df)  # Total deals reviewed
+total_participated = len(participated)  # Total deals participated
+participation_ratio = total_participated / total_deals if total_deals > 0 else 0
 months = df["month"].nunique()
 
 # Calculate date range and deal flow metrics
@@ -86,10 +88,15 @@ date_range_days = (df["date_created"].max() - df["date_created"].min()).days + 1
 date_range_weeks = date_range_days / 7
 date_range_months = date_range_days / 30.44  # Average days per month
 
-# Deal flow averages (across ALL deals, not just participated)
+# Deal flow averages (across entire date range)
 avg_deals_per_day = total_deals / date_range_days if date_range_days > 0 else 0
 avg_deals_per_week = total_deals / date_range_weeks if date_range_weeks > 0 else 0
 avg_deals_per_month = total_deals / date_range_months if date_range_months > 0 else 0
+
+# Last 30 days metrics
+last_30_days = df[df["date_created"] >= today - pd.Timedelta(days=30)]
+deals_last_30 = len(last_30_days)
+avg_deals_per_week_30d = deals_last_30 / (30 / 7)  # Average deals per week from last 30 days
 
 # Average deal characteristics (across ALL deals, not just participated)
 avg_total_funded = df["total_funded_amount"].mean()
@@ -113,8 +120,8 @@ avg_fico = closed_won["fico"].mean() if has_fico_data else None
 total_capital_deployed = closed_won["amount"].sum()
 total_commissions_paid = (closed_won["amount"] * closed_won["commission"]).sum()
 total_platform_fee = total_capital_deployed * PLATFORM_FEE_RATE
-total_expected_return = ((closed_won["amount"] * closed_won["factor_rate"]) - 
-                        closed_won["commission"] - 
+total_expected_return = ((closed_won["amount"] * closed_won["factor_rate"]) -
+                        closed_won["commission"] -
                         (closed_won["amount"] * PLATFORM_FEE_RATE))
 total_expected_return_sum = total_expected_return.sum()
 moic = total_expected_return_sum / total_capital_deployed if total_capital_deployed > 0 else 0
@@ -139,9 +146,6 @@ for label, start, end in periods:
         "Total Funded": window["total_funded_amount"].sum()
     })
 flow_df = pd.DataFrame(flow_data)
-
-# Last 30-day window
-deals_last_30 = df[df["date_created"] >= today - pd.Timedelta(days=30)].shape[0]
 
 # Monthly aggregations
 monthly_funded = (
@@ -203,12 +207,19 @@ col1.metric("Total Deals", total_deals)
 col2.metric("Closed Won", len(closed_won))
 col3.metric("Close Ratio", f"{participation_ratio:.2%}")
 
-# New Deal Flow Metrics
-st.write("**Deal Flow Averages**")
+# Deal Flow Metrics
+st.write("**Deal Flow Averages (Entire Date Range)**")
 col4, col5, col6 = st.columns(3)
 col4.metric("Avg Deals/Week", f"{avg_deals_per_week:.1f}")
-col5.metric("Avg Deals/Month", f"{avg_deals_per_month:.1f}")
-col6.metric("Total Deals/30 Days", f"{deals_last_30:.1f}")
+col5.metric("Avg Deals/Day", f"{avg_deals_per_day:.2f}")
+col6.metric("Avg Deals/Month", f"{avg_deals_per_month:.1f}")
+
+# Last 30 Days Flow
+st.write("**Deal Flow - Last 30 Days**")
+col4b, col5b, col6b = st.columns(3)
+col4b.metric("AVG Deals/Week (Last 30d)", f"{avg_deals_per_week_30d:.2f}")
+col5b.metric("Total Deals (Last 30d)", f"{deals_last_30}")
+col6b.metric("", "")
 
 st.write("**Average Participation Amounts**")
 col4a, col5a, col6a = st.columns(3)
