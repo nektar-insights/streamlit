@@ -746,16 +746,20 @@ partner_summary_enhanced["dollar_participation_rate"] = (
 st.write("**Deal Count Performance**")
 
 deal_summary = partner_summary_enhanced.reset_index()[[
-    "partner_source", "total_deals", "participated_deal_count", "deal_participation_rate"
+    "partner_source", "total_deals", "participated_deal_count", "deal_participation_rate", "total_amount"
 ]].copy()
+
+# Calculate average per deal
+deal_summary["avg_per_deal"] = deal_summary["total_amount"] / deal_summary["total_deals"]
 
 # Format the deal summary
 deal_summary["Deal Participation Rate"] = deal_summary["deal_participation_rate"].apply(lambda x: f"{x:.2%}")
+deal_summary["Avg per Deal"] = deal_summary["avg_per_deal"].apply(lambda x: f"${x:,.0f}")
 deal_summary = deal_summary.rename(columns={
-    "partner_source": "Partner", 
+    "partner_source": "Partner",
     "total_deals": "Total Deals",
     "participated_deal_count": "CSL Deals"
-})[["Partner", "Total Deals", "CSL Deals", "Deal Participation Rate"]]
+})[["Partner", "Total Deals", "CSL Deals", "Deal Participation Rate", "Avg per Deal"]]
 
 st.dataframe(deal_summary, use_container_width=True)
 
@@ -767,20 +771,25 @@ st.write("**Dollar Amount Performance**")
 # Build base summary
 dollar_summary = (
     partner_summary_enhanced
-    .reset_index()[["partner_source", "participated_amount"]]
+    .reset_index()[["partner_source", "participated_amount", "participated_deals"]]
     .copy()
 )
 
 # Calculate % of capital deployed per partner
 dollar_summary["pct_cap_deployed"] = dollar_summary["participated_amount"] / total_capital_deployed
 
+# Calculate average per CSL deal
+dollar_summary["avg_per_deal"] = dollar_summary["participated_amount"] / dollar_summary["participated_deals"]
+dollar_summary["avg_per_deal"] = dollar_summary["avg_per_deal"].fillna(0)
+
 # Format for display
 dollar_summary["Partner"]            = dollar_summary["partner_source"]
 dollar_summary["$ Participated"]     = dollar_summary["participated_amount"].map(lambda x: f"${x:,.0f}")
 dollar_summary["% of Capital Deployed"] = dollar_summary["pct_cap_deployed"].map(lambda x: f"{x:.2%}")
+dollar_summary["Avg per Deal"]       = dollar_summary["avg_per_deal"].map(lambda x: f"${x:,.0f}")
 
 # Select & order columns
-dollar_summary = dollar_summary[["Partner", "$ Participated", "% of Capital Deployed"]]
+dollar_summary = dollar_summary[["Partner", "$ Participated", "% of Capital Deployed", "Avg per Deal"]]
 
 st.dataframe(dollar_summary, use_container_width=True)
 
