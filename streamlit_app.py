@@ -89,8 +89,10 @@ date_range_days = (df["date_created"].max() - df["date_created"].min()).days + 1
 date_range_weeks = date_range_days / 7
 date_range_months = date_range_days / 30.44  # Average days per month
 
-# AVG Deals/Week = Total Deals Reviewed / Total Deals Participated
-avg_deals_per_week = total_deals / total_participated if total_participated > 0 else 0
+# AVG Deals/Week = Average deals per week from the last 30 days
+last_30_days = df[df["date_created"] >= today - pd.Timedelta(days=30)]
+deals_last_30 = len(last_30_days)
+avg_deals_per_week = deals_last_30 / (30 / 7)  # 30 days / 7 days per week = ~4.29 weeks
 avg_deals_per_day = total_deals / date_range_days if date_range_days > 0 else 0
 avg_deals_per_month = total_deals / date_range_months if date_range_months > 0 else 0
 
@@ -142,9 +144,6 @@ for label, start, end in periods:
         "Total Funded": window["total_funded_amount"].sum()
     })
 flow_df = pd.DataFrame(flow_data)
-
-# Last 30-day window
-deals_last_30 = df[df["date_created"] >= today - pd.Timedelta(days=30)].shape[0]
 
 # Monthly aggregations
 monthly_funded = (
@@ -209,7 +208,7 @@ col3.metric("Participation Ratio", f"{participation_ratio:.2%}")
 # New Deal Flow Metrics
 st.write("**Deal Flow Averages**")
 col4, col5, col6 = st.columns(3)
-col4.metric("AVG Deals/Week", f"{avg_deals_per_week:.2f}", help="Total Deals Reviewed / Total Deals Participated")
+col4.metric("AVG Deals/Week", f"{avg_deals_per_week:.2f}", help="Average deals per week from the last 30 days")
 col5.metric("Avg Deals/Day", f"{avg_deals_per_day:.2f}")
 col6.metric("Avg Deals/Month", f"{avg_deals_per_month:.1f}")
 
