@@ -543,7 +543,7 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                         st.write(f"- Monthly growth rate: {monthly_growth_rate*100:.1f}%")
                         if forecast_period == "Weekly":
                             weekly_rate = (1 + monthly_growth_rate) ** (1/4.33) - 1
-                            st.write(f"- Weekly growth rate: {weekly_rate*100:.2f}%")
+                            st.write(f"- Weekly growth rate: {weekly_rate*100:.1f}%")
                         
                         # Show first 5 periods
                         for i in range(min(5, len(forecast_df)-1)):

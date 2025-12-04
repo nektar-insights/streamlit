@@ -433,7 +433,7 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
             ),
             tooltip=[
                 alt.Tooltip("display_label:N", title="Industry"),
-                alt.Tooltip("actual_return_rate:Q", title="Return Rate", format=".2%"),
+                alt.Tooltip("actual_return_rate:Q", title="Return Rate", format=".1%"),
                 alt.Tooltip("deal_count:Q", title="Loan Count"),
             ],
         ).properties(width=350, height=400, title="Return Rate by Industry (Top 15)")
@@ -444,7 +444,7 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
     display_df["outstanding_balance"] = display_df["outstanding_balance"].map(lambda x: f"${x:,.0f}")
     display_df["pct_of_total_outstanding"] = display_df["pct_of_total_outstanding"].map(lambda x: f"{x:.1%}")
     display_df["avg_payment_performance"] = display_df["avg_payment_performance"].map(lambda x: f"{x:.1%}")
-    display_df["actual_return_rate"] = display_df["actual_return_rate"].map(lambda x: f"{x:.2%}")
+    display_df["actual_return_rate"] = display_df["actual_return_rate"].map(lambda x: f"{x:.1%}")
     display_df = display_df[["display_label", "deal_count", "outstanding_balance", "pct_of_total_outstanding", "avg_payment_performance", "actual_return_rate"]]
     display_df.columns = ["Industry (NAICS 2-Digit)", "Loan Count", "Outstanding Balance", "% of Total Outstanding", "Avg Payment Performance", "Actual Return Rate"]
     st.dataframe(display_df, use_container_width=True, hide_index=True)
@@ -533,7 +533,7 @@ def plot_fico_performance_analysis(df: pd.DataFrame):
         ),
         tooltip=[
             alt.Tooltip("fico_band:N", title="FICO Band"),
-            alt.Tooltip("actual_return_rate:Q", title="Return Rate", format=".2%"),
+            alt.Tooltip("actual_return_rate:Q", title="Return Rate", format=".1%"),
             alt.Tooltip("deal_count:Q", title="Loan Count"),
         ],
     ).properties(width=700, height=300, title="Actual Return Rate by FICO Score")
@@ -543,7 +543,7 @@ def plot_fico_performance_analysis(df: pd.DataFrame):
     display_df = fico_metrics.copy()
     display_df["outstanding_balance"] = display_df["outstanding_balance"].map(lambda x: f"${x:,.0f}")
     display_df["avg_payment_performance"] = display_df["avg_payment_performance"].map(lambda x: f"{x:.1%}")
-    display_df["actual_return_rate"] = display_df["actual_return_rate"].map(lambda x: f"{x:.2%}")
+    display_df["actual_return_rate"] = display_df["actual_return_rate"].map(lambda x: f"{x:.1%}")
     display_df["problem_rate"] = display_df["problem_rate"].map(lambda x: f"{x:.1%}")
     display_df = display_df[[
         "fico_band", "deal_count", "outstanding_balance",
@@ -636,7 +636,7 @@ def plot_tib_performance_analysis(df: pd.DataFrame):
         ),
         tooltip=[
             alt.Tooltip("tib_band:N", title="TIB Band"),
-            alt.Tooltip("actual_return_rate:Q", title="Return Rate", format=".2%"),
+            alt.Tooltip("actual_return_rate:Q", title="Return Rate", format=".1%"),
             alt.Tooltip("deal_count:Q", title="Loan Count"),
         ],
     ).properties(width=700, height=300, title="Actual Return Rate by Time in Business")
@@ -646,7 +646,7 @@ def plot_tib_performance_analysis(df: pd.DataFrame):
     display_df = tib_metrics.copy()
     display_df["outstanding_balance"] = display_df["outstanding_balance"].map(lambda x: f"${x:,.0f}")
     display_df["avg_payment_performance"] = display_df["avg_payment_performance"].map(lambda x: f"{x:.1%}")
-    display_df["actual_return_rate"] = display_df["actual_return_rate"].map(lambda x: f"{x:.2%}")
+    display_df["actual_return_rate"] = display_df["actual_return_rate"].map(lambda x: f"{x:.1%}")
     display_df["problem_rate"] = display_df["problem_rate"].map(lambda x: f"{x:.1%}")
     display_df = display_df[["tib_band", "deal_count", "outstanding_balance", "avg_payment_performance", "actual_return_rate", "problem_rate"]]
     display_df.columns = ["TIB Band", "Loan Count", "Outstanding Balance", "Avg Payment Performance", "Actual Return Rate", "Problem Loan Rate"]
@@ -675,7 +675,7 @@ def display_irr_analysis(df: pd.DataFrame):
     with col1:
         st.metric("Paid Off Loans with IRR", len(paid_off_with_irr))
     with col2:
-        st.metric("Simple Avg Realized IRR", f"{avg_realized_irr:.2%}" if pd.notnull(avg_realized_irr) else "N/A")
+        st.metric("Simple Avg Realized IRR", f"{avg_realized_irr:.1%}" if pd.notnull(avg_realized_irr) else "N/A")
 
 
 def plot_irr_by_partner(df: pd.DataFrame):
@@ -713,7 +713,7 @@ def plot_irr_by_partner(df: pd.DataFrame):
         ),
         tooltip=[
             alt.Tooltip("partner_source:N", title="Partner"),
-            alt.Tooltip("avg_irr:Q", title="Avg IRR", format=".2%"),
+            alt.Tooltip("avg_irr:Q", title="Avg IRR", format=".1%"),
             alt.Tooltip("loan_count:Q", title="Paid Off Loans"),
         ]
     ).properties(width=600, height=350, title="Average Realized IRR by Partner (Paid Off Loans, ≥2 loans)")

@@ -205,7 +205,7 @@ st.subheader("Deal Overview")
 col1, col2, col3 = st.columns(3)
 col1.metric("Total Deals", total_deals)
 col2.metric("Closed Won", len(closed_won))
-col3.metric("Close Ratio", f"{participation_ratio:.2%}")
+col3.metric("Close Ratio", f"{participation_ratio:.1%}")
 
 # Deal Flow Metrics
 st.write("**Deal Flow Averages (Entire Date Range)**")
@@ -242,7 +242,7 @@ col7.metric("Avg Total Funded", f"${avg_total_funded:,.0f}")
 col8.metric("Avg Factor", f"{avg_factor_all:.2f}")
 
 col9, col10 = st.columns(2)
-col9.metric("Avg Commission", f"{avg_commission_all:.2%}")
+col9.metric("Avg Commission", f"{avg_commission_all:.1%}")
 col10.metric("Avg Term (mo)", f"{avg_term_all:.1f}")
 
 st.subheader("Financial Performance")
@@ -252,8 +252,8 @@ col12.metric("Total Expected Return", f"${total_expected_return_sum:,.0f}")
 col13.metric("MOIC", f"{moic:.2f}")
 
 col14, col15, col16 = st.columns(3)
-col14.metric("Projected IRR", f"{projected_irr:.2%}")
-col15.metric("Avg % of Deal", f"{avg_participation_pct:.2%}")
+col14.metric("Projected IRR", f"{projected_irr:.1%}")
+col15.metric("Avg % of Deal", f"{avg_participation_pct:.1%}")
 col16.metric("Commission Paid", f"${total_commissions_paid:,.0f}")
 
 # Deal Characteristics
@@ -761,10 +761,10 @@ combined_summary_display = pd.DataFrame({
     "Partner": combined_summary["partner_source"],
     "Total Deals": combined_summary["total_deals"].astype(int),
     "CSL Deals": combined_summary["participated_deal_count"].astype(int),
-    "Deal Rate": combined_summary["deal_participation_rate"].apply(lambda x: f"{x:.2%}"),
+    "Deal Rate": combined_summary["deal_participation_rate"].apply(lambda x: f"{x:.1%}"),
     "Avg Deal Size": combined_summary["avg_deal_size"].apply(lambda x: f"${x:,.0f}"),
     "$ Participated": combined_summary["participated_amount"].apply(lambda x: f"${x:,.0f}"),
-    "% of Capital": combined_summary["pct_cap_deployed"].apply(lambda x: f"{x:.2%}"),
+    "% of Capital": combined_summary["pct_cap_deployed"].apply(lambda x: f"{x:.1%}"),
     "Avg Participation": combined_summary["avg_participation_size"].apply(lambda x: f"${x:,.0f}")
 })
 
