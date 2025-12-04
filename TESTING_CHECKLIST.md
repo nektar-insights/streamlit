@@ -327,15 +327,30 @@ Once testing is complete:
 ## 🏭 NAICS Sector Consolidation Feature
 
 ### Overview
-NAICS codes 31, 32, and 33 are all Manufacturing subsectors. This feature consolidates them into a single "31 - Manufacturing" classification for cleaner reporting and analytics.
+NAICS codes 31, 32, and 33 are all Manufacturing subsectors:
+- **31**: Food, Beverage, Tobacco, Textile Manufacturing
+- **32**: Wood, Paper, Printing, Petroleum, Chemical, Plastics Manufacturing
+- **33**: Primary Metal, Machinery, Computer, Electrical, Transportation Equipment Manufacturing
+
+This feature consolidates them into a single **"31 - Manufacturing"** classification for cleaner reporting and analytics.
 
 **Mapping:**
-- `32` → `31` (Manufacturing)
-- `33` → `31` (Manufacturing)
+- `31` → `31` (Manufacturing - canonical code)
+- `32` → `31` (Manufacturing - consolidated)
+- `33` → `31` (Manufacturing - consolidated)
+
+### Implementation Status: ✅ COMPLETE
 
 ### Files Modified
 - `utils/loan_tape_data.py`: Core consolidation logic and constants
-- `utils/loan_tape_analytics.py`: Applied consolidation to ML features and correlation analysis
+  - `NAICS_SECTOR_CONSOLIDATION` dict: maps 32→31, 33→31
+  - `NAICS_CONSOLIDATED_NAMES` dict: maps 31→"Manufacturing"
+  - `consolidate_sector_code()` function: applies mapping
+  - `prepare_loan_data()`: applies consolidation during data preparation
+- `utils/loan_tape_analytics.py`: Applied consolidation to all analytics
+  - `compute_correlations()`: uses consolidated sector codes
+  - `build_feature_matrix()`: uses consolidated sector codes for ML
+  - `calculate_industry_performance()`: groups by consolidated sector codes
 
 ### Test Cases
 
@@ -379,6 +394,36 @@ print("✅ NAICS consolidation function works correctly!")
 - Historical data is retroactively consolidated
 
 ### Edge Cases
-- [ ] Loans with no industry code (should handle gracefully)
-- [ ] Loans with invalid industry codes (should fallback to original code)
-- [ ] Mixed manufacturing codes in same cohort (should consolidate)
+- [x] Loans with no industry code (handled gracefully - returns original value)
+- [x] Loans with invalid industry codes (fallback to original code)
+- [x] Mixed manufacturing codes in same cohort (properly consolidated)
+
+### Canonical Consolidation Functions
+
+**Python:**
+```python
+# In utils/loan_tape_data.py
+def consolidate_sector_code(sector_code: str) -> str:
+    """Consolidate NAICS Manufacturing sectors 31, 32, 33 to unified '31'"""
+    if pd.isna(sector_code):
+        return sector_code
+    sector_str = str(sector_code).strip().zfill(2)
+    return NAICS_SECTOR_CONSOLIDATION.get(sector_str, sector_str)
+```
+
+**SQL equivalent:**
+```sql
+CASE WHEN naics_code IN ('31','32','33')
+     THEN 'Manufacturing'
+     ELSE naics_code
+END AS industry_category
+```
+
+### Verification Checklist
+- [x] `consolidate_sector_code("31")` returns `"31"`
+- [x] `consolidate_sector_code("32")` returns `"31"`
+- [x] `consolidate_sector_code("33")` returns `"31"`
+- [x] `consolidate_sector_code("44")` returns `"44"` (unchanged)
+- [x] Industry Performance Analysis shows unified "31 - Manufacturing"
+- [x] ML features use consolidated codes
+- [x] Loan Tape display shows "Manufacturing" for all 31/32/33 sectors
