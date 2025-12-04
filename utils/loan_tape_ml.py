@@ -460,7 +460,7 @@ def render_fico_tib_heatmap(df: pd.DataFrame):
         tooltip=[
             alt.Tooltip("fico_band:N", title="FICO"),
             alt.Tooltip("tib_band:N", title="TIB"),
-            alt.Tooltip("avg_perf:Q", title="Avg Performance", format=".2%"),
+            alt.Tooltip("avg_perf:Q", title="Avg Performance", format=".1%"),
             alt.Tooltip("n:Q", title="Count")
         ]
     ).properties(

@@ -70,7 +70,7 @@ def display_kpi_cards(
         with cols[i % columns]:
             if format_currency and isinstance(value, (int, float)):
                 if 'rate' in label.lower() or 'roi' in label.lower() or '%' in label.lower():
-                    formatted_value = f"{value:.2%}" if isinstance(value, float) else value
+                    formatted_value = f"{value:.1%}" if isinstance(value, float) else value
                 else:
                     formatted_value = f"${value:,.0f}"
             else:

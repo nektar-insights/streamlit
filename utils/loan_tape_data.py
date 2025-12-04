@@ -369,10 +369,10 @@ def calculate_irr(df: pd.DataFrame, schedules_df: Optional[pd.DataFrame] = None)
         result_df["realized_irr"] = result_df.apply(calc_realized_irr, axis=1)
         result_df["expected_irr"] = result_df.apply(calc_expected_irr, axis=1)
         result_df["realized_irr_pct"] = result_df["realized_irr"].apply(
-            lambda x: f"{x:.2%}" if pd.notnull(x) else "N/A"
+            lambda x: f"{x:.1%}" if pd.notnull(x) else "N/A"
         )
         result_df["expected_irr_pct"] = result_df["expected_irr"].apply(
-            lambda x: f"{x:.2%}" if pd.notnull(x) else "N/A"
+            lambda x: f"{x:.1%}" if pd.notnull(x) else "N/A"
         )
     except Exception as e:
         result_df["realized_irr"] = None
@@ -556,7 +556,7 @@ def format_dataframe_for_display(
     for col in display_df.select_dtypes(include=["float64", "float32"]).columns:
         col_upper = col.upper()
         if any(term in col_upper for term in ["ROI", "RATE", "PERCENTAGE", "PERFORMANCE", "IRR"]):
-            display_df[col] = display_df[col].map(lambda x: f"{x:.2%}" if pd.notnull(x) else "")
+            display_df[col] = display_df[col].map(lambda x: f"{x:.1%}" if pd.notnull(x) else "")
         elif any(term in col_upper for term in ["MATURITY", "MONTHS"]):
             display_df[col] = display_df[col].map(lambda x: f"{x:.1f}" if pd.notnull(x) else "")
         elif any(term in col_upper for term in ["CAPITAL", "INVESTED", "PAID", "BALANCE", "FEES"]):
