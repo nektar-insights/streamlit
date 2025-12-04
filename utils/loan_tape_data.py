@@ -87,6 +87,63 @@ def _normalize_loan_id(series: pd.Series) -> pd.Series:
     return result
 
 
+def calculate_payment_velocity(row) -> dict:
+    """
+    Calculate payment velocity metrics for a loan.
+
+    Returns dict with:
+        - daily_velocity: Average daily payment amount
+        - projected_payoff_days: Estimated days to full payoff
+        - projected_payoff_date: Estimated payoff date
+        - is_stalled: True if no payments in 30+ days
+    """
+    result = {
+        "daily_velocity": 0.0,
+        "projected_payoff_days": None,
+        "projected_payoff_date": None,
+        "is_stalled": False,
+    }
+
+    total_paid = float(row.get("total_paid", 0) or 0)
+    our_rtr = float(row.get("our_rtr", 0) or 0)
+    funding_date = row.get("funding_date")
+
+    if pd.isna(funding_date) or our_rtr <= 0:
+        return result
+
+    try:
+        funding_date = pd.to_datetime(funding_date).tz_localize(None)
+        today = pd.Timestamp.today().tz_localize(None)
+        days_since_funding = (today - funding_date).days
+
+        if days_since_funding <= 0:
+            return result
+
+        # Calculate daily payment velocity
+        daily_velocity = total_paid / days_since_funding if days_since_funding > 0 else 0
+        result["daily_velocity"] = daily_velocity
+
+        # Calculate remaining balance and projected payoff
+        remaining = our_rtr - total_paid
+
+        if remaining <= 0:
+            # Already paid off
+            result["projected_payoff_days"] = 0
+            result["projected_payoff_date"] = today
+        elif daily_velocity > 0:
+            days_to_payoff = remaining / daily_velocity
+            result["projected_payoff_days"] = days_to_payoff
+            result["projected_payoff_date"] = today + pd.Timedelta(days=days_to_payoff)
+        else:
+            # No payments = stalled
+            result["is_stalled"] = True
+
+        return result
+
+    except Exception:
+        return result
+
+
 def prepare_loan_data(loans_df: pd.DataFrame, deals_df: pd.DataFrame) -> pd.DataFrame:
     """
     Merge loan summaries with deal data and derive calculated fields.
@@ -147,16 +204,52 @@ def prepare_loan_data(loans_df: pd.DataFrame, deals_df: pd.DataFrame) -> pd.Data
     except:
         df["days_since_funding"] = 0
 
-    # Months left to maturity
+    # =========================================================================
+    # ENHANCED: Remaining maturity calculation with payment velocity
+    # =========================================================================
     df["remaining_maturity_months"] = 0.0
+    df["projected_payoff_date"] = pd.NaT
+    df["is_past_maturity"] = False
+    df["is_stalled"] = False
+
     try:
         if "maturity_date" in df.columns:
             today = pd.Timestamp.today().tz_localize(None)
-            active_mask = (df.get("loan_status", "") != "Paid Off") & (df["maturity_date"] > today)
-            df.loc[active_mask, "remaining_maturity_months"] = df.loc[active_mask, "maturity_date"].apply(
+
+            # Identify loans past maturity
+            df["is_past_maturity"] = (
+                (df.get("loan_status", "") != "Paid Off") &
+                (df["maturity_date"].notna()) &
+                (df["maturity_date"] < today)
+            )
+
+            # For loans NOT past maturity: use original calculation
+            active_not_past = (
+                (df.get("loan_status", "") != "Paid Off") &
+                (df["maturity_date"].notna()) &
+                (df["maturity_date"] > today)
+            )
+            df.loc[active_not_past, "remaining_maturity_months"] = df.loc[active_not_past, "maturity_date"].apply(
                 lambda x: (pd.to_datetime(x).tz_localize(None) - today).days / 30 if pd.notnull(x) else 0
             )
-    except:
+            df.loc[active_not_past, "projected_payoff_date"] = df.loc[active_not_past, "maturity_date"]
+
+            # For loans PAST maturity: calculate based on payment velocity
+            past_maturity_mask = df["is_past_maturity"]
+            if past_maturity_mask.any():
+                velocity_results = df.loc[past_maturity_mask].apply(calculate_payment_velocity, axis=1)
+                velocity_df = pd.DataFrame(velocity_results.tolist(), index=velocity_results.index)
+
+                # Update projected payoff date
+                df.loc[past_maturity_mask, "projected_payoff_date"] = velocity_df["projected_payoff_date"]
+                df.loc[past_maturity_mask, "is_stalled"] = velocity_df["is_stalled"]
+
+                # Calculate remaining months from projected payoff
+                df.loc[past_maturity_mask, "remaining_maturity_months"] = velocity_df["projected_payoff_days"].apply(
+                    lambda x: x / 30 if pd.notnull(x) and x > 0 else 0
+                )
+    except Exception as e:
+        print(f"Error calculating remaining maturity: {e}")
         pass
 
     # Cohort analysis fields
@@ -492,13 +585,57 @@ def calculate_risk_scores(df: pd.DataFrame) -> pd.DataFrame:
     # Apply status multipliers
     risk_df["status_multiplier"] = risk_df["loan_status"].map(STATUS_RISK_MULTIPLIERS).fillna(1.0)
 
-    # Calculate overdue factor
+    # Calculate overdue factor - ADJUSTED for payment progress
     today = pd.Timestamp.today().tz_localize(None)
     risk_df["days_past_maturity"] = risk_df["maturity_date"].apply(
         lambda x: max(0, (today - pd.to_datetime(x)).days) if pd.notnull(x) else 0
     )
-    # Clamp at 12 months past due
-    risk_df["overdue_factor"] = (risk_df["days_past_maturity"] / 30).clip(upper=12) / 12
+
+    # NEW: Only penalize if payment performance is lagging
+    # If loan is 90%+ paid, don't penalize for being past maturity
+    risk_df["overdue_factor"] = 0.0
+
+    # Loans performing well (>=90% paid) get no overdue penalty
+    performing_well = risk_df["payment_performance"] >= 0.90
+
+    # Loans underperforming get scaled penalty based on shortfall
+    underperforming = ~performing_well & (risk_df["days_past_maturity"] > 0)
+
+    if underperforming.any():
+        # Calculate expected progress based on time elapsed
+        risk_df.loc[underperforming, "days_since_funding"] = risk_df.loc[underperforming, "funding_date"].apply(
+            lambda x: (today - pd.to_datetime(x).tz_localize(None)).days if pd.notnull(x) else 0
+        )
+
+        # Original term in days (funding to maturity)
+        risk_df.loc[underperforming, "original_term_days"] = risk_df.loc[underperforming].apply(
+            lambda row: (pd.to_datetime(row["maturity_date"]).tz_localize(None) -
+                        pd.to_datetime(row["funding_date"]).tz_localize(None)).days
+            if pd.notnull(row["maturity_date"]) and pd.notnull(row["funding_date"]) else 1,
+            axis=1
+        )
+
+        # Expected progress (capped at 100%)
+        risk_df.loc[underperforming, "expected_progress"] = (
+            risk_df.loc[underperforming, "days_since_funding"] /
+            risk_df.loc[underperforming, "original_term_days"].replace(0, 1)
+        ).clip(upper=1.0)
+
+        # Shortfall = how far behind they are vs expected
+        risk_df.loc[underperforming, "payment_shortfall"] = (
+            risk_df.loc[underperforming, "expected_progress"] -
+            risk_df.loc[underperforming, "payment_performance"]
+        ).clip(lower=0)
+
+        # Overdue factor scales with shortfall and time past maturity
+        risk_df.loc[underperforming, "overdue_factor"] = (
+            risk_df.loc[underperforming, "payment_shortfall"] *
+            (1 + risk_df.loc[underperforming, "days_past_maturity"] / 365)
+        ).clip(upper=1.0)
+
+    # Clean up temp columns
+    temp_cols = ["days_since_funding", "original_term_days", "expected_progress", "payment_shortfall"]
+    risk_df = risk_df.drop(columns=[c for c in temp_cols if c in risk_df.columns], errors="ignore")
 
     # Calculate final risk score
     risk_df["risk_score"] = (
@@ -520,33 +657,67 @@ def calculate_expected_payment_to_date(row) -> float:
     """
     Calculate expected payment amount to date based on loan progression.
 
+    ENHANCED: For loans past maturity that are still paying, uses payment
+    velocity to determine if they're on track rather than expecting 100%.
+
     Args:
-        row: DataFrame row with funding_date, maturity_date, and our_rtr
+        row: DataFrame row with funding_date, maturity_date, our_rtr, total_paid
 
     Returns:
         float: Expected payment amount to current date
     """
-    if pd.isna(row.get("funding_date")) or pd.isna(row.get("maturity_date")) or pd.isna(row.get("our_rtr")):
+    if pd.isna(row.get("funding_date")) or pd.isna(row.get("our_rtr")):
         return 0.0
+
     try:
         funding_date = pd.to_datetime(row["funding_date"]).tz_localize(None)
-        maturity_date = pd.to_datetime(row["maturity_date"]).tz_localize(None)
+        maturity_date = pd.to_datetime(row.get("maturity_date")).tz_localize(None) if pd.notnull(row.get("maturity_date")) else None
         today = pd.Timestamp.today().tz_localize(None)
+        our_rtr = float(row["our_rtr"])
+        total_paid = float(row.get("total_paid", 0) or 0)
 
-        # If matured, expect full payment
-        if today >= maturity_date:
-            return float(row["our_rtr"])
+        # Case 1: No maturity date - use simple time-based pro-rating
+        if maturity_date is None:
+            return our_rtr  # Expect full payment if no maturity info
 
-        # Calculate pro-rated expected payment
-        total_days = (maturity_date - funding_date).days
-        days_elapsed = (today - funding_date).days
+        # Case 2: Before maturity - standard pro-rating
+        if today < maturity_date:
+            total_days = (maturity_date - funding_date).days
+            days_elapsed = (today - funding_date).days
 
-        if total_days <= 0:
-            return 0.0
+            if total_days <= 0:
+                return 0.0
 
-        expected_pct = min(1.0, max(0.0, days_elapsed / total_days))
-        return float(row["our_rtr"]) * expected_pct
-    except:
+            expected_pct = min(1.0, max(0.0, days_elapsed / total_days))
+            return our_rtr * expected_pct
+
+        # Case 3: Past maturity - check if loan is performing well
+        payment_performance = total_paid / our_rtr if our_rtr > 0 else 0
+
+        # If 90%+ paid, they're almost done - expect full amount
+        if payment_performance >= 0.90:
+            return our_rtr
+
+        # If actively paying (has velocity), calculate expected based on trajectory
+        days_since_funding = (today - funding_date).days
+        if days_since_funding > 0 and total_paid > 0:
+            daily_velocity = total_paid / days_since_funding
+
+            # Project where they "should" be based on original term
+            original_term_days = (maturity_date - funding_date).days
+            if original_term_days > 0:
+                # Expected daily rate to hit target on time
+                expected_daily = our_rtr / original_term_days
+
+                # If paying at >= 80% of expected rate, they're on track (extended)
+                if daily_velocity >= expected_daily * 0.80:
+                    # Pro-rate based on their actual velocity
+                    return min(our_rtr, total_paid * 1.1)  # Expect 10% more than current
+
+        # Default: expect full payment for severely past-due loans
+        return our_rtr
+
+    except Exception:
         return 0.0
 
 
