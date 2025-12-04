@@ -35,7 +35,7 @@ FEATURE_DISPLAY_NAMES = {
     "days_since_funding": "Days Since Funding",
     "risk_score": "Calculated Risk Score",
     # New features for Current Risk Model
-    "position": "Lien Position (0=1st)",
+    "ahead_positions": "Positions Ahead (0=1st Lien)",
     "factor_rate": "Factor Rate",
     "effective_yield": "Effective Yield (Factor - Fees)",
     "payment_performance": "Payment Performance %",
@@ -331,12 +331,13 @@ def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
         pd.DataFrame: Feature matrix ready for ML models
     """
     # Start with core numeric features
+    # Note: ahead_positions from HubSpot = number of positions ahead (0=1st lien, 1=2nd, etc.)
     X = pd.DataFrame({
         "fico": pd.to_numeric(df.get("fico"), errors="coerce"),
         "tib": pd.to_numeric(df.get("tib"), errors="coerce"),
         "total_invested": pd.to_numeric(df.get("total_invested"), errors="coerce"),
         "net_balance": pd.to_numeric(df.get("net_balance"), errors="coerce"),
-        "position": pd.to_numeric(df.get("position"), errors="coerce"),
+        "ahead_positions": pd.to_numeric(df.get("ahead_positions"), errors="coerce"),
     })
 
     # Add sector risk score
