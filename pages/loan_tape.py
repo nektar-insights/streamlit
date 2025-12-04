@@ -149,6 +149,160 @@ def plot_roi_distribution(df: pd.DataFrame):
     st.altair_chart(chart, use_container_width=True)
 
 
+def plot_fico_histogram(df: pd.DataFrame):
+    """Plot FICO score distribution histogram"""
+    if "fico" not in df.columns:
+        st.info("FICO data not available")
+        return
+
+    fico_data = df[df["fico"].notna() & (df["fico"] > 0)].copy()
+
+    if fico_data.empty:
+        st.info("No FICO data available for visualization")
+        return
+
+    chart = alt.Chart(fico_data).mark_bar().encode(
+        alt.X("fico:Q", bin=alt.Bin(maxbins=25), title="FICO Score"),
+        y=alt.Y("count():Q", title="Number of Loans"),
+        color=alt.value(PRIMARY_COLOR),
+        tooltip=[
+            alt.Tooltip("fico:Q", title="FICO", bin=True),
+            alt.Tooltip("count():Q", title="Count"),
+        ]
+    ).properties(height=300, title="FICO Score Distribution")
+
+    st.altair_chart(chart, use_container_width=True)
+
+
+def plot_factor_histogram(df: pd.DataFrame):
+    """Plot Factor Rate distribution histogram"""
+    if "factor_rate" not in df.columns:
+        st.info("Factor Rate data not available")
+        return
+
+    factor_data = df[df["factor_rate"].notna() & (df["factor_rate"] > 0)].copy()
+
+    if factor_data.empty:
+        st.info("No Factor Rate data available for visualization")
+        return
+
+    chart = alt.Chart(factor_data).mark_bar().encode(
+        alt.X("factor_rate:Q", bin=alt.Bin(maxbins=25), title="Factor Rate"),
+        y=alt.Y("count():Q", title="Number of Loans"),
+        color=alt.value(PRIMARY_COLOR),
+        tooltip=[
+            alt.Tooltip("factor_rate:Q", title="Factor", format=".3f", bin=True),
+            alt.Tooltip("count():Q", title="Count"),
+        ]
+    ).properties(height=300, title="Factor Rate Distribution")
+
+    st.altair_chart(chart, use_container_width=True)
+
+
+def plot_term_histogram(df: pd.DataFrame):
+    """Plot Loan Term distribution histogram"""
+    if "loan_term" not in df.columns:
+        st.info("Loan Term data not available")
+        return
+
+    term_data = df[df["loan_term"].notna() & (df["loan_term"] > 0)].copy()
+
+    if term_data.empty:
+        st.info("No Loan Term data available for visualization")
+        return
+
+    chart = alt.Chart(term_data).mark_bar().encode(
+        alt.X("loan_term:Q", bin=alt.Bin(maxbins=20), title="Term (months)"),
+        y=alt.Y("count():Q", title="Number of Loans"),
+        color=alt.value(PRIMARY_COLOR),
+        tooltip=[
+            alt.Tooltip("loan_term:Q", title="Term (months)", format=".0f", bin=True),
+            alt.Tooltip("count():Q", title="Count"),
+        ]
+    ).properties(height=300, title="Loan Term Distribution")
+
+    st.altair_chart(chart, use_container_width=True)
+
+
+def plot_months_left_histogram(df: pd.DataFrame):
+    """Plot Remaining Months distribution histogram"""
+    if "remaining_maturity_months" not in df.columns:
+        st.info("Months Left data not available")
+        return
+
+    # Filter to active loans with positive remaining months
+    active_df = df[(df["loan_status"] != "Paid Off") & (df["remaining_maturity_months"] > 0)].copy()
+
+    if active_df.empty:
+        st.info("No active loans with remaining months for visualization")
+        return
+
+    chart = alt.Chart(active_df).mark_bar().encode(
+        alt.X("remaining_maturity_months:Q", bin=alt.Bin(maxbins=20), title="Months Left"),
+        y=alt.Y("count():Q", title="Number of Loans"),
+        color=alt.value(PRIMARY_COLOR),
+        tooltip=[
+            alt.Tooltip("remaining_maturity_months:Q", title="Months Left", format=".0f", bin=True),
+            alt.Tooltip("count():Q", title="Count"),
+        ]
+    ).properties(height=300, title="Remaining Months Distribution (Active Loans)")
+
+    st.altair_chart(chart, use_container_width=True)
+
+
+def plot_csl_participation_histogram(df: pd.DataFrame):
+    """Plot CSL Participation Amount distribution histogram"""
+    if "csl_participation_amount" not in df.columns:
+        st.info("CSL Participation data not available")
+        return
+
+    csl_data = df[df["csl_participation_amount"].notna() & (df["csl_participation_amount"] > 0)].copy()
+
+    if csl_data.empty:
+        st.info("No CSL Participation data available for visualization")
+        return
+
+    chart = alt.Chart(csl_data).mark_bar().encode(
+        alt.X("csl_participation_amount:Q", bin=alt.Bin(maxbins=25), title="CSL Participation ($)"),
+        y=alt.Y("count():Q", title="Number of Loans"),
+        color=alt.value(PRIMARY_COLOR),
+        tooltip=[
+            alt.Tooltip("csl_participation_amount:Q", title="Participation", format="$,.0f", bin=True),
+            alt.Tooltip("count():Q", title="Count"),
+        ]
+    ).properties(height=300, title="CSL Participation Distribution")
+
+    st.altair_chart(chart, use_container_width=True)
+
+
+def plot_tib_histogram(df: pd.DataFrame):
+    """Plot Time in Business distribution histogram (capped at 50 years)"""
+    if "tib" not in df.columns:
+        st.info("TIB data not available")
+        return
+
+    tib_data = df[df["tib"].notna() & (df["tib"] > 0)].copy()
+
+    if tib_data.empty:
+        st.info("No TIB data available for visualization")
+        return
+
+    # Cap TIB at 50 years
+    tib_data["tib_capped"] = tib_data["tib"].clip(upper=50)
+
+    chart = alt.Chart(tib_data).mark_bar().encode(
+        alt.X("tib_capped:Q", bin=alt.Bin(maxbins=25), title="Time in Business (Years, capped at 50)"),
+        y=alt.Y("count():Q", title="Number of Loans"),
+        color=alt.value(PRIMARY_COLOR),
+        tooltip=[
+            alt.Tooltip("tib_capped:Q", title="TIB (Years)", format=".1f", bin=True),
+            alt.Tooltip("count():Q", title="Count"),
+        ]
+    ).properties(height=300, title="Time in Business Distribution")
+
+    st.altair_chart(chart, use_container_width=True)
+
+
 def plot_capital_flow(df: pd.DataFrame):
     """Plot capital deployment vs returns over time"""
     st.subheader("Capital Flow: Deployment vs. Returns")
@@ -810,6 +964,31 @@ def main():
         st.markdown("---")
         st.subheader("ROI Distribution by Loan")
         plot_roi_distribution(filtered_df)
+
+        # Portfolio Distribution Histograms
+        st.markdown("---")
+        st.subheader("Portfolio Distributions")
+
+        # Row 1: FICO and Factor Rate
+        hist_col1, hist_col2 = st.columns(2)
+        with hist_col1:
+            plot_fico_histogram(filtered_df)
+        with hist_col2:
+            plot_factor_histogram(filtered_df)
+
+        # Row 2: Term and Months Left
+        hist_col3, hist_col4 = st.columns(2)
+        with hist_col3:
+            plot_term_histogram(filtered_df)
+        with hist_col4:
+            plot_months_left_histogram(filtered_df)
+
+        # Row 3: CSL Participation and TIB
+        hist_col5, hist_col6 = st.columns(2)
+        with hist_col5:
+            plot_csl_participation_histogram(filtered_df)
+        with hist_col6:
+            plot_tib_histogram(filtered_df)
 
     with tabs[1]:
         st.header("Capital Flow Analysis")
