@@ -604,49 +604,7 @@ monthly_participation_ratio_dollar["participation_pct_dollar"] = (
 ).fillna(0)
 monthly_participation_ratio_dollar["month_date"] = pd.to_datetime(monthly_participation_ratio_dollar["month"])
 
-# ----------------------------
-# MONTHLY PARTICIPATION RATE CHART (COUNT-BASED)
-# ----------------------------
-st.subheader("Monthly Participation Rate by Deal Count")
-rate_line = alt.Chart(monthly_participation_ratio).mark_line(
-    color="#e45756", strokeWidth=4,
-    point=alt.OverlayMarkDef(color="#e45756", size=80, filled=True)
-).encode(
-    x=alt.X("yearmonth(month_date):T", title="Month",
-            axis=alt.Axis(labelAngle=-45, format="%b %Y", labelPadding=10), sort="ascending"),
-    y=alt.Y("participation_pct:Q", title="Participation Rate (by Count)",
-            axis=alt.Axis(format=".0%", titlePadding=20, labelPadding=5)),
-    tooltip=[
-        alt.Tooltip("yearmonth(month_date):T", title="Month", format="%B %Y"),
-        alt.Tooltip("participation_pct:Q", title="Participation Rate", format=".1%")
-    ]
-).properties(height=350, width=800, padding={"left": 80, "top": 20, "right": 20, "bottom": 60})
-
-st.altair_chart(rate_line, use_container_width=True)
-
-# ----------------------------
-# MONTHLY PARTICIPATION RATE CHART (DOLLAR-BASED)
-# ----------------------------
-st.subheader("Monthly Participation Rate by Dollar Amount")
-rate_line_dollar = alt.Chart(monthly_participation_ratio_dollar).mark_line(
-    color="#17a2b8", strokeWidth=4,
-    point=alt.OverlayMarkDef(color="#17a2b8", size=80, filled=True)
-).encode(
-    x=alt.X("yearmonth(month_date):T", title="Month",
-            axis=alt.Axis(labelAngle=-45, format="%b %Y", labelPadding=10), sort="ascending"),
-    y=alt.Y("participation_pct_dollar:Q", title="Participation Rate (by $)",
-            axis=alt.Axis(format=".0%", titlePadding=20, labelPadding=5)),
-    tooltip=[
-        alt.Tooltip("yearmonth(month_date):T", title="Month", format="%B %Y"),
-        alt.Tooltip("participation_pct_dollar:Q", title="Participation Rate ($)", format=".1%"),
-        alt.Tooltip("total_funded_amount:Q", title="Total Opportunities", format="$,.0f"),
-        alt.Tooltip("participated_amount:Q", title="Amount Participated", format="$,.0f")
-    ]
-).properties(height=350, width=800, padding={"left": 80, "top": 20, "right": 20, "bottom": 60})
-
-st.altair_chart(rate_line_dollar, use_container_width=True)
-
-# ===================== MONTHLY TREND CHARTS (WORKING) =====================
+# ===================== MONTHLY TREND CHARTS =====================
 
 # Small helper for the dashed average rule
 def _avg_rule(df_, field, title, fmt):
@@ -660,7 +618,7 @@ def _avg_rule(df_, field, title, fmt):
         )
     )
 
-# Generic renderer used by all three charts
+# Generic renderer used by monthly line charts
 def _render_monthly_line(df_, y_field, y_title, fmt, color):
     df_ = (
         df_.copy()
@@ -692,17 +650,11 @@ def _render_monthly_line(df_, y_field, y_title, fmt, color):
         use_container_width=True,
     )
 
-# 1) Total Funded Amount by Month
-st.subheader("Total Funded Amount by Month")
-_render_monthly_line(
-    monthly_funded,
-    y_field="total_funded_amount",
-    y_title="Total Funded ($)",
-    fmt="$,.0f",
-    color=PRIMARY_COLOR,
-)
+# ----------------------------
+# MONTHLY VOLUME CHARTS
+# ----------------------------
 
-# 2) Total Deal Count by Month
+# 1) Total Deal Count by Month
 st.subheader("Total Deal Count by Month")
 _render_monthly_line(
     monthly_deals,
@@ -712,8 +664,32 @@ _render_monthly_line(
     color=COLOR_PALETTE[2],
 )
 
-# 3) Participation Trends by Month (by deal count)
-st.subheader("Participation Trends by Month")
+# 2) Total Funded Amount by Month (Total Opportunity Value)
+st.subheader("Total Funded Amount by Month")
+_render_monthly_line(
+    monthly_funded,
+    y_field="total_funded_amount",
+    y_title="Total Funded ($)",
+    fmt="$,.0f",
+    color=PRIMARY_COLOR,
+)
+
+# ----------------------------
+# CSL DEPLOYMENT CHARTS
+# ----------------------------
+
+# 3) Total Amount Deployed by Month (CSL Capital Deployed)
+st.subheader("Total Amount Deployed by Month")
+_render_monthly_line(
+    monthly_participation,
+    y_field="total_amount",
+    y_title="Amount Deployed ($)",
+    fmt="$,.0f",
+    color=COLOR_PALETTE[6],  # Teal
+)
+
+# 4) Participated Deal Count by Month
+st.subheader("Participated Deal Count by Month")
 _render_monthly_line(
     monthly_participation,
     y_field="deal_count",
@@ -721,6 +697,48 @@ _render_monthly_line(
     fmt=",.0f",
     color=PRIMARY_COLOR,
 )
+
+# ----------------------------
+# PARTICIPATION RATE CHARTS
+# ----------------------------
+
+# 5) Monthly Participation Rate by Deal Count
+st.subheader("Monthly Participation Rate by Deal Count")
+rate_line = alt.Chart(monthly_participation_ratio).mark_line(
+    color="#e45756", strokeWidth=4,
+    point=alt.OverlayMarkDef(color="#e45756", size=80, filled=True)
+).encode(
+    x=alt.X("yearmonth(month_date):T", title="Month",
+            axis=alt.Axis(labelAngle=-45, format="%b %Y", labelPadding=10), sort="ascending"),
+    y=alt.Y("participation_pct:Q", title="Participation Rate (by Count)",
+            axis=alt.Axis(format=".0%", titlePadding=20, labelPadding=5)),
+    tooltip=[
+        alt.Tooltip("yearmonth(month_date):T", title="Month", format="%B %Y"),
+        alt.Tooltip("participation_pct:Q", title="Participation Rate", format=".1%")
+    ]
+).properties(height=350, width=800, padding={"left": 80, "top": 20, "right": 20, "bottom": 60})
+
+st.altair_chart(rate_line, use_container_width=True)
+
+# 6) Monthly Participation Rate by Dollar Amount
+st.subheader("Monthly Participation Rate by Dollar Amount")
+rate_line_dollar = alt.Chart(monthly_participation_ratio_dollar).mark_line(
+    color="#17a2b8", strokeWidth=4,
+    point=alt.OverlayMarkDef(color="#17a2b8", size=80, filled=True)
+).encode(
+    x=alt.X("yearmonth(month_date):T", title="Month",
+            axis=alt.Axis(labelAngle=-45, format="%b %Y", labelPadding=10), sort="ascending"),
+    y=alt.Y("participation_pct_dollar:Q", title="Participation Rate (by $)",
+            axis=alt.Axis(format=".0%", titlePadding=20, labelPadding=5)),
+    tooltip=[
+        alt.Tooltip("yearmonth(month_date):T", title="Month", format="%B %Y"),
+        alt.Tooltip("participation_pct_dollar:Q", title="Participation Rate ($)", format=".1%"),
+        alt.Tooltip("total_funded_amount:Q", title="Total Opportunities", format="$,.0f"),
+        alt.Tooltip("participated_amount:Q", title="Amount Participated", format="$,.0f")
+    ]
+).properties(height=350, width=800, padding={"left": 80, "top": 20, "right": 20, "bottom": 60})
+
+st.altair_chart(rate_line_dollar, use_container_width=True)
 # ----------------------------
 # PARTNER SUMMARY TABLES
 # ----------------------------
