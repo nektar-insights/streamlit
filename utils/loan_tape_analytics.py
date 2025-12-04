@@ -36,10 +36,20 @@ FEATURE_DISPLAY_NAMES = {
     "risk_score": "Calculated Risk Score",
     # New features for Current Risk Model
     "ahead_positions": "Positions Ahead (0=1st Lien)",
+    "position": "Lien Position",
     "factor_rate": "Factor Rate",
     "effective_yield": "Effective Yield (Factor - Fees)",
     "payment_performance": "Payment Performance %",
     "pct_term_elapsed": "% of Term Elapsed",
+    # Payment behavior features (from loan_schedules)
+    "total_due_payments": "Total Due Payments",
+    "pct_on_time": "On-Time Payment Rate",
+    "pct_late": "Late Payment Rate",
+    "pct_missed": "Missed Payment Rate",
+    "pct_partial": "Partial Payment Rate",
+    "consecutive_missed": "Consecutive Missed Payments",
+    "days_since_last_payment": "Days Since Last Payment",
+    "avg_payment_variance": "Avg Payment Variance",
     # Categorical features (one-hot encoded names)
     "industry": "Industry (NAICS)",
     "partner_source": "Partner Source",
@@ -317,38 +327,178 @@ def compute_correlations(base_df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
+def get_payment_behavior_features(schedules_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Aggregate loan_schedules to loan-level behavioral features.
+
+    Only considers DUE payments (payment_date <= today), not future scheduled.
+
+    Args:
+        schedules_df: DataFrame with loan payment schedules containing columns:
+            - loan_id, payment_date, expected_payment, actual_payment
+            - status: "Paid", "Paid Late", "Partial", "Missed", "Scheduled"
+            - payment_difference (actual - expected)
+
+    Returns:
+        DataFrame with columns:
+        - loan_id
+        - total_due_payments: count of payments that were due
+        - pct_on_time: % of due payments with status "Paid"
+        - pct_late: % with status "Paid Late"
+        - pct_missed: % with status "Missed"
+        - pct_partial: % with status "Partial"
+        - consecutive_missed: current streak of missed payments (0 if last was paid)
+        - days_since_last_payment: days since most recent actual payment
+        - avg_payment_variance: mean of (actual - expected) / expected
+    """
+    if schedules_df.empty:
+        return pd.DataFrame(columns=[
+            "loan_id", "total_due_payments", "pct_on_time", "pct_late",
+            "pct_missed", "pct_partial", "consecutive_missed",
+            "days_since_last_payment", "avg_payment_variance"
+        ])
+
+    df = schedules_df.copy()
+
+    # Normalize loan_id
+    df["loan_id"] = df["loan_id"].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+
+    # Parse dates and filter to due payments only (payment_date <= today)
+    df["payment_date"] = pd.to_datetime(df["payment_date"], errors="coerce")
+    today = pd.Timestamp.today().tz_localize(None)
+
+    # Normalize payment_date to tz-naive if needed
+    if df["payment_date"].dt.tz is not None:
+        df["payment_date"] = df["payment_date"].dt.tz_localize(None)
+
+    # Filter to payments that are due (not future scheduled)
+    due_mask = df["payment_date"].notna() & (df["payment_date"] <= today)
+    due_df = df[due_mask].copy()
+
+    if due_df.empty:
+        return pd.DataFrame(columns=[
+            "loan_id", "total_due_payments", "pct_on_time", "pct_late",
+            "pct_missed", "pct_partial", "consecutive_missed",
+            "days_since_last_payment", "avg_payment_variance"
+        ])
+
+    # Normalize numeric columns
+    due_df["expected_payment"] = pd.to_numeric(due_df.get("expected_payment"), errors="coerce")
+    due_df["actual_payment"] = pd.to_numeric(due_df.get("actual_payment"), errors="coerce")
+
+    # Normalize status column
+    if "status" in due_df.columns:
+        due_df["status"] = due_df["status"].astype(str).str.strip()
+    else:
+        # Create status from actual vs expected if not available
+        due_df["status"] = "Unknown"
+
+    # Calculate status percentages per loan
+    def calc_loan_features(group):
+        total = len(group)
+        if total == 0:
+            return pd.Series({
+                "total_due_payments": 0,
+                "pct_on_time": 0.0,
+                "pct_late": 0.0,
+                "pct_missed": 0.0,
+                "pct_partial": 0.0,
+                "consecutive_missed": 0,
+                "days_since_last_payment": np.nan,
+                "avg_payment_variance": 0.0,
+            })
+
+        # Calculate percentage of each status
+        status_counts = group["status"].value_counts()
+        pct_on_time = status_counts.get("Paid", 0) / total
+        pct_late = status_counts.get("Paid Late", 0) / total
+        pct_missed = status_counts.get("Missed", 0) / total
+        pct_partial = status_counts.get("Partial", 0) / total
+
+        # Calculate consecutive missed payments (from most recent)
+        sorted_group = group.sort_values("payment_date", ascending=False)
+        consecutive_missed = 0
+        for _, row in sorted_group.iterrows():
+            if row["status"] == "Missed":
+                consecutive_missed += 1
+            else:
+                break
+
+        # Days since last actual payment
+        paid_payments = group[group["actual_payment"].notna() & (group["actual_payment"] > 0)]
+        if not paid_payments.empty:
+            last_payment_date = paid_payments["payment_date"].max()
+            days_since_last_payment = (today - last_payment_date).days
+        else:
+            days_since_last_payment = np.nan
+
+        # Average payment variance: (actual - expected) / expected
+        variance_mask = (group["expected_payment"].notna() &
+                        (group["expected_payment"] > 0) &
+                        group["actual_payment"].notna())
+        variance_group = group[variance_mask]
+        if not variance_group.empty:
+            variance = (variance_group["actual_payment"] - variance_group["expected_payment"]) / variance_group["expected_payment"]
+            avg_payment_variance = variance.mean()
+        else:
+            avg_payment_variance = 0.0
+
+        return pd.Series({
+            "total_due_payments": total,
+            "pct_on_time": pct_on_time,
+            "pct_late": pct_late,
+            "pct_missed": pct_missed,
+            "pct_partial": pct_partial,
+            "consecutive_missed": consecutive_missed,
+            "days_since_last_payment": days_since_last_payment,
+            "avg_payment_variance": avg_payment_variance,
+        })
+
+    result = due_df.groupby("loan_id").apply(calc_loan_features).reset_index()
+
+    return result
+
+
+def build_feature_matrix(
+    df: pd.DataFrame,
+    schedules_df: Optional[pd.DataFrame] = None,
+    model_type: str = "origination"
+) -> pd.DataFrame:
     """
     Build feature matrix for machine learning models.
 
     Creates a standardized feature set including numeric fields,
-    sector risk scores, and categorical variables.
+    sector risk scores, and categorical variables. For current_risk models,
+    also includes payment behavior features from loan schedules.
 
     Args:
         df: DataFrame with loan data
+        schedules_df: Optional DataFrame with payment schedules (required for model_type="current_risk")
+        model_type: Type of model - "origination" (default) or "current_risk"
+            - "origination": Only uses features available at loan origination
+            - "current_risk": Includes payment behavior features for active loan risk assessment
 
     Returns:
         pd.DataFrame: Feature matrix ready for ML models
     """
-    # Start with core numeric features
+    # Start with core numeric features (origination features)
     # Note: ahead_positions from HubSpot = number of positions ahead (0=1st lien, 1=2nd, etc.)
     X = pd.DataFrame({
         "fico": pd.to_numeric(df.get("fico"), errors="coerce"),
         "tib": pd.to_numeric(df.get("tib"), errors="coerce"),
         "total_invested": pd.to_numeric(df.get("total_invested"), errors="coerce"),
-        "net_balance": pd.to_numeric(df.get("net_balance"), errors="coerce"),
         "ahead_positions": pd.to_numeric(df.get("ahead_positions"), errors="coerce"),
     })
+
+    # Add sector code (2-digit NAICS)
+    if "sector_code" not in df.columns and "industry" in df.columns:
+        sec = df["industry"].astype(str).str[:2].str.zfill(2).apply(consolidate_sector_code)
+    else:
+        sec = df.get("sector_code")
 
     # Add sector risk score
     try:
         sr = load_naics_sector_risk()
-        if "sector_code" not in df.columns and "industry" in df.columns:
-            # Extract 2-digit sector code and apply consolidation (e.g., 32, 33 -> 31 for Manufacturing)
-            sec = df["industry"].astype(str).str[:2].str.zfill(2).apply(consolidate_sector_code)
-        else:
-            sec = df.get("sector_code")
-
         if sr is not None and not sr.empty and sec is not None:
             # Apply consolidation to risk table as well
             sr = sr.copy()
@@ -358,6 +508,55 @@ def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
             X["sector_risk"] = sec.map(risk_map)
     except:
         pass
+
+    # Add current_risk specific features (behavioral + temporal)
+    if model_type == "current_risk":
+        # Add payment behavior features from schedules
+        if schedules_df is not None and not schedules_df.empty:
+            behavior_features = get_payment_behavior_features(schedules_df)
+
+            if not behavior_features.empty:
+                # Normalize loan_id in df for merge
+                df_loan_ids = df["loan_id"].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+
+                # Create mapping from behavior features
+                behavior_features = behavior_features.set_index("loan_id")
+                for col in ["total_due_payments", "pct_on_time", "pct_late", "pct_missed",
+                           "pct_partial", "consecutive_missed", "days_since_last_payment",
+                           "avg_payment_variance"]:
+                    if col in behavior_features.columns:
+                        X[col] = df_loan_ids.map(behavior_features[col])
+
+        # Add temporal features
+        # pct_term_elapsed: (today - funding_date) / (maturity_date - funding_date)
+        today = pd.Timestamp.today().tz_localize(None)
+
+        if "funding_date" in df.columns and "maturity_date" in df.columns:
+            funding_dates = pd.to_datetime(df["funding_date"], errors="coerce")
+            maturity_dates = pd.to_datetime(df["maturity_date"], errors="coerce")
+
+            # Make tz-naive if needed
+            if funding_dates.dt.tz is not None:
+                funding_dates = funding_dates.dt.tz_localize(None)
+            if maturity_dates.dt.tz is not None:
+                maturity_dates = maturity_dates.dt.tz_localize(None)
+
+            term_length = (maturity_dates - funding_dates).dt.days
+            elapsed = (today - funding_dates).dt.days
+
+            # Calculate pct_term_elapsed (clipped to 0-2 to handle past-maturity loans)
+            X["pct_term_elapsed"] = np.where(
+                term_length > 0,
+                (elapsed / term_length).clip(0, 2),
+                np.nan
+            )
+
+        # Add payment_performance from loan data
+        if "payment_performance" in df.columns:
+            X["payment_performance"] = pd.to_numeric(df["payment_performance"], errors="coerce")
+
+        # Add net_balance for current_risk (useful for scale)
+        X["net_balance"] = pd.to_numeric(df.get("net_balance"), errors="coerce")
 
     # Add categorical features
     cat_df = pd.DataFrame()
