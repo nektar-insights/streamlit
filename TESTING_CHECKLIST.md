@@ -321,3 +321,64 @@ Once testing is complete:
 **Tested By:** _____________
 **Overall Result:** [ ] PASS / [ ] FAIL
 **Notes:**
+
+---
+
+## 🏭 NAICS Sector Consolidation Feature
+
+### Overview
+NAICS codes 31, 32, and 33 are all Manufacturing subsectors. This feature consolidates them into a single "31 - Manufacturing" classification for cleaner reporting and analytics.
+
+**Mapping:**
+- `32` → `31` (Manufacturing)
+- `33` → `31` (Manufacturing)
+
+### Files Modified
+- `utils/loan_tape_data.py`: Core consolidation logic and constants
+- `utils/loan_tape_analytics.py`: Applied consolidation to ML features and correlation analysis
+
+### Test Cases
+
+#### 1. Verify Consolidation in Data Preparation
+```python
+# test_naics_consolidation.py
+import pandas as pd
+from utils.loan_tape_data import consolidate_sector_code, NAICS_SECTOR_CONSOLIDATION
+
+# Test consolidation function
+assert consolidate_sector_code("31") == "31"
+assert consolidate_sector_code("32") == "31"
+assert consolidate_sector_code("33") == "31"
+assert consolidate_sector_code("44") == "44"  # Other sectors unchanged
+assert consolidate_sector_code("45") == "45"
+
+print("✅ NAICS consolidation function works correctly!")
+```
+
+#### 2. Verify Industry Performance Analysis
+- [ ] Navigate to Loan Tape → Performance Analysis tab
+- [ ] Check Industry Performance Analysis section
+- [ ] Verify "31 - Manufacturing" appears as a single row (not separate 32, 33 rows)
+- [ ] Verify loan counts are aggregated correctly
+
+#### 3. Verify Loan Tape Display
+- [ ] Navigate to Loan Tape → Loan Tape tab
+- [ ] Check the "NAICS 2-Digit" column
+- [ ] Verify all Manufacturing loans show "31"
+- [ ] Verify "Industry" column shows "Manufacturing"
+
+#### 4. Verify ML Features
+- [ ] Navigate to Loan Tape → Diagnostics & ML tab
+- [ ] Run the classification/regression models
+- [ ] Verify sector_risk feature uses consolidated codes
+
+### Expected Results
+- All Manufacturing loans (NAICS 32xxx, 33xxx) should show as sector_code "31"
+- Industry Performance chart should show unified "31 - Manufacturing" category
+- Risk scoring should use the risk_score for sector "31"
+- Historical data is retroactively consolidated
+
+### Edge Cases
+- [ ] Loans with no industry code (should handle gracefully)
+- [ ] Loans with invalid industry codes (should fallback to original code)
+- [ ] Mixed manufacturing codes in same cohort (should consolidate)

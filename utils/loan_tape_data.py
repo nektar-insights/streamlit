@@ -30,6 +30,42 @@ STATUS_RISK_MULTIPLIERS = {
     "Paid Off": 0.0,
 }
 
+# NAICS Sector Consolidation Mapping
+# Maps sector codes to consolidated categories to avoid duplicate classifications
+# NAICS codes 31, 32, 33 are all Manufacturing subsectors:
+#   31: Food, Beverage, Tobacco, Textile
+#   32: Wood, Paper, Printing, Petroleum, Chemical, Plastics
+#   33: Primary Metal, Machinery, Computer, Electrical, Transportation Equipment
+# We consolidate all to "31" with unified "Manufacturing" label
+NAICS_SECTOR_CONSOLIDATION = {
+    "32": "31",  # Manufacturing subsector -> unified Manufacturing
+    "33": "31",  # Manufacturing subsector -> unified Manufacturing
+}
+
+# Override sector names for consolidated codes
+NAICS_CONSOLIDATED_NAMES = {
+    "31": "Manufacturing",
+}
+
+
+def consolidate_sector_code(sector_code: str) -> str:
+    """
+    Consolidate NAICS sector codes to unified categories.
+
+    Specifically consolidates Manufacturing subsectors (31, 32, 33) into a single
+    "31 - Manufacturing" classification.
+
+    Args:
+        sector_code: 2-digit NAICS sector code
+
+    Returns:
+        str: Consolidated sector code (e.g., "32" -> "31")
+    """
+    if pd.isna(sector_code):
+        return sector_code
+    sector_str = str(sector_code).strip().zfill(2)
+    return NAICS_SECTOR_CONSOLIDATION.get(sector_str, sector_str)
+
 
 def prepare_loan_data(loans_df: pd.DataFrame, deals_df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -108,7 +144,10 @@ def prepare_loan_data(loans_df: pd.DataFrame, deals_df: pd.DataFrame) -> pd.Data
     # Sector code (first two digits of NAICS) and load sector names
     if "industry" in df.columns:
         df["naics_code"] = df["industry"].astype(str).str.strip()
-        df["sector_code"] = df["naics_code"].str[:2]
+        df["sector_code"] = df["naics_code"].str[:2].str.zfill(2)
+
+        # Apply NAICS sector consolidation (e.g., 32, 33 -> 31 for Manufacturing)
+        df["sector_code"] = df["sector_code"].apply(consolidate_sector_code)
 
         # Load NAICS sector risk data to get sector names
         try:
@@ -117,20 +156,31 @@ def prepare_loan_data(loans_df: pd.DataFrame, deals_df: pd.DataFrame) -> pd.Data
             if not naics_df.empty and "sector_code" in naics_df.columns and "sector_name" in naics_df.columns:
                 # Ensure sector_code is string and zero-padded
                 naics_df["sector_code"] = naics_df["sector_code"].astype(str).str.zfill(2)
-                df["sector_code"] = df["sector_code"].str.zfill(2)
 
-                # Merge to get sector names
+                # Apply consolidation to NAICS lookup table as well
+                naics_df["sector_code"] = naics_df["sector_code"].apply(consolidate_sector_code)
+
+                # For consolidated codes, override the sector name
+                for code, name in NAICS_CONSOLIDATED_NAMES.items():
+                    naics_df.loc[naics_df["sector_code"] == code, "sector_name"] = name
+
+                # Merge to get sector names (use first row for each consolidated code)
                 df = df.merge(
-                    naics_df[["sector_code", "sector_name"]].drop_duplicates(),
+                    naics_df[["sector_code", "sector_name"]].drop_duplicates(subset=["sector_code"], keep="first"),
                     on="sector_code",
                     how="left"
                 )
 
                 # Use sector_name as industry_name, fallback to NAICS code if not available
+                # Apply consolidated names override for any remaining unmatched codes
                 df["industry_name"] = df["sector_name"].fillna(df["naics_code"])
+                for code, name in NAICS_CONSOLIDATED_NAMES.items():
+                    df.loc[df["sector_code"] == code, "industry_name"] = name
             else:
-                # Fallback: use NAICS code as industry name
+                # Fallback: use NAICS code as industry name, with consolidated names
                 df["industry_name"] = df["naics_code"]
+                for code, name in NAICS_CONSOLIDATED_NAMES.items():
+                    df.loc[df["sector_code"] == code, "industry_name"] = name
         except Exception as e:
             # Fallback: use NAICS code as industry name
             df["industry_name"] = df.get("naics_code", "Unknown")
