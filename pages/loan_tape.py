@@ -1118,10 +1118,11 @@ def main():
         display_columns = [
             "loan_id", "deal_name", "partner_source", "loan_status",
             "industry_name", "sector_code", "fico", "tib",
-            "funding_date", "maturity_date",
+            "funding_date", "maturity_date", "projected_payoff_date",
             "factor_rate", "commission_fee",
             "csl_participation_amount", "total_invested", "total_paid", "net_balance",
             "current_roi", "payment_performance", "remaining_maturity_months",
+            "is_past_maturity",
         ]
 
         # Add IRR columns for Paid Off loans
@@ -1139,6 +1140,7 @@ def main():
             "tib": "TIB (Years)",
             "funding_date": "Funded",
             "maturity_date": "Maturity",
+            "projected_payoff_date": "Proj. Payoff",
             "factor_rate": "Factor Rate",
             "commission_fee": "Commission %",
             "csl_participation_amount": "Capital Deployed",
@@ -1148,6 +1150,7 @@ def main():
             "current_roi": "ROI",
             "payment_performance": "Payment Perf",
             "remaining_maturity_months": "Months Left",
+            "is_past_maturity": "Past Maturity",
             "realized_irr": "IRR (Paid Off)",
         }
 
