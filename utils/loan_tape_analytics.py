@@ -34,6 +34,12 @@ FEATURE_DISPLAY_NAMES = {
     "remaining_maturity_months": "Months Until Maturity",
     "days_since_funding": "Days Since Funding",
     "risk_score": "Calculated Risk Score",
+    # New features for Current Risk Model
+    "position": "Lien Position (0=1st)",
+    "factor_rate": "Factor Rate",
+    "effective_yield": "Effective Yield (Factor - Fees)",
+    "payment_performance": "Payment Performance %",
+    "pct_term_elapsed": "% of Term Elapsed",
     # Categorical features (one-hot encoded names)
     "industry": "Industry (NAICS)",
     "partner_source": "Partner Source",
@@ -330,6 +336,7 @@ def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
         "tib": pd.to_numeric(df.get("tib"), errors="coerce"),
         "total_invested": pd.to_numeric(df.get("total_invested"), errors="coerce"),
         "net_balance": pd.to_numeric(df.get("net_balance"), errors="coerce"),
+        "position": pd.to_numeric(df.get("position"), errors="coerce"),
     })
 
     # Add sector risk score
