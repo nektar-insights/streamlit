@@ -486,16 +486,23 @@ def calculate_industry_performance(df: pd.DataFrame) -> pd.DataFrame:
     """
     Calculate performance metrics by industry/sector.
 
+    Groups by consolidated 2-digit NAICS sector code. NAICS codes 31, 32, and 33
+    (Manufacturing subsectors) are consolidated into a single "31 - Manufacturing" category.
+
     Args:
         df: DataFrame with loan data
 
     Returns:
-        pd.DataFrame: Aggregated metrics by industry
+        pd.DataFrame: Aggregated metrics by consolidated sector code
     """
     if "industry" not in df.columns:
         return pd.DataFrame()
 
-    industry_metrics = df.groupby("industry").agg({
+    # Create working copy with consolidated sector codes
+    work_df = df.copy()
+    work_df["sector_code"] = work_df["industry"].astype(str).str[:2].str.zfill(2).apply(consolidate_sector_code)
+
+    industry_metrics = work_df.groupby("sector_code").agg({
         "loan_id": "count",
         "total_invested": "sum",
         "total_paid": "sum",
@@ -505,17 +512,17 @@ def calculate_industry_performance(df: pd.DataFrame) -> pd.DataFrame:
     }).reset_index()
 
     industry_metrics.columns = [
-        "industry", "loan_count", "total_invested", "total_paid",
+        "sector_code", "loan_count", "total_invested", "total_paid",
         "net_balance", "avg_payment_performance", "avg_roi"
     ]
 
-    # Calculate problem rate
-    problem_by_industry = df.groupby("industry").apply(
+    # Calculate problem rate by consolidated sector
+    problem_by_sector = work_df.groupby("sector_code").apply(
         lambda x: make_problem_label(x).mean()
     ).reset_index()
-    problem_by_industry.columns = ["industry", "problem_rate"]
+    problem_by_sector.columns = ["sector_code", "problem_rate"]
 
-    industry_metrics = industry_metrics.merge(problem_by_industry, on="industry", how="left")
+    industry_metrics = industry_metrics.merge(problem_by_sector, on="sector_code", how="left")
 
     # Sort by total invested
     industry_metrics = industry_metrics.sort_values("total_invested", ascending=False)
