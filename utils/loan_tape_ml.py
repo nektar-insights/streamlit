@@ -20,12 +20,14 @@ from sklearn.metrics import roc_auc_score, precision_score, recall_score
 from utils.loan_tape_analytics import (
     make_problem_label,
     build_feature_matrix,
+    get_payment_behavior_features,
     safe_kfold,
     get_display_name,
     get_metric_tier,
     assess_data_quality,
     FEATURE_DISPLAY_NAMES,
     METRIC_THRESHOLDS,
+    PROBLEM_STATUSES,
 )
 
 
@@ -343,6 +345,182 @@ def train_regression_small(df: pd.DataFrame) -> Tuple[Pipeline, Dict]:
         # Improvement metrics
         "rmse_improvement_pct": rmse_improvement,
     }
+
+
+def train_current_risk_model(
+    df: pd.DataFrame,
+    schedules_df: pd.DataFrame
+) -> Tuple[Pipeline, Dict, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """
+    Train a logistic regression model to predict current risk of active loans.
+
+    Uses both origination characteristics and payment behavior features to
+    score loans on their current risk level.
+
+    Args:
+        df: DataFrame with loan data (should be filtered to active loans)
+        schedules_df: DataFrame with payment schedule data
+
+    Returns:
+        Tuple containing:
+        - Fitted pipeline model
+        - Dictionary of metrics and model info
+        - DataFrame of partner rankings (partner_source, loan_count, problem_rate, avg_risk_score)
+        - DataFrame of industry rankings (sector_code, sector_name, loan_count, problem_rate)
+        - DataFrame of loan-level predictions (loan_id, risk_score, predicted_proba)
+    """
+    # Filter to active loans only (not Paid Off)
+    active_df = df[df.get("loan_status", "") != "Paid Off"].copy()
+
+    if len(active_df) < 10:
+        raise ValueError("Not enough active loans for risk modeling (need at least 10)")
+
+    # Create target: is this loan currently a problem?
+    y = (active_df.get("loan_status", "").isin(PROBLEM_STATUSES)).astype(int)
+
+    # Build feature matrix with current_risk features
+    X = build_feature_matrix(active_df, schedules_df, model_type="current_risk")
+
+    # Identify numeric and categorical columns
+    num_cols = X.select_dtypes(include=[np.number]).columns.tolist()
+    cat_cols = [c for c in X.columns if c not in num_cols]
+
+    # Build preprocessing pipeline
+    pre = ColumnTransformer([
+        ("num", Pipeline([
+            ("imp", SimpleImputer(strategy="median")),
+            ("sc", StandardScaler())
+        ]), num_cols),
+        ("cat", OneHotEncoder(handle_unknown="ignore", min_frequency=0.05), cat_cols)
+    ])
+
+    # Build full model pipeline
+    model = Pipeline([
+        ("pre", pre),
+        ("clf", LogisticRegression(max_iter=2000, class_weight="balanced", C=1.0, solver="lbfgs"))
+    ])
+
+    # Determine safe number of CV folds
+    pos_count = int(y.sum())
+    neg_count = len(y) - pos_count
+    min_class = min(pos_count, neg_count)
+
+    if min_class < 2:
+        # Not enough samples in minority class for CV - just fit and predict
+        model.fit(X, y)
+        aucs, precs, recs = [np.nan], [np.nan], [np.nan]
+        n_splits = 0
+    else:
+        n_splits = max(2, min(safe_kfold(len(active_df)), min_class))
+        skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+
+        # Cross-validation
+        aucs, precs, recs = [], [], []
+        for tr, te in skf.split(X, y):
+            model.fit(X.iloc[tr], y.iloc[tr])
+            p = model.predict_proba(X.iloc[te])[:, 1]
+            yhat = (p >= 0.5).astype(int)
+
+            try:
+                aucs.append(roc_auc_score(y.iloc[te], p))
+            except:
+                pass
+
+            precs.append(precision_score(y.iloc[te], yhat, zero_division=0))
+            recs.append(recall_score(y.iloc[te], yhat, zero_division=0))
+
+    # Final fit on all data
+    model.fit(X, y)
+
+    # Get predicted probabilities for all active loans (this IS the risk score)
+    predicted_proba = model.predict_proba(X)[:, 1]
+
+    # Convert probabilities to 0-100 risk score
+    risk_scores = (predicted_proba * 100).round(1)
+
+    # Create loan-level predictions DataFrame
+    loan_predictions = pd.DataFrame({
+        "loan_id": active_df["loan_id"].values,
+        "deal_name": active_df.get("deal_name", "").values,
+        "loan_status": active_df.get("loan_status", "").values,
+        "partner_source": active_df.get("partner_source", "").values,
+        "risk_score": risk_scores,
+        "predicted_proba": predicted_proba,
+        "actual_problem": y.values,
+        "payment_performance": active_df.get("payment_performance", np.nan).values,
+        "net_balance": active_df.get("net_balance", 0).values,
+    })
+    loan_predictions = loan_predictions.sort_values("risk_score", ascending=False)
+
+    # Create partner rankings
+    partner_rankings = active_df.copy()
+    partner_rankings["risk_score"] = risk_scores
+    partner_rankings["is_problem"] = y.values
+
+    partner_summary = partner_rankings.groupby("partner_source").agg(
+        loan_count=("loan_id", "count"),
+        problem_count=("is_problem", "sum"),
+        avg_risk_score=("risk_score", "mean"),
+        total_balance=("net_balance", "sum")
+    ).reset_index()
+    partner_summary["problem_rate"] = partner_summary["problem_count"] / partner_summary["loan_count"]
+    partner_summary = partner_summary.sort_values("problem_rate", ascending=False)
+
+    # Create industry rankings
+    industry_rankings = active_df.copy()
+    industry_rankings["risk_score"] = risk_scores
+    industry_rankings["is_problem"] = y.values
+
+    if "sector_code" in industry_rankings.columns:
+        industry_summary = industry_rankings.groupby("sector_code").agg(
+            sector_name=("industry_name", "first") if "industry_name" in industry_rankings.columns else ("sector_code", "first"),
+            loan_count=("loan_id", "count"),
+            problem_count=("is_problem", "sum"),
+            avg_risk_score=("risk_score", "mean"),
+        ).reset_index()
+        industry_summary["problem_rate"] = industry_summary["problem_count"] / industry_summary["loan_count"]
+        industry_summary = industry_summary.sort_values("problem_rate", ascending=False)
+    else:
+        industry_summary = pd.DataFrame(columns=["sector_code", "sector_name", "loan_count", "problem_rate", "avg_risk_score"])
+
+    # Extract coefficients
+    try:
+        ohe = model.named_steps["pre"].named_transformers_["cat"]
+        num_names = num_cols
+        cat_names = ohe.get_feature_names_out(cat_cols).tolist() if cat_cols else []
+        feat_names = num_names + cat_names
+        coefs = model.named_steps["clf"].coef_.ravel()
+
+        coef_df = pd.DataFrame({"feature": feat_names, "coef": coefs})
+        coef_df["display_name"] = coef_df["feature"].apply(get_display_name)
+        coef_df = coef_df.sort_values("coef", ascending=False)
+    except Exception:
+        coef_df = pd.DataFrame(columns=["feature", "coef", "display_name"])
+
+    # Calculate metrics
+    mean_auc = np.nanmean(aucs) if aucs else np.nan
+    mean_prec = np.nanmean(precs) if precs else np.nan
+    mean_rec = np.nanmean(recs) if recs else np.nan
+
+    auc_tier, _ = get_metric_tier("roc_auc", mean_auc)
+    pos_rate = float(y.mean())
+
+    metrics = {
+        "ROC AUC": (mean_auc, np.nanstd(aucs) if len(aucs) > 1 else np.nan),
+        "Precision": (mean_prec, np.nanstd(precs) if len(precs) > 1 else np.nan),
+        "Recall": (mean_rec, np.nanstd(recs) if len(recs) > 1 else np.nan),
+        "n_samples": len(active_df),
+        "n_problem_loans": pos_count,
+        "pos_rate": pos_rate,
+        "n_splits": n_splits,
+        "auc_tier": auc_tier,
+        "baseline_auc": 0.5,
+        "auc_lift": (mean_auc - 0.5) / 0.5 if not np.isnan(mean_auc) else 0,
+        # Coefficient data for display
+        "coef_df": coef_df,
+    }
+
+    return model, metrics, partner_summary, industry_summary, loan_predictions
 
 
 def render_corr_outputs(df: pd.DataFrame):

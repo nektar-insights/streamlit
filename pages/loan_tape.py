@@ -41,6 +41,7 @@ from utils.loan_tape_data import (
 from utils.loan_tape_ml import (
     train_classification_small,
     train_regression_small,
+    train_current_risk_model,
     render_corr_outputs,
     render_fico_tib_heatmap,
     create_coefficient_chart,
@@ -1359,7 +1360,194 @@ def main():
         st.markdown("---")
 
         # =====================================================================
-        # Section 6: Executive Summary
+        # Section 6: Current Risk Scores (Active Loans)
+        # =====================================================================
+        st.subheader("Current Risk Scores")
+        st.markdown("""
+        This model scores **active loans** on their current risk level using both
+        origination characteristics and payment behavior. Higher scores indicate
+        higher risk of becoming a problem loan.
+        """)
+
+        # Load loan schedules for behavioral features
+        schedules_df = load_loan_schedules()
+
+        try:
+            risk_model, risk_metrics, partner_rankings, industry_rankings, loan_predictions = train_current_risk_model(
+                filtered_df, schedules_df
+            )
+
+            # Metrics row
+            col1, col2, col3, col4, col5 = st.columns([1.2, 1, 1, 1, 1.5])
+            with col1:
+                roc_val = risk_metrics['ROC AUC'][0]
+                auc_tier = risk_metrics.get('auc_tier', 'N/A')
+                st.metric("ROC AUC", f"{roc_val:.3f}" if pd.notnull(roc_val) else "N/A")
+                st.caption(f"Performance: **{auc_tier}**")
+            with col2:
+                prec_val = risk_metrics['Precision'][0]
+                st.metric("Precision", f"{prec_val:.3f}" if pd.notnull(prec_val) else "N/A")
+            with col3:
+                recall_val = risk_metrics['Recall'][0]
+                st.metric("Recall", f"{recall_val:.3f}" if pd.notnull(recall_val) else "N/A")
+            with col4:
+                st.metric("Problem Loans", f"{risk_metrics.get('n_problem_loans', 0)}")
+                st.caption(f"of {risk_metrics.get('n_samples', 0)} active")
+            with col5:
+                pos_rate = risk_metrics.get('pos_rate', 0)
+                st.metric("Problem Rate", f"{pos_rate:.1%}")
+                st.caption(f"{risk_metrics.get('n_splits', 'N/A')}-fold CV")
+
+            st.markdown("---")
+
+            # Show top risk loans
+            st.markdown("##### Highest Risk Active Loans")
+            st.caption("Loans sorted by ML-predicted risk score (0-100). Higher = more likely to become a problem.")
+
+            top_risk_loans = loan_predictions.head(15).copy()
+            if not top_risk_loans.empty:
+                display_cols = ["loan_id", "deal_name", "loan_status", "partner_source",
+                               "risk_score", "payment_performance", "net_balance"]
+                display_df = top_risk_loans[[c for c in display_cols if c in top_risk_loans.columns]].copy()
+
+                # Format columns
+                if "risk_score" in display_df.columns:
+                    display_df["risk_score"] = display_df["risk_score"].map(lambda x: f"{x:.1f}")
+                if "payment_performance" in display_df.columns:
+                    display_df["payment_performance"] = display_df["payment_performance"].map(
+                        lambda x: f"{x:.1%}" if pd.notnull(x) else "N/A"
+                    )
+                if "net_balance" in display_df.columns:
+                    display_df["net_balance"] = display_df["net_balance"].map(
+                        lambda x: f"${x:,.0f}" if pd.notnull(x) else "N/A"
+                    )
+
+                display_df.columns = ["Loan ID", "Deal Name", "Status", "Partner",
+                                     "Risk Score", "Payment Perf", "Net Balance"][:len(display_df.columns)]
+                st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+            st.markdown("---")
+
+            # Partner and Industry rankings side by side
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.markdown("##### Partner Risk Leaderboard")
+                st.caption("Problem rate and avg risk score by partner source")
+
+                if not partner_rankings.empty:
+                    partner_display = partner_rankings.copy()
+                    partner_display["problem_rate"] = partner_display["problem_rate"].map(lambda x: f"{x:.1%}")
+                    partner_display["avg_risk_score"] = partner_display["avg_risk_score"].map(lambda x: f"{x:.1f}")
+                    partner_display["total_balance"] = partner_display["total_balance"].map(lambda x: f"${x:,.0f}")
+                    partner_display = partner_display[["partner_source", "loan_count", "problem_rate", "avg_risk_score", "total_balance"]]
+                    partner_display.columns = ["Partner", "Loans", "Problem Rate", "Avg Risk", "Balance"]
+                    st.dataframe(partner_display, use_container_width=True, hide_index=True)
+
+                    # Partner problem rate chart
+                    partner_chart_data = partner_rankings[partner_rankings["loan_count"] >= 2].head(10).copy()
+                    if not partner_chart_data.empty:
+                        chart = alt.Chart(partner_chart_data).mark_bar().encode(
+                            x=alt.X("partner_source:N", title="Partner", sort="-y"),
+                            y=alt.Y("problem_rate:Q", title="Problem Rate", axis=alt.Axis(format=".0%")),
+                            color=alt.Color(
+                                "problem_rate:Q",
+                                scale=alt.Scale(domain=[0, 0.2, 0.5], range=["#2ca02c", "#ffbb78", "#d62728"]),
+                                legend=None
+                            ),
+                            tooltip=[
+                                alt.Tooltip("partner_source:N", title="Partner"),
+                                alt.Tooltip("problem_rate:Q", title="Problem Rate", format=".1%"),
+                                alt.Tooltip("loan_count:Q", title="Loans"),
+                                alt.Tooltip("avg_risk_score:Q", title="Avg Risk Score", format=".1f"),
+                            ]
+                        ).properties(height=250, title="Problem Rate by Partner (≥2 loans)")
+                        st.altair_chart(chart, use_container_width=True)
+
+            with col2:
+                st.markdown("##### Industry Risk Heatmap")
+                st.caption("Problem rate by NAICS sector code")
+
+                if not industry_rankings.empty:
+                    industry_display = industry_rankings.copy()
+                    industry_display["problem_rate"] = industry_display["problem_rate"].map(lambda x: f"{x:.1%}")
+                    industry_display["avg_risk_score"] = industry_display["avg_risk_score"].map(lambda x: f"{x:.1f}")
+                    industry_display = industry_display[["sector_code", "sector_name", "loan_count", "problem_rate", "avg_risk_score"]]
+                    industry_display.columns = ["Sector", "Name", "Loans", "Problem Rate", "Avg Risk"]
+                    st.dataframe(industry_display.head(10), use_container_width=True, hide_index=True)
+
+                    # Industry problem rate chart
+                    industry_chart_data = industry_rankings[industry_rankings["loan_count"] >= 2].head(10).copy()
+                    if not industry_chart_data.empty:
+                        industry_chart_data["display_label"] = industry_chart_data["sector_code"] + " - " + industry_chart_data["sector_name"].astype(str)
+                        chart = alt.Chart(industry_chart_data).mark_bar().encode(
+                            x=alt.X("display_label:N", title="Industry", sort="-y"),
+                            y=alt.Y("problem_rate:Q", title="Problem Rate", axis=alt.Axis(format=".0%")),
+                            color=alt.Color(
+                                "problem_rate:Q",
+                                scale=alt.Scale(domain=[0, 0.2, 0.5], range=["#2ca02c", "#ffbb78", "#d62728"]),
+                                legend=None
+                            ),
+                            tooltip=[
+                                alt.Tooltip("display_label:N", title="Industry"),
+                                alt.Tooltip("problem_rate:Q", title="Problem Rate", format=".1%"),
+                                alt.Tooltip("loan_count:Q", title="Loans"),
+                                alt.Tooltip("avg_risk_score:Q", title="Avg Risk Score", format=".1f"),
+                            ]
+                        ).properties(height=250, title="Problem Rate by Industry (≥2 loans)")
+                        st.altair_chart(chart, use_container_width=True)
+
+            st.markdown("---")
+
+            # Top Risk Factors from the model
+            st.markdown("##### Top Risk Factors (Model Coefficients)")
+            st.caption("Features that most strongly predict problem loan status. Positive = increases risk, Negative = decreases risk.")
+
+            coef_df = risk_metrics.get("coef_df", pd.DataFrame())
+            if not coef_df.empty:
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    st.markdown("**Risk-Increasing Factors**")
+                    top_pos = coef_df.head(10).copy()
+                    if not top_pos.empty:
+                        chart_data = pd.DataFrame({
+                            "feature": top_pos["display_name"],
+                            "coef": top_pos["coef"]
+                        })
+                        chart = create_coefficient_chart(chart_data, "Risk-Increasing Features", "#d62728")
+                        st.altair_chart(chart, use_container_width=True)
+
+                with col2:
+                    st.markdown("**Risk-Decreasing Factors**")
+                    top_neg = coef_df.tail(10).iloc[::-1].copy()
+                    if not top_neg.empty:
+                        chart_data = pd.DataFrame({
+                            "feature": top_neg["display_name"],
+                            "coef": top_neg["coef"]
+                        })
+                        chart = create_coefficient_chart(chart_data, "Risk-Decreasing Features", "#2ca02c")
+                        st.altair_chart(chart, use_container_width=True)
+
+            # Download predictions
+            st.markdown("---")
+            csv_data = loan_predictions.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="Download Risk Scores (CSV)",
+                data=csv_data,
+                file_name=f"current_risk_scores_{pd.Timestamp.today().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+            )
+
+        except ValueError as e:
+            st.warning(f"Current risk model could not run: {e}")
+        except Exception as e:
+            st.warning(f"Current risk model error: {e}")
+
+        st.markdown("---")
+
+        # =====================================================================
+        # Section 7: Executive Summary
         # =====================================================================
         if classification_metrics and regression_metrics:
             render_model_summary(classification_metrics, regression_metrics)
