@@ -67,6 +67,26 @@ def consolidate_sector_code(sector_code: str) -> str:
     return NAICS_SECTOR_CONSOLIDATION.get(sector_str, sector_str)
 
 
+def _normalize_loan_id(series: pd.Series) -> pd.Series:
+    """
+    Normalize loan_id values for consistent matching.
+    Handles: float->int conversion, string trimming, and type conversion.
+    """
+    if series.empty:
+        return series
+
+    # Convert to string and strip whitespace
+    result = series.astype(str).str.strip()
+
+    # Remove ".0" suffix from float-converted strings (e.g., "123.0" -> "123")
+    result = result.str.replace(r'\.0$', '', regex=True)
+
+    # Remove "nan" and "None" values
+    result = result.replace(['nan', 'None', 'NaN', ''], pd.NA)
+
+    return result
+
+
 def prepare_loan_data(loans_df: pd.DataFrame, deals_df: pd.DataFrame) -> pd.DataFrame:
     """
     Merge loan summaries with deal data and derive calculated fields.
@@ -79,6 +99,12 @@ def prepare_loan_data(loans_df: pd.DataFrame, deals_df: pd.DataFrame) -> pd.Data
         pd.DataFrame: Enriched loan data with calculated metrics
     """
     if not loans_df.empty and not deals_df.empty:
+        # Normalize loan_id in both dataframes for consistent matching
+        loans_df = loans_df.copy()
+        deals_df = deals_df.copy()
+        loans_df["loan_id"] = _normalize_loan_id(loans_df["loan_id"])
+        deals_df["loan_id"] = _normalize_loan_id(deals_df["loan_id"])
+
         # Merge with deals data
         merge_cols = ["loan_id", "deal_name", "partner_source", "industry", "commission_fee", "fico", "tib", "factor_rate", "loan_term"]
         merge_cols = [c for c in merge_cols if c in deals_df.columns]
