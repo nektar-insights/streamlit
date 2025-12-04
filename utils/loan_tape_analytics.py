@@ -7,19 +7,56 @@ Handles feature engineering, correlation analysis, and statistical calculations.
 import pandas as pd
 import numpy as np
 from scipy.stats import pearsonr, spearmanr, pointbiserialr
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Dict, List
 from utils.data_loader import load_naics_sector_risk
 
-# Problem loan statuses
+# =============================================================================
+# CONSTANTS - Single Source of Truth
+# =============================================================================
+
+# Problem loan statuses (canonical definition - import this elsewhere)
 PROBLEM_STATUSES = {
     "Late", "Default", "Bankrupt", "Severe", "Severe Delinquency",
     "Moderate Delinquency", "Active - Frequently Late"
 }
 
+# Feature name mapping for human-readable display
+FEATURE_DISPLAY_NAMES = {
+    # Core numeric features
+    "fico": "FICO Score",
+    "tib": "Time in Business (Years)",
+    "total_invested": "Total Amount Invested",
+    "net_balance": "Net Outstanding Balance",
+    "sector_risk": "Industry Risk Score",
+    "total_paid": "Total Payments Received",
+    "commission_fee": "Commission Fee Rate",
+    "remaining_maturity_months": "Months Until Maturity",
+    "days_since_funding": "Days Since Funding",
+    "risk_score": "Calculated Risk Score",
+    # Categorical features (one-hot encoded names)
+    "industry": "Industry (NAICS)",
+    "partner_source": "Partner Source",
+}
 
-def make_problem_label(df: pd.DataFrame, perf_cutoff: float = 0.90) -> pd.Series:
+# Performance tier thresholds for interpretation
+METRIC_THRESHOLDS = {
+    "roc_auc": {"excellent": 0.90, "good": 0.80, "fair": 0.70, "poor": 0.60},
+    "precision": {"excellent": 0.80, "good": 0.65, "fair": 0.50, "poor": 0.35},
+    "recall": {"excellent": 0.80, "good": 0.65, "fair": 0.50, "poor": 0.35},
+    "r2": {"excellent": 0.70, "good": 0.50, "fair": 0.30, "poor": 0.10},
+}
+
+# Default performance cutoff for problem loan definition
+DEFAULT_PERFORMANCE_CUTOFF = 0.90
+
+
+def make_problem_label(df: pd.DataFrame, perf_cutoff: float = DEFAULT_PERFORMANCE_CUTOFF) -> pd.Series:
     """
     Create binary problem label based on loan status and payment performance.
+
+    A loan is considered a "problem loan" if:
+    1. Its status is in PROBLEM_STATUSES (Late, Default, Bankrupt, etc.), OR
+    2. Its payment_performance is below the cutoff threshold (default 90%)
 
     Args:
         df: DataFrame with loan data
@@ -45,6 +82,144 @@ def safe_kfold(n_items: int, preferred: int = 5) -> int:
         int: Safe number of folds (minimum 2, ensures at least 2 items per fold)
     """
     return max(2, min(preferred, n_items if n_items >= preferred else max(2, n_items // 2)))
+
+
+def get_display_name(feature_name: str) -> str:
+    """
+    Convert a raw feature name to a human-readable display name.
+
+    Handles both direct mappings and one-hot encoded feature names
+    (e.g., 'partner_source_ABC' -> 'Partner: ABC')
+
+    Args:
+        feature_name: Raw feature/column name
+
+    Returns:
+        str: Human-readable display name
+    """
+    # Direct mapping
+    if feature_name in FEATURE_DISPLAY_NAMES:
+        return FEATURE_DISPLAY_NAMES[feature_name]
+
+    # Handle one-hot encoded categorical features (e.g., 'industry_44' or 'partner_source_ABC')
+    for prefix in ["industry_", "partner_source_"]:
+        if feature_name.startswith(prefix):
+            category = feature_name[len(prefix):]
+            if prefix == "industry_":
+                return f"Industry: {category}"
+            else:
+                return f"Partner: {category}"
+
+    # Default: capitalize and replace underscores
+    return feature_name.replace("_", " ").title()
+
+
+def get_metric_tier(metric_name: str, value: float) -> Tuple[str, str]:
+    """
+    Get performance tier and color for a metric value.
+
+    Args:
+        metric_name: Name of the metric ('roc_auc', 'precision', 'recall', 'r2')
+        value: The metric value
+
+    Returns:
+        Tuple[str, str]: (tier_label, color_code)
+    """
+    if metric_name not in METRIC_THRESHOLDS:
+        return ("N/A", "#808080")
+
+    thresholds = METRIC_THRESHOLDS[metric_name]
+
+    if pd.isna(value):
+        return ("N/A", "#808080")
+    elif value >= thresholds["excellent"]:
+        return ("Excellent", "#2ca02c")  # green
+    elif value >= thresholds["good"]:
+        return ("Good", "#98df8a")  # light green
+    elif value >= thresholds["fair"]:
+        return ("Fair", "#ffbb78")  # orange
+    elif value >= thresholds["poor"]:
+        return ("Poor", "#ff7f0e")  # dark orange
+    else:
+        return ("Very Poor", "#d62728")  # red
+
+
+def assess_data_quality(df: pd.DataFrame) -> Dict:
+    """
+    Assess data quality for ML modeling.
+
+    Checks:
+    - Sample size adequacy
+    - Feature completeness (missing value rates)
+    - Class balance for target variable
+    - Feature variance
+
+    Args:
+        df: DataFrame with loan data
+
+    Returns:
+        Dict containing:
+        - 'sample_size': total rows
+        - 'feature_completeness': dict of {column: completeness_pct}
+        - 'class_balance': dict with positive/negative counts and rate
+        - 'warnings': list of warning messages
+        - 'is_adequate': bool indicating if data is sufficient for ML
+    """
+    warnings = []
+    feature_cols = ["fico", "tib", "total_invested", "net_balance", "industry", "partner_source"]
+
+    # Sample size check
+    n_samples = len(df)
+    if n_samples < 50:
+        warnings.append(f"Small sample size ({n_samples} loans). Results may be unreliable.")
+    elif n_samples < 100:
+        warnings.append(f"Moderate sample size ({n_samples} loans). Consider results as directional.")
+
+    # Feature completeness
+    completeness = {}
+    for col in feature_cols:
+        if col in df.columns:
+            valid_count = df[col].notna().sum()
+            pct = valid_count / n_samples if n_samples > 0 else 0
+            completeness[col] = {"valid": valid_count, "pct": pct}
+            if pct < 0.5:
+                warnings.append(f"'{get_display_name(col)}' is <50% complete ({pct:.0%})")
+        else:
+            completeness[col] = {"valid": 0, "pct": 0.0}
+            warnings.append(f"'{get_display_name(col)}' column is missing")
+
+    # Class balance
+    y = make_problem_label(df)
+    pos_count = int(y.sum())
+    neg_count = int(len(y) - pos_count)
+    pos_rate = pos_count / len(y) if len(y) > 0 else 0
+
+    class_balance = {
+        "problem_loans": pos_count,
+        "good_loans": neg_count,
+        "problem_rate": pos_rate
+    }
+
+    if pos_rate < 0.05:
+        warnings.append(f"Very few problem loans ({pos_rate:.1%}). Model may struggle to learn patterns.")
+    elif pos_rate > 0.50:
+        warnings.append(f"High problem loan rate ({pos_rate:.1%}). This is unusual - verify data quality.")
+
+    # Minimum class count for stratified CV
+    min_class = min(pos_count, neg_count)
+    if min_class < 5:
+        warnings.append(f"Minority class has only {min_class} samples. Cross-validation will be limited.")
+
+    is_adequate = (n_samples >= 30 and min_class >= 3 and
+                   any(v["pct"] > 0.5 for v in completeness.values()))
+
+    return {
+        "sample_size": n_samples,
+        "feature_completeness": completeness,
+        "class_balance": class_balance,
+        "warnings": warnings,
+        "is_adequate": is_adequate
+    }
 
 
 def compute_correlations(base_df: pd.DataFrame) -> pd.DataFrame:
