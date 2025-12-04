@@ -591,6 +591,11 @@ def calculate_risk_scores(df: pd.DataFrame) -> pd.DataFrame:
         lambda x: max(0, (today - pd.to_datetime(x)).days) if pd.notnull(x) else 0
     )
 
+    # Calculate days_since_funding for all active loans (needed for display)
+    risk_df["days_since_funding"] = risk_df["funding_date"].apply(
+        lambda x: (today - pd.to_datetime(x).tz_localize(None)).days if pd.notnull(x) else 0
+    )
+
     # NEW: Only penalize if payment performance is lagging
     # If loan is 90%+ paid, don't penalize for being past maturity
     risk_df["overdue_factor"] = 0.0
@@ -633,8 +638,8 @@ def calculate_risk_scores(df: pd.DataFrame) -> pd.DataFrame:
             (1 + risk_df.loc[underperforming, "days_past_maturity"] / 365)
         ).clip(upper=1.0)
 
-    # Clean up temp columns
-    temp_cols = ["days_since_funding", "original_term_days", "expected_progress", "payment_shortfall"]
+    # Clean up temp columns (keep days_since_funding for display)
+    temp_cols = ["original_term_days", "expected_progress", "payment_shortfall"]
     risk_df = risk_df.drop(columns=[c for c in temp_cols if c in risk_df.columns], errors="ignore")
 
     # Calculate final risk score
