@@ -266,7 +266,7 @@ try:
 
             # Display columns
             display_cols = [
-                'loan_id', 'partner_source', 'loan_status',
+                'loan_id', 'deal_name', 'partner_source', 'loan_status',
                 'days_until_maturity', 'funding_date', 'maturity_date',
                 'csl_participation_amount', 'net_balance', 'payment_performance'
             ]
@@ -327,7 +327,7 @@ try:
 
             # Display columns
             display_cols = [
-                'loan_id', 'partner_source', 'loan_status',
+                'loan_id', 'deal_name', 'partner_source', 'loan_status',
                 'days_overdue', 'funding_date', 'maturity_date',
                 'csl_participation_amount', 'total_paid', 'net_balance',
                 'payment_performance'
