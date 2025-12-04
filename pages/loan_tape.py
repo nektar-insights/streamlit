@@ -393,6 +393,11 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
 
     industry_metrics = industry_metrics[industry_metrics["deal_count"] >= 3]  # Filter for significance
     industry_metrics["actual_return_rate"] = industry_metrics["total_paid"] / industry_metrics["total_invested"]
+
+    # Calculate % of total outstanding
+    total_outstanding = industry_metrics["outstanding_balance"].sum()
+    industry_metrics["pct_of_total_outstanding"] = industry_metrics["outstanding_balance"] / total_outstanding if total_outstanding > 0 else 0
+
     industry_metrics = industry_metrics.sort_values("capital_deployed", ascending=False).head(15)
 
     # Create display label with sector code and name
@@ -437,10 +442,11 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
     st.subheader("Industry Performance Summary")
     display_df = industry_metrics.copy()
     display_df["outstanding_balance"] = display_df["outstanding_balance"].map(lambda x: f"${x:,.0f}")
+    display_df["pct_of_total_outstanding"] = display_df["pct_of_total_outstanding"].map(lambda x: f"{x:.1%}")
     display_df["avg_payment_performance"] = display_df["avg_payment_performance"].map(lambda x: f"{x:.1%}")
     display_df["actual_return_rate"] = display_df["actual_return_rate"].map(lambda x: f"{x:.2%}")
-    display_df = display_df[["display_label", "deal_count", "outstanding_balance", "avg_payment_performance", "actual_return_rate"]]
-    display_df.columns = ["Industry (NAICS 2-Digit)", "Loan Count", "Outstanding Balance", "Avg Payment Performance", "Actual Return Rate"]
+    display_df = display_df[["display_label", "deal_count", "outstanding_balance", "pct_of_total_outstanding", "avg_payment_performance", "actual_return_rate"]]
+    display_df.columns = ["Industry (NAICS 2-Digit)", "Loan Count", "Outstanding Balance", "% of Total Outstanding", "Avg Payment Performance", "Actual Return Rate"]
     st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 
