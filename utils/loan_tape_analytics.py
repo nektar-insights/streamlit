@@ -9,6 +9,7 @@ import numpy as np
 from scipy.stats import pearsonr, spearmanr, pointbiserialr
 from typing import Tuple, Optional, Dict, List
 from utils.data_loader import load_naics_sector_risk
+from utils.loan_tape_data import consolidate_sector_code
 
 # =============================================================================
 # CONSTANTS - Single Source of Truth
@@ -241,8 +242,13 @@ def compute_correlations(base_df: pd.DataFrame) -> pd.DataFrame:
     try:
         sr = load_naics_sector_risk()
         if "sector_code" not in df.columns and "industry" in df.columns:
-            df["sector_code"] = df["industry"].astype(str).str[:2]
+            # Extract 2-digit sector code and apply consolidation (e.g., 32, 33 -> 31 for Manufacturing)
+            df["sector_code"] = df["industry"].astype(str).str[:2].str.zfill(2).apply(consolidate_sector_code)
         if not sr.empty and "sector_code" in df.columns:
+            # Apply consolidation to risk table as well
+            sr = sr.copy()
+            sr["sector_code"] = sr["sector_code"].astype(str).str.zfill(2).apply(consolidate_sector_code)
+            sr = sr.drop_duplicates(subset=["sector_code"], keep="first")
             df = df.merge(sr[["sector_code", "risk_score"]], on="sector_code", how="left")
     except:
         pass
@@ -330,11 +336,16 @@ def build_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
     try:
         sr = load_naics_sector_risk()
         if "sector_code" not in df.columns and "industry" in df.columns:
-            sec = df["industry"].astype(str).str[:2]
+            # Extract 2-digit sector code and apply consolidation (e.g., 32, 33 -> 31 for Manufacturing)
+            sec = df["industry"].astype(str).str[:2].str.zfill(2).apply(consolidate_sector_code)
         else:
             sec = df.get("sector_code")
 
         if sr is not None and not sr.empty and sec is not None:
+            # Apply consolidation to risk table as well
+            sr = sr.copy()
+            sr["sector_code"] = sr["sector_code"].astype(str).str.zfill(2).apply(consolidate_sector_code)
+            sr = sr.drop_duplicates(subset=["sector_code"], keep="first")
             risk_map = dict(zip(sr["sector_code"], sr["risk_score"]))
             X["sector_risk"] = sec.map(risk_map)
     except:
