@@ -49,7 +49,7 @@ from utils.loan_tape_ml import (
     render_model_summary,
 )
 from utils.loan_tape_analytics import (
-    PROBLEM_STATUSES as ANALYTICS_PROBLEM_STATUSES,
+    PROBLEM_STATUSES,
     get_display_name,
 )
 from utils.display_components import (
@@ -90,10 +90,6 @@ STATUS_RISK_MULTIPLIERS = {
     "Paid Off": 0.0,
 }
 
-PROBLEM_STATUSES = {
-    "Late", "Default", "Bankrupt", "Severe", "Severe Delinquency",
-    "Moderate Delinquency", "Active - Frequently Late"
-}
 
 # -------------------
 # Page-Specific Visualizations
@@ -1190,6 +1186,28 @@ def main():
         and predict loan performance. Use these insights to inform underwriting decisions and
         portfolio monitoring.
         """)
+
+        # =====================================================================
+        # DEBUG: Data Verification (REMOVE AFTER VERIFICATION)
+        # =====================================================================
+        with st.expander("DEBUG: Data Verification (remove after verification)", expanded=True):
+            # Verify loan_schedules columns
+            schedules_df = load_loan_schedules()
+            st.write(f"**loan_schedules:** {len(schedules_df)} rows")
+            st.write(f"**columns:** {schedules_df.columns.tolist()}")
+            if not schedules_df.empty:
+                st.write("**Sample data (first 3 rows):**")
+                st.dataframe(schedules_df.head(3))
+
+            st.markdown("---")
+
+            # Verify position column in deals
+            if "position" in deals_df.columns:
+                position_counts = deals_df["position"].value_counts().to_dict()
+                st.write(f"**position column found in deals!**")
+                st.write(f"**value distribution:** {position_counts}")
+            else:
+                st.warning("**position column NOT FOUND in deals**")
 
         # =====================================================================
         # Section 1: Data Quality Overview
