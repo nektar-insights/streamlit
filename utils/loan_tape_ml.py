@@ -8,7 +8,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import altair as alt
-from typing import Tuple, Dict
+from typing import Tuple, Dict, List
 from sklearn.model_selection import StratifiedKFold, KFold
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.impute import SimpleImputer
@@ -17,7 +17,16 @@ from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.metrics import roc_auc_score, precision_score, recall_score
 
-from utils.loan_tape_analytics import make_problem_label, build_feature_matrix, safe_kfold
+from utils.loan_tape_analytics import (
+    make_problem_label,
+    build_feature_matrix,
+    safe_kfold,
+    get_display_name,
+    get_metric_tier,
+    assess_data_quality,
+    FEATURE_DISPLAY_NAMES,
+    METRIC_THRESHOLDS,
+)
 
 
 def create_coefficient_chart(coef_df: pd.DataFrame, title: str, color: str = "#1f77b4") -> alt.Chart:
@@ -55,44 +64,85 @@ def render_ml_explainer(metric_type: str = "classification"):
         metric_type: Type of model ("classification" or "regression")
     """
     if metric_type == "classification":
-        st.info("""
-        **📊 Understanding Classification Metrics:**
+        st.markdown("""
+        #### Understanding Classification Metrics
 
-        - **ROC AUC (Area Under ROC Curve)**: Measures model's ability to distinguish problem vs. non-problem loans
-          - **Higher is better** (Range: 0.5-1.0, where 0.5 = random guess, 1.0 = perfect)
-          - **Direction: ↑** Good performance is closer to 1.0
+        **What is this model doing?**
+        This model predicts which loans are likely to become "problem loans" (late payments, defaults, etc.)
+        based on observable characteristics at origination.
 
-        - **Precision**: Of all loans predicted as problems, what % were actually problems?
-          - **Higher is better** (Range: 0-1)
-          - **Direction: ↑** Minimizes false alarms
+        ---
 
-        - **Recall**: Of all actual problem loans, what % did we correctly identify?
-          - **Higher is better** (Range: 0-1)
-          - **Direction: ↑** Minimizes missed problems
+        **Key Metrics Explained:**
 
-        - **Positive Coefficients (Risk-Increasing)**: Features that increase probability of loan problems
-          - **Red flags** - Higher values mean higher risk
+        | Metric | What It Measures | Good Value | Interpretation |
+        |--------|------------------|------------|----------------|
+        | **ROC AUC** | Overall ability to rank risky loans higher | > 0.70 | Model is better than random guessing |
+        | **Precision** | Accuracy of problem predictions | > 0.50 | Half of flagged loans are actual problems |
+        | **Recall** | Coverage of actual problems | > 0.50 | Model catches half of all problem loans |
 
-        - **Negative Coefficients (Risk-Decreasing)**: Features that decrease probability of loan problems
-          - **Green flags** - Higher values mean lower risk
+        ---
+
+        **Performance Tiers:**
+        - **Excellent (> 0.90)**: Production-ready predictive power
+        - **Good (0.80-0.90)**: Useful for prioritization and screening
+        - **Fair (0.70-0.80)**: Directionally correct, use with caution
+        - **Poor (< 0.70)**: Limited predictive value
+
+        ---
+
+        **Understanding the Coefficients:**
+
+        - **Red Flags (Positive Coefficients)**: Features that *increase* the probability of a loan becoming a problem.
+          - *Example*: If "Partner: XYZ" has a large positive coefficient, loans from that partner have higher default risk.
+
+        - **Green Flags (Negative Coefficients)**: Features that *decrease* the probability of a loan becoming a problem.
+          - *Example*: If "FICO Score" has a negative coefficient, higher FICO scores mean lower default risk.
+
+        ---
+
+        **What to do with these results:**
+        1. Review the top risk-increasing factors - are there partners or industries to monitor more closely?
+        2. Consider adjusting underwriting criteria based on the strongest signals
+        3. Use the model to prioritize collections efforts on high-risk active loans
         """)
     else:  # regression
-        st.info("""
-        **📊 Understanding Regression Metrics:**
+        st.markdown("""
+        #### Understanding Regression Metrics
 
-        - **R² (R-Squared)**: Proportion of variance in payment performance explained by the model
-          - **Higher is better** (Range: -∞ to 1.0, where 1.0 = perfect prediction)
-          - **Direction: ↑** Good performance is closer to 1.0
-          - Values below 0 mean model performs worse than simply predicting the mean
+        **What is this model doing?**
+        This model predicts the expected "payment performance" (% of invested capital recovered) for each loan.
 
-        - **RMSE (Root Mean Squared Error)**: Average prediction error in payment performance
-          - **Lower is better** (Range: 0 to ∞)
-          - **Direction: ↓** Smaller values indicate more accurate predictions
-          - Measured in same units as payment_performance (percentage points)
+        ---
 
-        - **Coefficients**: Show relationship between features and payment performance
-          - **Positive**: Feature increases payment performance (better for us)
-          - **Negative**: Feature decreases payment performance (worse for us)
+        **Key Metrics Explained:**
+
+        | Metric | What It Measures | Good Value | Interpretation |
+        |--------|------------------|------------|----------------|
+        | **R²** | Variance explained by model | > 0.30 | Model explains 30%+ of performance variation |
+        | **RMSE** | Average prediction error | < 0.15 | Predictions off by ~15 percentage points on average |
+
+        ---
+
+        **Performance Tiers:**
+        - **Excellent (R² > 0.70)**: Strong predictive model
+        - **Good (R² 0.50-0.70)**: Useful predictions with moderate uncertainty
+        - **Fair (R² 0.30-0.50)**: Captures major patterns, limited precision
+        - **Poor (R² < 0.30)**: High uncertainty, use directionally only
+
+        ---
+
+        **Interpreting R²:**
+        - R² = 1.0 means perfect predictions (unrealistic)
+        - R² = 0.0 means the model is no better than predicting the average
+        - R² < 0.0 means the model is actually worse than the average (poor fit)
+
+        ---
+
+        **What to do with these results:**
+        1. If R² is low, performance may be driven by factors not in the model (external events, etc.)
+        2. Compare RMSE to your portfolio's actual performance variance
+        3. Use predictions to estimate expected recovery for active loans
         """)
 
     st.markdown("---")
@@ -108,9 +158,9 @@ def train_classification_small(df: pd.DataFrame) -> Tuple[Pipeline, Dict, pd.Dat
     Returns:
         Tuple containing:
         - Fitted pipeline model
-        - Dictionary of cross-validation metrics
-        - DataFrame of top positive coefficients
-        - DataFrame of top negative coefficients
+        - Dictionary of cross-validation metrics (includes baselines)
+        - DataFrame of top positive coefficients (with human-readable names)
+        - DataFrame of top negative coefficients (with human-readable names)
     """
     y = make_problem_label(df)
     X = build_feature_matrix(df)
@@ -156,26 +206,56 @@ def train_classification_small(df: pd.DataFrame) -> Tuple[Pipeline, Dict, pd.Dat
     # Final fit on all data for coefficients
     model.fit(X, y)
 
-    # Extract top coefficients
+    # Extract top coefficients with human-readable names
     try:
         ohe = model.named_steps["pre"].named_transformers_["cat"]
         num_names = num_cols
         cat_names = ohe.get_feature_names_out(cat_cols).tolist() if cat_cols else []
         feat_names = num_names + cat_names
         coefs = model.named_steps["clf"].coef_.ravel()
-        coef_df = pd.DataFrame({"feature": feat_names, "coef": coefs}).sort_values("coef", ascending=False)
-        top_pos = coef_df.head(10)
-        top_neg = coef_df.tail(10).iloc[::-1]
+
+        coef_df = pd.DataFrame({"feature": feat_names, "coef": coefs})
+        # Add human-readable display names
+        coef_df["display_name"] = coef_df["feature"].apply(get_display_name)
+        coef_df = coef_df.sort_values("coef", ascending=False)
+
+        top_pos = coef_df.head(10)[["display_name", "feature", "coef"]].rename(columns={"display_name": "Feature"})
+        top_neg = coef_df.tail(10).iloc[::-1][["display_name", "feature", "coef"]].rename(columns={"display_name": "Feature"})
     except Exception as e:
-        top_pos = pd.DataFrame(columns=["feature", "coef"])
-        top_neg = pd.DataFrame(columns=["feature", "coef"])
+        top_pos = pd.DataFrame(columns=["Feature", "feature", "coef"])
+        top_neg = pd.DataFrame(columns=["Feature", "feature", "coef"])
+
+    # Calculate baseline metrics for comparison
+    pos_rate = float(y.mean())
+    baseline_auc = 0.5  # Random classifier
+    baseline_precision = pos_rate  # Always predicting positive
+    baseline_recall = 1.0  # Always predicting positive catches all positives
+
+    # Get metric performance tiers
+    mean_auc = np.mean(aucs) if aucs else np.nan
+    mean_prec = np.mean(precs)
+    mean_rec = np.mean(recs)
+
+    auc_tier, auc_color = get_metric_tier("roc_auc", mean_auc)
+    prec_tier, prec_color = get_metric_tier("precision", mean_prec)
+    rec_tier, rec_color = get_metric_tier("recall", mean_rec)
 
     metrics = {
-        "ROC AUC": (np.mean(aucs) if aucs else np.nan, np.std(aucs) if aucs else np.nan),
-        "Precision": (np.mean(precs), np.std(precs)),
-        "Recall": (np.mean(recs), np.std(recs)),
+        "ROC AUC": (mean_auc, np.std(aucs) if aucs else np.nan),
+        "Precision": (mean_prec, np.std(precs)),
+        "Recall": (mean_rec, np.std(recs)),
         "n_samples": len(df),
-        "pos_rate": float(y.mean())
+        "pos_rate": pos_rate,
+        "n_splits": n_splits,
+        # Baselines for comparison
+        "baseline_auc": baseline_auc,
+        "baseline_precision": baseline_precision,
+        # Performance tiers
+        "auc_tier": auc_tier,
+        "prec_tier": prec_tier,
+        "rec_tier": rec_tier,
+        # Lift over baseline
+        "auc_lift": (mean_auc - baseline_auc) / baseline_auc if baseline_auc > 0 and not np.isnan(mean_auc) else 0,
     }
 
     return model, metrics, top_pos, top_neg
@@ -191,7 +271,7 @@ def train_regression_small(df: pd.DataFrame) -> Tuple[Pipeline, Dict]:
     Returns:
         Tuple containing:
         - Fitted pipeline model
-        - Dictionary of cross-validation metrics
+        - Dictionary of cross-validation metrics (includes baselines and tiers)
     """
     y = pd.to_numeric(df.get("payment_performance"), errors="coerce")
     mask = y.notna()
@@ -216,8 +296,13 @@ def train_regression_small(df: pd.DataFrame) -> Tuple[Pipeline, Dict]:
     ])
 
     # Cross-validation
-    kf = KFold(n_splits=safe_kfold(mask.sum()), shuffle=True, random_state=42)
+    n_splits = safe_kfold(mask.sum())
+    kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
     r2s, rmses = [], []
+
+    # Calculate baseline (mean predictor) RMSE
+    y_actual = y.loc[mask]
+    baseline_rmse = np.sqrt(np.mean((y_actual - y_actual.mean()) ** 2))
 
     for tr, te in kf.split(X):
         model.fit(X.iloc[tr], y.iloc[mask].iloc[tr])
@@ -235,10 +320,28 @@ def train_regression_small(df: pd.DataFrame) -> Tuple[Pipeline, Dict]:
     # Final fit on all data
     model.fit(X, y.loc[mask])
 
+    mean_r2 = np.nanmean(r2s)
+    mean_rmse = np.mean(rmses)
+
+    # Get performance tier
+    r2_tier, r2_color = get_metric_tier("r2", mean_r2)
+
+    # Calculate improvement over baseline
+    rmse_improvement = (baseline_rmse - mean_rmse) / baseline_rmse if baseline_rmse > 0 else 0
+
     return model, {
-        "R2": (np.nanmean(r2s), np.nanstd(r2s)),
-        "RMSE": (np.mean(rmses), np.std(rmses)),
-        "n_samples": int(mask.sum())
+        "R2": (mean_r2, np.nanstd(r2s)),
+        "RMSE": (mean_rmse, np.std(rmses)),
+        "n_samples": int(mask.sum()),
+        "n_splits": n_splits,
+        # Baselines
+        "baseline_rmse": baseline_rmse,
+        "mean_target": float(y_actual.mean()),
+        "std_target": float(y_actual.std()),
+        # Performance tier
+        "r2_tier": r2_tier,
+        # Improvement metrics
+        "rmse_improvement_pct": rmse_improvement,
     }
 
 
@@ -367,3 +470,151 @@ def render_fico_tib_heatmap(df: pd.DataFrame):
     )
 
     st.altair_chart(heat, use_container_width=True)
+
+
+def render_data_quality_summary(df: pd.DataFrame):
+    """
+    Render a data quality summary for the ML section.
+
+    Shows sample size, feature completeness, class balance, and any warnings
+    that may affect model reliability.
+
+    Args:
+        df: DataFrame with loan data
+    """
+    st.subheader("Data Quality Overview")
+
+    quality = assess_data_quality(df)
+
+    # Top-level metrics
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Sample Size", f"{quality['sample_size']:,}")
+    with col2:
+        problem_rate = quality['class_balance']['problem_rate']
+        st.metric("Problem Loan Rate", f"{problem_rate:.1%}")
+    with col3:
+        st.metric("Problem Loans", quality['class_balance']['problem_loans'])
+    with col4:
+        st.metric("Good Loans", quality['class_balance']['good_loans'])
+
+    # Feature completeness table
+    if quality['feature_completeness']:
+        st.markdown("##### Feature Completeness")
+
+        completeness_data = []
+        for feat, info in quality['feature_completeness'].items():
+            pct = info['pct']
+            status = "Complete" if pct >= 0.95 else ("Mostly Complete" if pct >= 0.7 else ("Partial" if pct >= 0.5 else "Limited"))
+            completeness_data.append({
+                "Feature": get_display_name(feat),
+                "Valid Records": f"{info['valid']:,}",
+                "Completeness": f"{pct:.0%}",
+                "Status": status
+            })
+
+        completeness_df = pd.DataFrame(completeness_data)
+        st.dataframe(completeness_df, use_container_width=True, hide_index=True)
+
+    # Warnings
+    if quality['warnings']:
+        st.markdown("##### Data Warnings")
+        for warning in quality['warnings']:
+            st.warning(warning)
+
+    # Overall assessment
+    if quality['is_adequate']:
+        st.success("Data quality is sufficient for ML modeling. Results should be interpretable.")
+    else:
+        st.error("Data quality is limited. ML results should be treated as exploratory only.")
+
+    st.markdown("---")
+
+
+def render_model_summary(classification_metrics: Dict, regression_metrics: Dict):
+    """
+    Render an executive summary of model performance.
+
+    Provides a high-level interpretation of what the models found
+    and actionable recommendations.
+
+    Args:
+        classification_metrics: Dict from train_classification_small
+        regression_metrics: Dict from train_regression_small
+    """
+    st.subheader("Model Summary & Recommendations")
+
+    # Classification model assessment
+    st.markdown("##### Problem Loan Prediction")
+
+    auc = classification_metrics.get('ROC AUC', (np.nan, np.nan))[0]
+    auc_tier = classification_metrics.get('auc_tier', 'N/A')
+    pos_rate = classification_metrics.get('pos_rate', 0)
+
+    if not np.isnan(auc):
+        if auc >= 0.80:
+            st.success(f"""
+            **Model Performance: {auc_tier}** (ROC AUC = {auc:.3f})
+
+            The model shows strong ability to identify problem loans. Key insights:
+            - Review the top risk-increasing factors for underwriting adjustments
+            - Consider using model scores to prioritize collections efforts
+            - Monitor partner and industry concentrations in high-risk segments
+            """)
+        elif auc >= 0.70:
+            st.info(f"""
+            **Model Performance: {auc_tier}** (ROC AUC = {auc:.3f})
+
+            The model shows moderate predictive power. Recommendations:
+            - Use predictions as one input among several for decision-making
+            - Focus on the strongest coefficient signals
+            - Consider gathering additional data features to improve predictions
+            """)
+        else:
+            st.warning(f"""
+            **Model Performance: {auc_tier}** (ROC AUC = {auc:.3f})
+
+            The model has limited predictive power. This could mean:
+            - Problem loans are driven by external factors not captured in the data
+            - Sample size may be insufficient for pattern detection
+            - Consider this analysis as directional only
+            """)
+    else:
+        st.warning("Classification model could not be evaluated (insufficient data or class imbalance).")
+
+    # Regression model assessment
+    st.markdown("##### Payment Performance Prediction")
+
+    r2 = regression_metrics.get('R2', (np.nan, np.nan))[0]
+    r2_tier = regression_metrics.get('r2_tier', 'N/A')
+    rmse_improvement = regression_metrics.get('rmse_improvement_pct', 0)
+
+    if not np.isnan(r2):
+        if r2 >= 0.50:
+            st.success(f"""
+            **Model Performance: {r2_tier}** (R² = {r2:.3f})
+
+            The model explains {r2:.0%} of payment performance variation.
+            - Predictions can be used for portfolio-level forecasting
+            - RMSE improvement over baseline: {rmse_improvement:.1%}
+            """)
+        elif r2 >= 0.20:
+            st.info(f"""
+            **Model Performance: {r2_tier}** (R² = {r2:.3f})
+
+            The model captures some patterns in payment performance.
+            - Use predictions for directional insights
+            - Significant unexplained variance remains
+            """)
+        else:
+            st.warning(f"""
+            **Model Performance: {r2_tier}** (R² = {r2:.3f})
+
+            Payment performance appears difficult to predict from available features.
+            - External factors may dominate performance outcomes
+            - Consider this analysis as exploratory
+            """)
+    else:
+        st.warning("Regression model could not be evaluated.")
+
+    st.markdown("---")

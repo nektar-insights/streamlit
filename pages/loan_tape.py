@@ -45,6 +45,12 @@ from utils.loan_tape_ml import (
     render_fico_tib_heatmap,
     create_coefficient_chart,
     render_ml_explainer,
+    render_data_quality_summary,
+    render_model_summary,
+)
+from utils.loan_tape_analytics import (
+    PROBLEM_STATUSES as ANALYTICS_PROBLEM_STATUSES,
+    get_display_name,
 )
 from utils.display_components import (
     create_date_range_filter,
@@ -997,86 +1003,188 @@ def main():
     with tabs[5]:
         st.header("Diagnostics & ML")
 
-        st.markdown("##### Correlations")
+        st.markdown("""
+        This section provides machine learning-based diagnostics to help identify risk factors
+        and predict loan performance. Use these insights to inform underwriting decisions and
+        portfolio monitoring.
+        """)
+
+        # =====================================================================
+        # Section 1: Data Quality Overview
+        # =====================================================================
+        render_data_quality_summary(filtered_df)
+
+        # =====================================================================
+        # Section 2: Correlation Analysis
+        # =====================================================================
+        st.subheader("Feature Correlation Analysis")
+        st.markdown("""
+        Correlations show how strongly each feature relates to payment performance.
+        Positive correlations indicate features associated with better performance;
+        negative correlations indicate features associated with worse performance.
+        """)
         render_corr_outputs(filtered_df)
 
         st.markdown("---")
+
+        # =====================================================================
+        # Section 3: FICO × TIB Heatmap
+        # =====================================================================
         render_fico_tib_heatmap(filtered_df)
 
         st.markdown("---")
-        st.subheader("Small Classification Model: Predict Problem Loans")
 
-        # Add explainer
-        with st.expander("📖 How to interpret these metrics", expanded=False):
+        # =====================================================================
+        # Section 4: Classification Model
+        # =====================================================================
+        st.subheader("Problem Loan Prediction Model")
+        st.markdown("""
+        This model predicts which loans are likely to become "problem loans"
+        (late payments, defaults, bankruptcies) based on observable characteristics.
+        """)
+
+        # Add explainer in expandable section
+        with st.expander("How to interpret these metrics", expanded=False):
             render_ml_explainer(metric_type="classification")
+
+        classification_metrics = None
+        regression_metrics = None
 
         try:
             model, metrics, top_pos, top_neg = train_classification_small(filtered_df)
+            classification_metrics = metrics
 
-            # Metrics row
-            col1, col2, col3, col4 = st.columns(4)
+            # Metrics row with performance tier badges
+            col1, col2, col3, col4, col5 = st.columns([1.2, 1, 1, 1, 1.5])
             with col1:
                 roc_val = metrics['ROC AUC'][0]
-                st.metric("ROC AUC (CV)", f"{roc_val:.3f}" if pd.notnull(roc_val) else "N/A",
-                         delta="Higher is better ↑" if pd.notnull(roc_val) and roc_val > 0.7 else None)
+                auc_tier = metrics.get('auc_tier', 'N/A')
+                st.metric("ROC AUC", f"{roc_val:.3f}" if pd.notnull(roc_val) else "N/A")
+                st.caption(f"Performance: **{auc_tier}**")
             with col2:
                 prec_val = metrics['Precision'][0]
-                st.metric("Precision (CV)", f"{prec_val:.3f}",
-                         delta="Higher is better ↑" if prec_val > 0.5 else None)
+                st.metric("Precision", f"{prec_val:.3f}")
             with col3:
                 recall_val = metrics['Recall'][0]
-                st.metric("Recall (CV)", f"{recall_val:.3f}",
-                         delta="Higher is better ↑" if recall_val > 0.5 else None)
+                st.metric("Recall", f"{recall_val:.3f}")
             with col4:
-                st.caption(f"n={metrics['n_samples']}, positive rate={metrics['pos_rate']:.2f}")
+                st.metric("Baseline AUC", f"{metrics.get('baseline_auc', 0.5):.2f}")
+                st.caption("Random classifier")
+            with col5:
+                lift = metrics.get('auc_lift', 0)
+                st.metric("Lift vs Baseline", f"+{lift:.0%}" if lift > 0 else f"{lift:.0%}")
+                st.caption(f"n={metrics['n_samples']:,}, {metrics.get('n_splits', 'N/A')}-fold CV")
 
-            # Coefficient visualizations
+            # Coefficient visualizations with better labeling
+            st.markdown("##### Key Risk Factors")
+            st.markdown("""
+            These coefficients show which features most strongly predict problem loans.
+            **Red flags** (positive coefficients) increase risk; **green flags** (negative coefficients) decrease risk.
+            """)
+
             col1, col2 = st.columns(2)
             with col1:
-                st.write("**Top Risk-Increasing Signals**")
+                st.markdown("**Risk-Increasing Factors (Red Flags)**")
                 if not top_pos.empty:
-                    chart = create_coefficient_chart(top_pos, "Risk-Increasing Features (Red Flags)", "#d62728")
+                    # Use Feature column (human-readable) for display
+                    display_df = top_pos.copy()
+                    if "Feature" in display_df.columns:
+                        chart_data = pd.DataFrame({
+                            "feature": display_df["Feature"],
+                            "coef": display_df["coef"]
+                        })
+                    else:
+                        chart_data = display_df[["feature", "coef"]]
+                    chart = create_coefficient_chart(chart_data, "Risk-Increasing Features", "#d62728")
                     st.altair_chart(chart, use_container_width=True)
-                    st.dataframe(top_pos.assign(coef=lambda s: s["coef"].map(lambda x: f"{x:.4f}")),
-                               use_container_width=True, hide_index=True)
+
+                    # Display table with interpretation
+                    table_data = display_df[["Feature", "coef"]].copy() if "Feature" in display_df.columns else display_df[["feature", "coef"]].copy()
+                    table_data.columns = ["Feature", "Coefficient"]
+                    table_data["Coefficient"] = table_data["Coefficient"].map(lambda x: f"{x:+.4f}")
+                    st.dataframe(table_data, use_container_width=True, hide_index=True)
 
             with col2:
-                st.write("**Top Risk-Decreasing Signals**")
+                st.markdown("**Risk-Decreasing Factors (Green Flags)**")
                 if not top_neg.empty:
-                    # Reverse order for neg coefficients to show most negative at top
-                    chart = create_coefficient_chart(top_neg, "Risk-Decreasing Features (Green Flags)", "#2ca02c")
+                    display_df = top_neg.copy()
+                    if "Feature" in display_df.columns:
+                        chart_data = pd.DataFrame({
+                            "feature": display_df["Feature"],
+                            "coef": display_df["coef"]
+                        })
+                    else:
+                        chart_data = display_df[["feature", "coef"]]
+                    chart = create_coefficient_chart(chart_data, "Risk-Decreasing Features", "#2ca02c")
                     st.altair_chart(chart, use_container_width=True)
-                    st.dataframe(top_neg.assign(coef=lambda s: s["coef"].map(lambda x: f"{x:.4f}")),
-                               use_container_width=True, hide_index=True)
+
+                    table_data = display_df[["Feature", "coef"]].copy() if "Feature" in display_df.columns else display_df[["feature", "coef"]].copy()
+                    table_data.columns = ["Feature", "Coefficient"]
+                    table_data["Coefficient"] = table_data["Coefficient"].map(lambda x: f"{x:+.4f}")
+                    st.dataframe(table_data, use_container_width=True, hide_index=True)
 
         except ImportError:
-            st.warning("scikit-learn or scipy not installed. `pip install scikit-learn scipy` to enable modeling.")
+            st.warning("scikit-learn or scipy not installed. Run `pip install scikit-learn scipy` to enable modeling.")
         except Exception as e:
             st.warning(f"Classification model could not run: {e}")
 
         st.markdown("---")
-        st.subheader("Small Regression Model: Predict Payment Performance")
 
-        # Add explainer
-        with st.expander("📖 How to interpret these metrics", expanded=False):
+        # =====================================================================
+        # Section 5: Regression Model
+        # =====================================================================
+        st.subheader("Payment Performance Prediction Model")
+        st.markdown("""
+        This model predicts the expected payment performance (% of invested capital recovered)
+        for each loan based on its characteristics.
+        """)
+
+        with st.expander("How to interpret these metrics", expanded=False):
             render_ml_explainer(metric_type="regression")
 
         try:
             r_model, r_metrics = train_regression_small(filtered_df)
-            c1, c2 = st.columns(2)
-            with c1:
+            regression_metrics = r_metrics
+
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
                 r2_val = r_metrics['R2'][0]
-                st.metric("R² (CV)", f"{r2_val:.3f}" if pd.notnull(r2_val) else "N/A",
-                         delta="Higher is better ↑" if pd.notnull(r2_val) and r2_val > 0.3 else "Lower is worse ↓")
-            with c2:
+                r2_tier = r_metrics.get('r2_tier', 'N/A')
+                st.metric("R² Score", f"{r2_val:.3f}" if pd.notnull(r2_val) else "N/A")
+                st.caption(f"Performance: **{r2_tier}**")
+            with col2:
                 rmse_val = r_metrics['RMSE'][0]
-                st.metric("RMSE (CV)", f"{rmse_val:.3f}",
-                         delta="Lower is better ↓")
-            st.caption(f"n={r_metrics['n_samples']} (rows with non-null payment_performance)")
+                st.metric("RMSE", f"{rmse_val:.3f}")
+                st.caption("Avg prediction error")
+            with col3:
+                baseline_rmse = r_metrics.get('baseline_rmse', 0)
+                st.metric("Baseline RMSE", f"{baseline_rmse:.3f}")
+                st.caption("Mean predictor")
+            with col4:
+                improvement = r_metrics.get('rmse_improvement_pct', 0)
+                st.metric("RMSE Improvement", f"{improvement:.1%}")
+                st.caption(f"n={r_metrics['n_samples']:,}, {r_metrics.get('n_splits', 'N/A')}-fold CV")
+
+            # Context about the target variable
+            st.markdown("##### Target Variable Context")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Avg Payment Performance", f"{r_metrics.get('mean_target', 0):.1%}")
+            with col2:
+                st.metric("Std Dev", f"{r_metrics.get('std_target', 0):.1%}")
+
         except ImportError:
-            st.warning("scikit-learn not installed. `pip install scikit-learn`.")
+            st.warning("scikit-learn not installed. Run `pip install scikit-learn` to enable modeling.")
         except Exception as e:
             st.warning(f"Regression model could not run: {e}")
+
+        st.markdown("---")
+
+        # =====================================================================
+        # Section 6: Executive Summary
+        # =====================================================================
+        if classification_metrics and regression_metrics:
+            render_model_summary(classification_metrics, regression_metrics)
 
 
 if __name__ == "__main__":
