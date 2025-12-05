@@ -49,10 +49,8 @@ from utils.loan_tape_ml import (
     render_data_quality_summary,
     render_model_summary,
 )
-from utils.loan_tape_analytics import (
-    PROBLEM_STATUSES,
-    get_display_name,
-)
+from utils.loan_tape_analytics import get_display_name
+from utils.status_constants import PROBLEM_STATUSES
 from utils.display_components import (
     create_date_range_filter,
     create_partner_source_filter,

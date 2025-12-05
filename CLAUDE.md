@@ -88,7 +88,7 @@ from utils.display_components import (
 ```
 
 ### Constants Location
-- **PROBLEM_STATUSES** - defined in `utils/loan_tape_analytics.py`
+- **PROBLEM_STATUSES**, **ALL_VALID_STATUSES**, **TERMINAL_STATUSES**, **PROTECTED_STATUSES** - defined in `utils/status_constants.py` (synced from hubspot repo)
 - **PLATFORM_FEE_RATE** (3%) - defined in `utils/config.py`
 - **COLOR_PALETTE**, **PRIMARY_COLOR** - defined in `utils/config.py`
 

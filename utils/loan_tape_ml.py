@@ -27,8 +27,8 @@ from utils.loan_tape_analytics import (
     assess_data_quality,
     FEATURE_DISPLAY_NAMES,
     METRIC_THRESHOLDS,
-    PROBLEM_STATUSES,
 )
+from utils.status_constants import PROBLEM_STATUSES
 
 
 def create_coefficient_chart(coef_df: pd.DataFrame, title: str, color: str = "#1f77b4") -> alt.Chart:

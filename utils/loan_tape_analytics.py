@@ -10,16 +10,11 @@ from scipy.stats import pearsonr, spearmanr, pointbiserialr
 from typing import Tuple, Optional, Dict, List
 from utils.data_loader import load_naics_sector_risk
 from utils.loan_tape_data import consolidate_sector_code
+from utils.status_constants import PROBLEM_STATUSES, ALL_VALID_STATUSES
 
 # =============================================================================
-# CONSTANTS - Single Source of Truth
+# CONSTANTS
 # =============================================================================
-
-# Problem loan statuses (canonical definition - import this elsewhere)
-PROBLEM_STATUSES = {
-    "Late", "Default", "Bankrupt", "Severe", "Severe Delinquency",
-    "Moderate Delinquency", "Active - Frequently Late"
-}
 
 # Feature name mapping for human-readable display
 FEATURE_DISPLAY_NAMES = {
