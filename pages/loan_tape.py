@@ -1440,11 +1440,12 @@ def main():
                     chart = create_coefficient_chart(chart_data, "Risk-Increasing Features", "#d62728")
                     st.altair_chart(chart, use_container_width=True)
 
-                    # Display table with interpretation
-                    table_data = display_df[["Feature", "coef"]].copy() if "Feature" in display_df.columns else display_df[["feature", "coef"]].copy()
-                    table_data.columns = ["Feature", "Coefficient"]
-                    table_data["Coefficient"] = table_data["Coefficient"].map(lambda x: f"{x:+.4f}")
-                    st.dataframe(table_data, use_container_width=True, hide_index=True)
+                    # Display table in expander to give chart more space
+                    with st.expander("View coefficient details", expanded=False):
+                        table_data = display_df[["Feature", "coef"]].copy() if "Feature" in display_df.columns else display_df[["feature", "coef"]].copy()
+                        table_data.columns = ["Feature", "Coefficient"]
+                        table_data["Coefficient"] = table_data["Coefficient"].map(lambda x: f"{x:+.4f}")
+                        st.dataframe(table_data, use_container_width=True, hide_index=True)
 
             with col2:
                 st.markdown("**Risk-Decreasing Factors (Green Flags)**")
@@ -1460,10 +1461,12 @@ def main():
                     chart = create_coefficient_chart(chart_data, "Risk-Decreasing Features", "#2ca02c")
                     st.altair_chart(chart, use_container_width=True)
 
-                    table_data = display_df[["Feature", "coef"]].copy() if "Feature" in display_df.columns else display_df[["feature", "coef"]].copy()
-                    table_data.columns = ["Feature", "Coefficient"]
-                    table_data["Coefficient"] = table_data["Coefficient"].map(lambda x: f"{x:+.4f}")
-                    st.dataframe(table_data, use_container_width=True, hide_index=True)
+                    # Display table in expander to give chart more space
+                    with st.expander("View coefficient details", expanded=False):
+                        table_data = display_df[["Feature", "coef"]].copy() if "Feature" in display_df.columns else display_df[["feature", "coef"]].copy()
+                        table_data.columns = ["Feature", "Coefficient"]
+                        table_data["Coefficient"] = table_data["Coefficient"].map(lambda x: f"{x:+.4f}")
+                        st.dataframe(table_data, use_container_width=True, hide_index=True)
 
         except ImportError:
             st.warning("scikit-learn or scipy not installed. Run `pip install scikit-learn scipy` to enable modeling.")
@@ -1591,7 +1594,7 @@ def main():
 
             st.markdown("---")
 
-            # Partner and Industry rankings side by side
+            # Partner and Industry rankings side by side - charts first, tables in expanders
             col1, col2 = st.columns(2)
 
             with col1:
@@ -1599,15 +1602,7 @@ def main():
                 st.caption("Problem rate and avg risk score by partner source")
 
                 if not partner_rankings.empty:
-                    partner_display = partner_rankings.copy()
-                    partner_display["problem_rate"] = partner_display["problem_rate"].map(lambda x: f"{x:.1%}")
-                    partner_display["avg_risk_score"] = partner_display["avg_risk_score"].map(lambda x: f"{x:.1f}")
-                    partner_display["total_balance"] = partner_display["total_balance"].map(lambda x: f"${x:,.0f}")
-                    partner_display = partner_display[["partner_source", "loan_count", "problem_rate", "avg_risk_score", "total_balance"]]
-                    partner_display.columns = ["Partner", "Loans", "Problem Rate", "Avg Risk", "Balance"]
-                    st.dataframe(partner_display, use_container_width=True, hide_index=True)
-
-                    # Partner problem rate chart
+                    # Partner problem rate chart first for visual impact
                     partner_chart_data = partner_rankings[partner_rankings["loan_count"] >= 2].head(10).copy()
                     if not partner_chart_data.empty:
                         chart = alt.Chart(partner_chart_data).mark_bar().encode(
@@ -1624,22 +1619,25 @@ def main():
                                 alt.Tooltip("loan_count:Q", title="Loans"),
                                 alt.Tooltip("avg_risk_score:Q", title="Avg Risk Score", format=".1f"),
                             ]
-                        ).properties(height=250, title="Problem Rate by Partner (≥2 loans)")
+                        ).properties(height=300, title="Problem Rate by Partner (≥2 loans)")
                         st.altair_chart(chart, use_container_width=True)
+
+                    # Table in expander for detailed view
+                    with st.expander("View partner details", expanded=False):
+                        partner_display = partner_rankings.copy()
+                        partner_display["problem_rate"] = partner_display["problem_rate"].map(lambda x: f"{x:.1%}")
+                        partner_display["avg_risk_score"] = partner_display["avg_risk_score"].map(lambda x: f"{x:.1f}")
+                        partner_display["total_balance"] = partner_display["total_balance"].map(lambda x: f"${x:,.0f}")
+                        partner_display = partner_display[["partner_source", "loan_count", "problem_rate", "avg_risk_score", "total_balance"]]
+                        partner_display.columns = ["Partner", "Loans", "Problem Rate", "Avg Risk", "Balance"]
+                        st.dataframe(partner_display, use_container_width=True, hide_index=True)
 
             with col2:
                 st.markdown("##### Industry Risk Heatmap")
                 st.caption("Problem rate by NAICS sector code")
 
                 if not industry_rankings.empty:
-                    industry_display = industry_rankings.copy()
-                    industry_display["problem_rate"] = industry_display["problem_rate"].map(lambda x: f"{x:.1%}")
-                    industry_display["avg_risk_score"] = industry_display["avg_risk_score"].map(lambda x: f"{x:.1f}")
-                    industry_display = industry_display[["sector_code", "sector_name", "loan_count", "problem_rate", "avg_risk_score"]]
-                    industry_display.columns = ["Sector", "Name", "Loans", "Problem Rate", "Avg Risk"]
-                    st.dataframe(industry_display.head(10), use_container_width=True, hide_index=True)
-
-                    # Industry problem rate chart
+                    # Industry problem rate chart first for visual impact
                     industry_chart_data = industry_rankings[industry_rankings["loan_count"] >= 2].head(10).copy()
                     if not industry_chart_data.empty:
                         industry_chart_data["display_label"] = industry_chart_data["sector_code"] + " - " + industry_chart_data["sector_name"].astype(str)
@@ -1657,8 +1655,17 @@ def main():
                                 alt.Tooltip("loan_count:Q", title="Loans"),
                                 alt.Tooltip("avg_risk_score:Q", title="Avg Risk Score", format=".1f"),
                             ]
-                        ).properties(height=250, title="Problem Rate by Industry (≥2 loans)")
+                        ).properties(height=300, title="Problem Rate by Industry (≥2 loans)")
                         st.altair_chart(chart, use_container_width=True)
+
+                    # Table in expander for detailed view
+                    with st.expander("View industry details", expanded=False):
+                        industry_display = industry_rankings.copy()
+                        industry_display["problem_rate"] = industry_display["problem_rate"].map(lambda x: f"{x:.1%}")
+                        industry_display["avg_risk_score"] = industry_display["avg_risk_score"].map(lambda x: f"{x:.1f}")
+                        industry_display = industry_display[["sector_code", "sector_name", "loan_count", "problem_rate", "avg_risk_score"]]
+                        industry_display.columns = ["Sector", "Name", "Loans", "Problem Rate", "Avg Risk"]
+                        st.dataframe(industry_display.head(10), use_container_width=True, hide_index=True)
 
             st.markdown("---")
 

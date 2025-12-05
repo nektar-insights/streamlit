@@ -52,8 +52,7 @@ def create_coefficient_chart(coef_df: pd.DataFrame, title: str, color: str = "#1
         ]
     ).properties(
         title=title,
-        width=700,
-        height=300
+        height=max(200, len(coef_df) * 28)  # Dynamic height based on number of features
     )
     return chart
 
@@ -567,8 +566,7 @@ def render_corr_outputs(df: pd.DataFrame):
         ).transform_calculate(
             value="datum.spearman_rho_vs_performance"
         ).properties(
-            width=700,
-            height=150,
+            height=max(80, len(hm) * 25),  # Dynamic height based on number of features
             title="Correlation with Payment Performance"
         )
         st.altair_chart(chart, use_container_width=True)
@@ -642,8 +640,7 @@ def render_fico_tib_heatmap(df: pd.DataFrame):
             alt.Tooltip("n:Q", title="Count")
         ]
     ).properties(
-        width=500,
-        height=300,
+        height=350,  # Fixed height for consistent heatmap display
         title="FICO × TIB Heatmap"
     )
 
