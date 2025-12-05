@@ -480,3 +480,7 @@ def get_data_diagnostics() -> dict:
 def clear_data_cache(dataset: Optional[str] = None):
     """Clear data cache"""
     data_loader.clear_cache(dataset)
+
+
+# Re-export get_supabase_client for convenience
+from utils.imports import get_supabase_client

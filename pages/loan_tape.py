@@ -58,6 +58,7 @@ from utils.display_components import (
     create_partner_source_filter,
     create_status_filter,
 )
+from utils.manual_status_editor import render_manual_status_editor, render_status_badge
 
 # ---------------------------
 # Page Configuration & Styles
@@ -1178,6 +1179,32 @@ def main():
             file_name=f"loan_tape_{pd.Timestamp.today().strftime('%Y%m%d')}.csv",
             mime="text/csv",
         )
+
+        # Manual Status Override Section
+        st.markdown("---")
+        st.subheader("Manual Status Override")
+
+        # Let user select a loan to edit
+        loan_options = filtered_df["loan_id"].tolist()
+        selected_loan = st.selectbox("Select Loan to Edit", options=[""] + loan_options, key="status_editor_loan_select")
+
+        if selected_loan:
+            loan_row = filtered_df[filtered_df["loan_id"] == selected_loan].iloc[0]
+
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write(f"**Loan ID:** {selected_loan}")
+                st.write(f"**Deal Name:** {loan_row.get('deal_name', 'N/A')}")
+                st.write(f"**Current Status:** {loan_row['loan_status']}")
+                payment_perf = loan_row.get('payment_performance', 0)
+                st.write(f"**Payment Performance:** {payment_perf:.1%}" if pd.notna(payment_perf) else "**Payment Performance:** N/A")
+
+            with col2:
+                render_manual_status_editor(
+                    loan_id=selected_loan,
+                    current_status=loan_row["loan_status"],
+                    is_manual=loan_row.get("manual_status", False)
+                )
 
     with tabs[5]:
         st.header("Diagnostics & ML")
