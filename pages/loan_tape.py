@@ -607,6 +607,142 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
     display_df.columns = ["Industry (NAICS 2-Digit)", "Loan Count", "Outstanding Balance", "% of Total Outstanding", "Avg Payment Performance", "Actual Return Rate"]
     st.dataframe(display_df, use_container_width=True, hide_index=True)
 
+    # --- Capital Exposure Analysis Section ---
+    st.subheader("Capital Exposure Analysis")
+
+    # Filter to active loans only (loans with outstanding balance)
+    active_df = df[df["loan_status"] != "Paid Off"].copy()
+
+    if active_df.empty:
+        st.info("No active loans with outstanding exposure.")
+    else:
+        # Get the top industries from industry_metrics for consistent filtering
+        top_industries = set(industry_metrics["sector_code"].tolist())
+
+        # Filter active_df to only include top industries
+        active_filtered = active_df[active_df["sector_code"].isin(top_industries)].copy()
+
+        if active_filtered.empty:
+            st.info("No active exposure data available for top industries.")
+        else:
+            # Create display label for active loans
+            active_filtered["display_label"] = active_filtered["sector_code"] + " - " + active_filtered["industry_name"]
+
+            # --- Industry Exposure Donut Chart ---
+            industry_exposure = active_filtered.groupby(["sector_code", "display_label"]).agg(
+                outstanding_balance=("net_balance", "sum"),
+                deal_count=("loan_id", "count")
+            ).reset_index()
+            industry_exposure = industry_exposure.sort_values("outstanding_balance", ascending=False)
+
+            # --- Status Exposure Donut Chart ---
+            status_exposure = active_filtered.groupby("loan_status").agg(
+                outstanding_balance=("net_balance", "sum"),
+                deal_count=("loan_id", "count")
+            ).reset_index()
+            status_exposure = status_exposure.sort_values("outstanding_balance", ascending=False)
+
+            # Define status colors (extend LOAN_STATUS_COLORS for any missing statuses)
+            status_color_map = {
+                "Active": "#2ca02c",
+                "Late": "#ffbb78",
+                "Default": "#ff7f0e",
+                "Bankrupt": "#d62728",
+                "Severe": "#d62728",
+                "Severe Delinquency": "#e377c2",
+                "Moderate Delinquency": "#ff9896",
+                "Minor Delinquency": "#98df8a",
+                "Past Delinquency": "#aec7e8",
+                "Active - Frequently Late": "#dbdb8d",
+            }
+
+            # Create two donut charts side by side
+            col1, col2 = st.columns(2)
+
+            with col1:
+                industry_donut = alt.Chart(industry_exposure).mark_arc(innerRadius=60, outerRadius=120).encode(
+                    theta=alt.Theta("outstanding_balance:Q", stack=True),
+                    color=alt.Color(
+                        "display_label:N",
+                        legend=alt.Legend(title="Industry", orient="bottom", columns=2),
+                        scale=alt.Scale(scheme="tableau20")
+                    ),
+                    tooltip=[
+                        alt.Tooltip("display_label:N", title="Industry"),
+                        alt.Tooltip("outstanding_balance:Q", title="Exposure", format="$,.0f"),
+                        alt.Tooltip("deal_count:Q", title="Loans"),
+                    ],
+                ).properties(width=300, height=350, title="Exposure by Industry")
+
+                # Add center text showing total
+                total_exposure = industry_exposure["outstanding_balance"].sum()
+                center_text = alt.Chart(pd.DataFrame({"text": [f"${total_exposure/1e6:.1f}M"]})).mark_text(
+                    size=20, fontWeight="bold", color="#333"
+                ).encode(text="text:N")
+
+                st.altair_chart(industry_donut + center_text, use_container_width=True)
+
+            with col2:
+                # Get colors for statuses present in data
+                status_list = status_exposure["loan_status"].tolist()
+                status_colors = [status_color_map.get(s, "#7f7f7f") for s in status_list]
+
+                status_donut = alt.Chart(status_exposure).mark_arc(innerRadius=60, outerRadius=120).encode(
+                    theta=alt.Theta("outstanding_balance:Q", stack=True),
+                    color=alt.Color(
+                        "loan_status:N",
+                        legend=alt.Legend(title="Status", orient="bottom", columns=2),
+                        scale=alt.Scale(domain=status_list, range=status_colors)
+                    ),
+                    tooltip=[
+                        alt.Tooltip("loan_status:N", title="Status"),
+                        alt.Tooltip("outstanding_balance:Q", title="Exposure", format="$,.0f"),
+                        alt.Tooltip("deal_count:Q", title="Loans"),
+                    ],
+                ).properties(width=300, height=350, title="Exposure by Status")
+
+                # Add center text
+                center_text2 = alt.Chart(pd.DataFrame({"text": [f"${total_exposure/1e6:.1f}M"]})).mark_text(
+                    size=20, fontWeight="bold", color="#333"
+                ).encode(text="text:N")
+
+                st.altair_chart(status_donut + center_text2, use_container_width=True)
+
+            # --- Stacked Bar Chart: Industry x Status Breakdown ---
+            st.markdown("##### Exposure by Industry & Status")
+
+            # Group by industry and status for stacked bar
+            industry_status_exposure = active_filtered.groupby(["display_label", "loan_status"]).agg(
+                outstanding_balance=("net_balance", "sum"),
+                deal_count=("loan_id", "count")
+            ).reset_index()
+
+            # Sort industries by total exposure
+            industry_order = industry_exposure["display_label"].tolist()
+
+            # Get all statuses for color scale
+            all_statuses = industry_status_exposure["loan_status"].unique().tolist()
+            all_status_colors = [status_color_map.get(s, "#7f7f7f") for s in all_statuses]
+
+            stacked_bar = alt.Chart(industry_status_exposure).mark_bar().encode(
+                y=alt.Y("display_label:N", title="Industry", sort=industry_order),
+                x=alt.X("outstanding_balance:Q", title="Outstanding Exposure ($)", axis=alt.Axis(format="$,.0f")),
+                color=alt.Color(
+                    "loan_status:N",
+                    legend=alt.Legend(title="Status", orient="right"),
+                    scale=alt.Scale(domain=all_statuses, range=all_status_colors)
+                ),
+                tooltip=[
+                    alt.Tooltip("display_label:N", title="Industry"),
+                    alt.Tooltip("loan_status:N", title="Status"),
+                    alt.Tooltip("outstanding_balance:Q", title="Exposure", format="$,.0f"),
+                    alt.Tooltip("deal_count:Q", title="Loans"),
+                ],
+                order=alt.Order("loan_status:N"),
+            ).properties(width=700, height=400, title="Industry Exposure Breakdown by Loan Status")
+
+            st.altair_chart(stacked_bar, use_container_width=True)
+
 
 def plot_fico_performance_analysis(df: pd.DataFrame):
     """Plot performance metrics by FICO score bands"""
