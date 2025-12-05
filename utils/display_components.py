@@ -9,6 +9,12 @@ import pandas as pd
 import altair as alt
 from typing import List, Dict, Optional, Any, Tuple
 
+from scripts.loan_status_utils import (
+    PROBLEM_STATUSES,
+    TERMINAL_STATUSES,
+    PROTECTED_STATUSES
+)
+
 
 def display_metric_row(
     metrics: List[Dict[str, Any]],
@@ -663,3 +669,89 @@ def create_status_filter(
     else:
         filtered_df = df[df[status_col] == selected_status].copy()
         return filtered_df, selected_status
+
+
+def create_categorized_status_filter(
+    df: pd.DataFrame,
+    status_col: str = "loan_status",
+    key_prefix: str = "cat_status"
+) -> Tuple[pd.DataFrame, str]:
+    """
+    Create status filter with visual categories.
+
+    Categories:
+    - All
+    - Active (Active, Active - Frequently Late)
+    - Delinquent (Minor, Moderate, Severe, Past)
+    - Problem (Default, NSF, Non-Performing, etc.)
+    - Terminal (Paid Off, Charged Off, Bankruptcy)
+
+    Args:
+        df: DataFrame to filter
+        status_col: Name of the status column
+        key_prefix: Prefix for widget keys (for multiple filters on same page)
+
+    Returns:
+        Tuple of (filtered_df, selected_status)
+
+    Example:
+        filtered_df, status = create_categorized_status_filter(
+            df,
+            status_col="loan_status",
+            key_prefix="loan_cat_status"
+        )
+    """
+    if status_col not in df.columns:
+        st.warning(f"Column '{status_col}' not found in data")
+        return df.copy(), "All"
+
+    # Get status counts
+    status_counts = df[status_col].value_counts().to_dict()
+
+    # Build category options with counts
+    categories = {
+        "All": len(df),
+        "--- Active ---": None,
+        "Active": status_counts.get("Active", 0),
+        "Active - Frequently Late": status_counts.get("Active - Frequently Late", 0),
+        "--- Delinquent ---": None,
+        "Minor Delinquency": status_counts.get("Minor Delinquency", 0),
+        "Moderate Delinquency": status_counts.get("Moderate Delinquency", 0),
+        "Severe Delinquency": status_counts.get("Severe Delinquency", 0),
+        "Past Delinquency": status_counts.get("Past Delinquency", 0),
+        "--- Problem ---": None,
+        "Default": status_counts.get("Default", 0),
+        "NSF / Suspended": status_counts.get("NSF / Suspended", 0),
+        "Non-Performing": status_counts.get("Non-Performing", 0),
+        "In Collections": status_counts.get("In Collections", 0),
+        "Legal Action": status_counts.get("Legal Action", 0),
+        "--- Terminal ---": None,
+        "Paid Off": status_counts.get("Paid Off", 0),
+        "Charged Off": status_counts.get("Charged Off", 0),
+        "Bankruptcy": status_counts.get("Bankruptcy", 0),
+    }
+
+    # Format options with counts
+    options = []
+    for status, count in categories.items():
+        if count is None:
+            options.append(status)  # Section header
+        elif count > 0 or status == "All":
+            options.append(f"{status} ({count})")
+
+    selected = st.selectbox(
+        "Filter by Status",
+        options=options,
+        key=f"{key_prefix}_select"
+    )
+
+    # Parse selection
+    if selected.startswith("All"):
+        return df.copy(), "All"
+    elif selected.startswith("---"):
+        return df.copy(), "All"  # Headers do nothing
+    else:
+        # Extract status name (remove count)
+        status_name = selected.rsplit(" (", 1)[0]
+        filtered = df[df[status_col] == status_name].copy()
+        return filtered, status_name
