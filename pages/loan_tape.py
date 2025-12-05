@@ -42,11 +42,8 @@ from utils.loan_tape_ml import (
     train_classification_small,
     train_regression_small,
     train_current_risk_model,
-    render_corr_outputs,
-    render_fico_tib_heatmap,
     create_coefficient_chart,
     render_ml_explainer,
-    render_data_quality_summary,
     render_model_summary,
 )
 from utils.loan_tape_analytics import (
@@ -1345,39 +1342,8 @@ def main():
     with tabs[5]:
         st.header("Diagnostics & ML")
 
-        st.markdown("""
-        This section provides machine learning-based diagnostics to help identify risk factors
-        and predict loan performance. Use these insights to inform underwriting decisions and
-        portfolio monitoring.
-        """)
-
         # =====================================================================
-        # Section 1: Data Quality Overview
-        # =====================================================================
-        render_data_quality_summary(filtered_df)
-
-        # =====================================================================
-        # Section 2: Correlation Analysis
-        # =====================================================================
-        st.subheader("Feature Correlation Analysis")
-        st.markdown("""
-        Correlations show how strongly each feature relates to payment performance.
-        Positive correlations indicate features associated with better performance;
-        negative correlations indicate features associated with worse performance.
-        """)
-        render_corr_outputs(filtered_df)
-
-        st.markdown("---")
-
-        # =====================================================================
-        # Section 3: FICO × TIB Heatmap
-        # =====================================================================
-        render_fico_tib_heatmap(filtered_df)
-
-        st.markdown("---")
-
-        # =====================================================================
-        # Section 4: Classification Model
+        # Problem Loan Prediction Model
         # =====================================================================
         st.subheader("Problem Loan Prediction Model")
         st.markdown("""
