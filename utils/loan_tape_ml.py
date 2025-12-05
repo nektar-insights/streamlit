@@ -709,6 +709,397 @@ def render_data_quality_summary(df: pd.DataFrame):
     st.markdown("---")
 
 
+# =============================================================================
+# DEAL SCREENING FUNCTIONS
+# =============================================================================
+
+# Risk level thresholds for deal scoring
+RISK_LEVELS = {
+    (0, 40): ("LOW", "✅", "#2ca02c"),
+    (40, 60): ("MODERATE", "⚡", "#ffbb78"),
+    (60, 80): ("ELEVATED", "⚠️", "#ff7f0e"),
+    (80, 100): ("HIGH", "❌", "#d62728"),
+}
+
+# NAICS sector names for display
+NAICS_SECTOR_NAMES = {
+    "11": "Agriculture, Forestry, Fishing",
+    "21": "Mining, Quarrying, Oil/Gas",
+    "22": "Utilities",
+    "23": "Construction",
+    "31": "Manufacturing",
+    "42": "Wholesale Trade",
+    "44": "Retail Trade",
+    "48": "Transportation & Warehousing",
+    "51": "Information",
+    "52": "Finance & Insurance",
+    "53": "Real Estate",
+    "54": "Professional Services",
+    "55": "Management of Companies",
+    "56": "Administrative & Waste Services",
+    "61": "Educational Services",
+    "62": "Health Care & Social Assistance",
+    "71": "Arts, Entertainment, Recreation",
+    "72": "Accommodation & Food Services",
+    "81": "Other Services",
+    "92": "Public Administration",
+}
+
+
+def get_risk_level(score: float) -> Tuple[str, str, str]:
+    """
+    Get risk level label, emoji, and color based on score.
+
+    Args:
+        score: Risk score (0-100)
+
+    Returns:
+        Tuple of (level_name, emoji, color_hex)
+    """
+    for (low, high), (level, emoji, color) in RISK_LEVELS.items():
+        if low <= score < high:
+            return (level, emoji, color)
+    return ("HIGH", "❌", "#d62728")
+
+
+def get_origination_model_coefficients(
+    df: pd.DataFrame,
+    schedules_df: pd.DataFrame = None
+) -> Dict:
+    """
+    Train a classification model and extract coefficients for deal scoring.
+
+    This function trains a logistic regression model on historical loan data
+    and extracts the coefficients that can be used to score new deals.
+
+    Args:
+        df: DataFrame with loan data (including outcomes)
+        schedules_df: Optional DataFrame with payment schedules
+
+    Returns:
+        Dict containing:
+        - 'coefficients': Dict mapping feature names to coefficient values
+        - 'intercept': Model intercept (base risk)
+        - 'feature_means': Dict of mean values for each feature (for normalization)
+        - 'feature_stds': Dict of std values for each feature (for normalization)
+        - 'partner_coefficients': Dict of partner-specific coefficients
+        - 'industry_coefficients': Dict of industry-specific coefficients
+        - 'model_quality': Dict with ROC AUC and other metrics
+    """
+    from utils.loan_tape_analytics import make_problem_label, build_feature_matrix
+
+    # Create target variable
+    y = make_problem_label(df)
+
+    # Build feature matrix (origination features only)
+    X = build_feature_matrix(df, model_type="origination")
+
+    # Identify numeric and categorical columns
+    num_cols = X.select_dtypes(include=[np.number]).columns.tolist()
+    cat_cols = [c for c in X.columns if c not in num_cols]
+
+    # Calculate feature statistics for normalization
+    feature_means = {}
+    feature_stds = {}
+    for col in num_cols:
+        feature_means[col] = float(X[col].mean()) if X[col].notna().any() else 0.0
+        feature_stds[col] = float(X[col].std()) if X[col].notna().any() else 1.0
+
+    # Build preprocessing pipeline
+    pre = ColumnTransformer([
+        ("num", Pipeline([
+            ("imp", SimpleImputer(strategy="median")),
+            ("sc", StandardScaler())
+        ]), num_cols),
+        ("cat", OneHotEncoder(handle_unknown="ignore", min_frequency=0.05), cat_cols)
+    ])
+
+    # Build and fit model
+    model = Pipeline([
+        ("pre", pre),
+        ("clf", LogisticRegression(max_iter=2000, class_weight="balanced", C=1.0, solver="lbfgs"))
+    ])
+
+    # Fit model
+    model.fit(X, y)
+
+    # Get predictions for model quality assessment
+    try:
+        y_pred_proba = model.predict_proba(X)[:, 1]
+        roc_auc = roc_auc_score(y, y_pred_proba)
+    except:
+        roc_auc = np.nan
+
+    # Extract coefficients
+    try:
+        ohe = model.named_steps["pre"].named_transformers_["cat"]
+        num_names = num_cols
+        cat_names = ohe.get_feature_names_out(cat_cols).tolist() if cat_cols else []
+        feat_names = num_names + cat_names
+        coefs = model.named_steps["clf"].coef_.ravel()
+        intercept = float(model.named_steps["clf"].intercept_[0])
+
+        # Build coefficient dictionary
+        coefficients = {}
+        partner_coefficients = {}
+        industry_coefficients = {}
+
+        for name, coef in zip(feat_names, coefs):
+            coefficients[name] = float(coef)
+
+            # Separate out partner and industry coefficients
+            if name.startswith("partner_source_"):
+                partner_name = name.replace("partner_source_", "")
+                partner_coefficients[partner_name] = float(coef)
+            elif name.startswith("industry_"):
+                industry_code = name.replace("industry_", "")
+                industry_coefficients[industry_code] = float(coef)
+
+    except Exception as e:
+        coefficients = {}
+        partner_coefficients = {}
+        industry_coefficients = {}
+        intercept = 0.0
+
+    return {
+        "coefficients": coefficients,
+        "intercept": intercept,
+        "feature_means": feature_means,
+        "feature_stds": feature_stds,
+        "partner_coefficients": partner_coefficients,
+        "industry_coefficients": industry_coefficients,
+        "model_quality": {
+            "roc_auc": roc_auc,
+            "n_samples": len(df),
+            "problem_rate": float(y.mean()),
+        }
+    }
+
+
+def calculate_deal_risk_score(
+    partner: str,
+    fico: int,
+    tib: float,
+    position: int,
+    sector_code: str,
+    deal_size: float,
+    factor_rate: float,
+    commission: float,
+    coefficients_data: Dict
+) -> Dict:
+    """
+    Calculate risk score for a prospective deal.
+
+    Uses model coefficients to score a new deal based on its characteristics.
+    Returns a 0-100 risk score with factor-by-factor breakdown.
+
+    Args:
+        partner: Partner source name
+        fico: FICO credit score
+        tib: Time in business (years)
+        position: Lien position (0=1st, 1=2nd, 2=3rd+)
+        sector_code: 2-digit NAICS sector code
+        deal_size: Total deal/loan amount
+        factor_rate: Factor rate
+        commission: Commission rate (as decimal, e.g., 0.05 for 5%)
+        coefficients_data: Dict from get_origination_model_coefficients()
+
+    Returns:
+        Dict containing:
+        - 'total_score': Risk score (0-100)
+        - 'risk_level': Level name (LOW/MODERATE/ELEVATED/HIGH)
+        - 'risk_emoji': Emoji for the risk level
+        - 'risk_color': Color code for the risk level
+        - 'factor_contributions': List of dicts with factor breakdowns
+        - 'recommendations': List of improvement suggestions
+        - 'raw_probability': Raw model probability
+    """
+    coefficients = coefficients_data.get("coefficients", {})
+    intercept = coefficients_data.get("intercept", 0.0)
+    feature_means = coefficients_data.get("feature_means", {})
+    feature_stds = coefficients_data.get("feature_stds", {})
+    partner_coefficients = coefficients_data.get("partner_coefficients", {})
+    industry_coefficients = coefficients_data.get("industry_coefficients", {})
+
+    # Initialize contributions tracking
+    factor_contributions = []
+    log_odds = intercept
+
+    # Base risk contribution (from intercept)
+    # Convert intercept to approximate points (scaled to 0-100 context)
+    base_points = intercept * 10  # Scale factor for display
+
+    # FICO Score contribution
+    if "fico" in coefficients and fico is not None:
+        fico_mean = feature_means.get("fico", 680)
+        fico_std = feature_stds.get("fico", 50)
+        if fico_std > 0:
+            fico_z = (fico - fico_mean) / fico_std
+            fico_contribution = coefficients["fico"] * fico_z
+            log_odds += fico_contribution
+            # Negative coefficient means higher FICO = lower risk
+            fico_points = fico_contribution * 10
+            factor_contributions.append({
+                "factor": f"FICO ({fico})",
+                "contribution": round(fico_points, 1),
+                "direction": "positive" if fico_points > 0 else "negative",
+                "raw_value": fico
+            })
+
+    # Time in Business contribution
+    if "tib" in coefficients and tib is not None:
+        tib_mean = feature_means.get("tib", 10)
+        tib_std = feature_stds.get("tib", 5)
+        if tib_std > 0:
+            tib_z = (tib - tib_mean) / tib_std
+            tib_contribution = coefficients["tib"] * tib_z
+            log_odds += tib_contribution
+            tib_points = tib_contribution * 10
+            factor_contributions.append({
+                "factor": f"Time in Business ({tib:.1f} yrs)",
+                "contribution": round(tib_points, 1),
+                "direction": "positive" if tib_points > 0 else "negative",
+                "raw_value": tib
+            })
+
+    # Lien Position contribution (ahead_positions)
+    if "ahead_positions" in coefficients and position is not None:
+        pos_mean = feature_means.get("ahead_positions", 0.5)
+        pos_std = feature_stds.get("ahead_positions", 0.5)
+        if pos_std > 0:
+            pos_z = (position - pos_mean) / pos_std
+            pos_contribution = coefficients["ahead_positions"] * pos_z
+            log_odds += pos_contribution
+            pos_points = pos_contribution * 10
+            position_labels = {0: "1st", 1: "2nd", 2: "3rd+"}
+            pos_label = position_labels.get(position, f"{position+1}th")
+            factor_contributions.append({
+                "factor": f"Lien Position ({pos_label})",
+                "contribution": round(pos_points, 1),
+                "direction": "positive" if pos_points > 0 else "negative",
+                "raw_value": position
+            })
+
+    # Deal Size contribution
+    if "total_invested" in coefficients and deal_size is not None:
+        size_mean = feature_means.get("total_invested", 50000)
+        size_std = feature_stds.get("total_invested", 30000)
+        if size_std > 0:
+            size_z = (deal_size - size_mean) / size_std
+            size_contribution = coefficients["total_invested"] * size_z
+            log_odds += size_contribution
+            size_points = size_contribution * 10
+            factor_contributions.append({
+                "factor": f"Deal Size (${deal_size:,.0f})",
+                "contribution": round(size_points, 1),
+                "direction": "positive" if size_points > 0 else "negative",
+                "raw_value": deal_size
+            })
+
+    # Sector Risk contribution
+    if "sector_risk" in coefficients:
+        # Look up sector risk from model or use default
+        sector_risk_mean = feature_means.get("sector_risk", 2.5)
+        sector_risk_std = feature_stds.get("sector_risk", 1.0)
+        # Estimate sector risk based on industry coefficient
+        if sector_code in industry_coefficients:
+            # Use relative coefficient as proxy for sector risk
+            sector_risk_z = industry_coefficients[sector_code]
+            sector_contribution = sector_risk_z
+            log_odds += sector_contribution
+            sector_points = sector_contribution * 10
+            sector_name = NAICS_SECTOR_NAMES.get(sector_code, f"Sector {sector_code}")
+            factor_contributions.append({
+                "factor": f"Industry ({sector_name})",
+                "contribution": round(sector_points, 1),
+                "direction": "positive" if sector_points > 0 else "negative",
+                "raw_value": sector_code
+            })
+    elif sector_code in industry_coefficients:
+        # Direct industry coefficient
+        industry_contribution = industry_coefficients[sector_code]
+        log_odds += industry_contribution
+        industry_points = industry_contribution * 10
+        sector_name = NAICS_SECTOR_NAMES.get(sector_code, f"Sector {sector_code}")
+        factor_contributions.append({
+            "factor": f"Industry ({sector_name})",
+            "contribution": round(industry_points, 1),
+            "direction": "positive" if industry_points > 0 else "negative",
+            "raw_value": sector_code
+        })
+
+    # Partner contribution
+    if partner in partner_coefficients:
+        partner_contribution = partner_coefficients[partner]
+        log_odds += partner_contribution
+        partner_points = partner_contribution * 10
+        factor_contributions.append({
+            "factor": f"Partner ({partner})",
+            "contribution": round(partner_points, 1),
+            "direction": "positive" if partner_points > 0 else "negative",
+            "raw_value": partner
+        })
+
+    # Add base risk as a factor
+    factor_contributions.append({
+        "factor": "Base Risk",
+        "contribution": round(base_points, 1),
+        "direction": "neutral",
+        "raw_value": None
+    })
+
+    # Convert log-odds to probability
+    probability = 1 / (1 + np.exp(-log_odds))
+
+    # Convert probability to 0-100 score
+    # Using sigmoid transformation to spread scores more evenly
+    total_score = probability * 100
+
+    # Ensure score is in valid range
+    total_score = max(0, min(100, total_score))
+
+    # Get risk level
+    risk_level, risk_emoji, risk_color = get_risk_level(total_score)
+
+    # Sort contributions by absolute value
+    factor_contributions = sorted(
+        factor_contributions,
+        key=lambda x: abs(x["contribution"]),
+        reverse=True
+    )
+
+    # Generate recommendations
+    recommendations = []
+
+    if total_score >= 60:  # ELEVATED or HIGH risk
+        # Position recommendation
+        if position > 0:
+            recommendations.append(f"Require 1st lien position (currently {position+1}{'st' if position == 0 else 'nd' if position == 1 else 'rd+'})")
+
+        # FICO recommendation
+        if fico is not None and fico < 650:
+            recommendations.append(f"Require FICO > 650 (currently {fico})")
+
+        # TIB recommendation
+        if tib is not None and tib < 5:
+            recommendations.append(f"Prefer businesses with 5+ years history (currently {tib:.1f} years)")
+
+        # Factor rate recommendation for high risk
+        if total_score >= 70:
+            suggested_rate_increase = (total_score - 60) * 0.002  # 0.2% per 10 points above 60
+            recommendations.append(f"Consider higher factor rate (+{suggested_rate_increase:.2%} suggested to compensate for risk)")
+
+    return {
+        "total_score": round(total_score, 1),
+        "risk_level": risk_level,
+        "risk_emoji": risk_emoji,
+        "risk_color": risk_color,
+        "factor_contributions": factor_contributions,
+        "recommendations": recommendations,
+        "raw_probability": probability,
+    }
+
+
 def render_model_summary(classification_metrics: Dict, regression_metrics: Dict):
     """
     Render an executive summary of model performance.

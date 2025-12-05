@@ -689,6 +689,228 @@ def calculate_partner_performance(df: pd.DataFrame) -> pd.DataFrame:
     return partner_metrics
 
 
+def find_similar_deals(
+    df: pd.DataFrame,
+    partner: str = None,
+    sector_code: str = None,
+    fico_range: tuple = None,
+    tib_range: tuple = None,
+    position: int = None,
+    min_matches: int = 5
+) -> pd.DataFrame:
+    """
+    Find historical deals with similar characteristics.
+
+    Filters the loan portfolio to find deals matching the specified criteria.
+    Used for comparing new deal parameters against historical performance.
+
+    Args:
+        df: DataFrame with loan data (must include payment_performance, loan_status)
+        partner: Partner source name to match (exact match)
+        sector_code: 2-digit NAICS sector code to match
+        fico_range: Tuple of (min_fico, max_fico) to filter by
+        tib_range: Tuple of (min_tib, max_tib) to filter by
+        position: Lien position to match (0=1st, 1=2nd, 2=3rd+)
+        min_matches: Minimum number of matches required; if fewer, relaxes filters
+
+    Returns:
+        pd.DataFrame with columns:
+        - loan_id, deal_name, partner_source, sector_code, industry_name
+        - fico, tib, ahead_positions
+        - loan_status, payment_performance
+        - total_invested, total_paid, net_balance
+        - is_problem (boolean)
+        Also includes summary statistics in DataFrame attributes:
+        - attrs['match_count']: Number of matching deals
+        - attrs['problem_rate']: Problem rate among matches
+        - attrs['avg_performance']: Average payment performance
+        - attrs['match_criteria']: Description of criteria used
+    """
+    if df.empty:
+        result = pd.DataFrame()
+        result.attrs['match_count'] = 0
+        result.attrs['problem_rate'] = 0.0
+        result.attrs['avg_performance'] = 0.0
+        result.attrs['match_criteria'] = "No data available"
+        return result
+
+    # Start with all loans
+    similar = df.copy()
+    criteria_used = []
+
+    # Apply filters progressively
+    # Partner filter
+    if partner is not None and "partner_source" in similar.columns:
+        partner_match = similar["partner_source"] == partner
+        if partner_match.sum() >= min_matches:
+            similar = similar[partner_match]
+            criteria_used.append(f"Partner: {partner}")
+
+    # Sector/Industry filter
+    if sector_code is not None:
+        # Check for sector_code column, or derive from industry
+        if "sector_code" not in similar.columns and "industry" in similar.columns:
+            similar["sector_code"] = similar["industry"].astype(str).str[:2].str.zfill(2).apply(consolidate_sector_code)
+
+        if "sector_code" in similar.columns:
+            sector_match = similar["sector_code"] == sector_code
+            if sector_match.sum() >= min_matches:
+                similar = similar[sector_match]
+                criteria_used.append(f"Sector: {sector_code}")
+
+    # FICO range filter
+    if fico_range is not None and "fico" in similar.columns:
+        min_fico, max_fico = fico_range
+        similar["fico_num"] = pd.to_numeric(similar["fico"], errors="coerce")
+        fico_match = (similar["fico_num"] >= min_fico) & (similar["fico_num"] <= max_fico)
+        if fico_match.sum() >= min_matches:
+            similar = similar[fico_match]
+            criteria_used.append(f"FICO: {min_fico}-{max_fico}")
+
+    # TIB range filter
+    if tib_range is not None and "tib" in similar.columns:
+        min_tib, max_tib = tib_range
+        similar["tib_num"] = pd.to_numeric(similar["tib"], errors="coerce")
+        tib_match = (similar["tib_num"] >= min_tib) & (similar["tib_num"] <= max_tib)
+        if tib_match.sum() >= min_matches:
+            similar = similar[tib_match]
+            criteria_used.append(f"TIB: {min_tib}-{max_tib} years")
+
+    # Position filter
+    if position is not None and "ahead_positions" in similar.columns:
+        similar["position_num"] = pd.to_numeric(similar["ahead_positions"], errors="coerce")
+        position_match = similar["position_num"] == position
+        if position_match.sum() >= min_matches:
+            similar = similar[position_match]
+            pos_labels = {0: "1st", 1: "2nd", 2: "3rd+"}
+            criteria_used.append(f"Position: {pos_labels.get(position, str(position))}")
+
+    # Add problem label
+    similar["is_problem"] = make_problem_label(similar)
+
+    # Calculate summary statistics
+    match_count = len(similar)
+    problem_rate = float(similar["is_problem"].mean()) if match_count > 0 else 0.0
+
+    if "payment_performance" in similar.columns:
+        avg_performance = float(pd.to_numeric(similar["payment_performance"], errors="coerce").mean())
+    else:
+        avg_performance = 0.0
+
+    # Select relevant columns for output
+    output_cols = [
+        "loan_id", "deal_name", "partner_source",
+        "fico", "tib", "ahead_positions",
+        "loan_status", "payment_performance",
+        "total_invested", "total_paid", "net_balance",
+        "is_problem"
+    ]
+
+    # Add sector columns if available
+    if "sector_code" in similar.columns:
+        output_cols.insert(3, "sector_code")
+    if "industry_name" in similar.columns:
+        output_cols.insert(4, "industry_name")
+
+    # Filter to available columns
+    output_cols = [c for c in output_cols if c in similar.columns]
+    result = similar[output_cols].copy()
+
+    # Sort by payment_performance (worst first)
+    if "payment_performance" in result.columns:
+        result = result.sort_values("payment_performance", ascending=True)
+
+    # Attach metadata
+    result.attrs['match_count'] = match_count
+    result.attrs['problem_rate'] = problem_rate
+    result.attrs['avg_performance'] = avg_performance
+    result.attrs['match_criteria'] = " + ".join(criteria_used) if criteria_used else "All deals"
+
+    return result
+
+
+def get_similar_deals_comparison(
+    df: pd.DataFrame,
+    partner: str = None,
+    sector_code: str = None,
+    fico_range: tuple = None,
+    tib_range: tuple = None,
+    position: int = None
+) -> Dict:
+    """
+    Get comparison metrics between similar deals and portfolio average.
+
+    Args:
+        df: DataFrame with loan data
+        partner: Partner source name to match
+        sector_code: 2-digit NAICS sector code to match
+        fico_range: Tuple of (min_fico, max_fico)
+        tib_range: Tuple of (min_tib, max_tib)
+        position: Lien position (0=1st, 1=2nd, 2=3rd+)
+
+    Returns:
+        Dict containing:
+        - 'similar_deals': DataFrame of matching deals
+        - 'similar_count': Number of similar deals
+        - 'similar_problem_rate': Problem rate for similar deals
+        - 'similar_avg_performance': Avg payment performance for similar deals
+        - 'portfolio_problem_rate': Problem rate for entire portfolio
+        - 'portfolio_avg_performance': Avg payment performance for portfolio
+        - 'risk_multiplier': How much riskier similar deals are vs portfolio
+        - 'match_criteria': Description of matching criteria
+        - 'warnings': List of risk warnings
+    """
+    # Get similar deals
+    similar = find_similar_deals(
+        df, partner, sector_code, fico_range, tib_range, position
+    )
+
+    # Calculate portfolio metrics
+    portfolio_problem = make_problem_label(df)
+    portfolio_problem_rate = float(portfolio_problem.mean()) if len(df) > 0 else 0.0
+
+    if "payment_performance" in df.columns:
+        portfolio_avg_performance = float(pd.to_numeric(df["payment_performance"], errors="coerce").mean())
+    else:
+        portfolio_avg_performance = 0.0
+
+    # Extract similar deal metrics from attrs
+    similar_count = similar.attrs.get('match_count', 0)
+    similar_problem_rate = similar.attrs.get('problem_rate', 0.0)
+    similar_avg_performance = similar.attrs.get('avg_performance', 0.0)
+    match_criteria = similar.attrs.get('match_criteria', '')
+
+    # Calculate risk multiplier
+    if portfolio_problem_rate > 0:
+        risk_multiplier = similar_problem_rate / portfolio_problem_rate
+    else:
+        risk_multiplier = 1.0
+
+    # Generate warnings
+    warnings = []
+    if similar_count > 0:
+        if risk_multiplier >= 2.0:
+            warnings.append(f"This combination has {risk_multiplier:.1f}x higher problem rate than portfolio average")
+        elif risk_multiplier >= 1.5:
+            warnings.append(f"This combination has {risk_multiplier:.1f}x higher problem rate than portfolio average")
+
+        if similar_avg_performance < portfolio_avg_performance * 0.9:
+            perf_diff = (portfolio_avg_performance - similar_avg_performance) * 100
+            warnings.append(f"Similar deals have {perf_diff:.1f}pp lower payment performance than portfolio average")
+
+    return {
+        'similar_deals': similar,
+        'similar_count': similar_count,
+        'similar_problem_rate': similar_problem_rate,
+        'similar_avg_performance': similar_avg_performance,
+        'portfolio_problem_rate': portfolio_problem_rate,
+        'portfolio_avg_performance': portfolio_avg_performance,
+        'risk_multiplier': risk_multiplier,
+        'match_criteria': match_criteria,
+        'warnings': warnings,
+    }
+
+
 def calculate_industry_performance(df: pd.DataFrame) -> pd.DataFrame:
     """
     Calculate performance metrics by industry/sector.
