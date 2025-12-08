@@ -1390,42 +1390,43 @@ def main():
             **Red flags** (positive coefficients) increase risk; **green flags** (negative coefficients) decrease risk.
             """)
 
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown("**Risk-Increasing Factors (Red Flags)**")
-                if not top_pos.empty:
-                    # Use Feature column (human-readable) for display
-                    display_df = top_pos.copy()
-                    if "Feature" in display_df.columns:
-                        chart_data = pd.DataFrame({
-                            "feature": display_df["Feature"],
-                            "coef": display_df["coef"]
-                        })
-                    else:
-                        chart_data = display_df[["feature", "coef"]]
-                    chart = create_coefficient_chart(chart_data, "Risk-Increasing Features", "#d62728")
-                    st.altair_chart(chart, use_container_width=True)
+            # Risk-Increasing Factors - Full width chart
+            st.markdown("**Risk-Increasing Factors (Red Flags)**")
+            if not top_pos.empty:
+                # Use Feature column (human-readable) for display
+                display_df = top_pos.copy()
+                if "Feature" in display_df.columns:
+                    chart_data = pd.DataFrame({
+                        "feature": display_df["Feature"],
+                        "coef": display_df["coef"]
+                    })
+                else:
+                    chart_data = display_df[["feature", "coef"]]
+                chart = create_coefficient_chart(chart_data, "Risk-Increasing Features", "#d62728", height=300)
+                st.altair_chart(chart, use_container_width=True)
 
-                    # Display table with interpretation
+                # Display table with interpretation
+                with st.expander("View coefficient details", expanded=False):
                     table_data = display_df[["Feature", "coef"]].copy() if "Feature" in display_df.columns else display_df[["feature", "coef"]].copy()
                     table_data.columns = ["Feature", "Coefficient"]
                     table_data["Coefficient"] = table_data["Coefficient"].map(lambda x: f"{x:+.4f}")
                     st.dataframe(table_data, use_container_width=True, hide_index=True)
 
-            with col2:
-                st.markdown("**Risk-Decreasing Factors (Green Flags)**")
-                if not top_neg.empty:
-                    display_df = top_neg.copy()
-                    if "Feature" in display_df.columns:
-                        chart_data = pd.DataFrame({
-                            "feature": display_df["Feature"],
-                            "coef": display_df["coef"]
-                        })
-                    else:
-                        chart_data = display_df[["feature", "coef"]]
-                    chart = create_coefficient_chart(chart_data, "Risk-Decreasing Features", "#2ca02c")
-                    st.altair_chart(chart, use_container_width=True)
+            # Risk-Decreasing Factors - Full width chart
+            st.markdown("**Risk-Decreasing Factors (Green Flags)**")
+            if not top_neg.empty:
+                display_df = top_neg.copy()
+                if "Feature" in display_df.columns:
+                    chart_data = pd.DataFrame({
+                        "feature": display_df["Feature"],
+                        "coef": display_df["coef"]
+                    })
+                else:
+                    chart_data = display_df[["feature", "coef"]]
+                chart = create_coefficient_chart(chart_data, "Risk-Decreasing Features", "#2ca02c", height=300)
+                st.altair_chart(chart, use_container_width=True)
 
+                with st.expander("View coefficient details", expanded=False):
                     table_data = display_df[["Feature", "coef"]].copy() if "Feature" in display_df.columns else display_df[["feature", "coef"]].copy()
                     table_data.columns = ["Feature", "Coefficient"]
                     table_data["Coefficient"] = table_data["Coefficient"].map(lambda x: f"{x:+.4f}")
@@ -1557,14 +1558,33 @@ def main():
 
             st.markdown("---")
 
-            # Partner and Industry rankings side by side
-            col1, col2 = st.columns(2)
+            # Partner Risk Leaderboard - Full width section
+            st.markdown("##### Partner Risk Leaderboard")
+            st.caption("Problem rate and avg risk score by partner source")
 
-            with col1:
-                st.markdown("##### Partner Risk Leaderboard")
-                st.caption("Problem rate and avg risk score by partner source")
+            if not partner_rankings.empty:
+                # Partner problem rate chart - Full width
+                partner_chart_data = partner_rankings[partner_rankings["loan_count"] >= 2].head(10).copy()
+                if not partner_chart_data.empty:
+                    chart = alt.Chart(partner_chart_data).mark_bar().encode(
+                        x=alt.X("partner_source:N", title="Partner", sort="-y"),
+                        y=alt.Y("problem_rate:Q", title="Problem Rate", axis=alt.Axis(format=".0%")),
+                        color=alt.Color(
+                            "problem_rate:Q",
+                            scale=alt.Scale(domain=[0, 0.2, 0.5], range=["#2ca02c", "#ffbb78", "#d62728"]),
+                            legend=None
+                        ),
+                        tooltip=[
+                            alt.Tooltip("partner_source:N", title="Partner"),
+                            alt.Tooltip("problem_rate:Q", title="Problem Rate", format=".1%"),
+                            alt.Tooltip("loan_count:Q", title="Loans"),
+                            alt.Tooltip("avg_risk_score:Q", title="Avg Risk Score", format=".1f"),
+                        ]
+                    ).properties(height=350, title="Problem Rate by Partner (≥2 loans)")
+                    st.altair_chart(chart, use_container_width=True)
 
-                if not partner_rankings.empty:
+                # Table in expandable section
+                with st.expander("View partner details table", expanded=False):
                     partner_display = partner_rankings.copy()
                     partner_display["problem_rate"] = partner_display["problem_rate"].map(lambda x: f"{x:.1%}")
                     partner_display["avg_risk_score"] = partner_display["avg_risk_score"].map(lambda x: f"{x:.1f}")
@@ -1573,31 +1593,36 @@ def main():
                     partner_display.columns = ["Partner", "Loans", "Problem Rate", "Avg Risk", "Balance"]
                     st.dataframe(partner_display, use_container_width=True, hide_index=True)
 
-                    # Partner problem rate chart
-                    partner_chart_data = partner_rankings[partner_rankings["loan_count"] >= 2].head(10).copy()
-                    if not partner_chart_data.empty:
-                        chart = alt.Chart(partner_chart_data).mark_bar().encode(
-                            x=alt.X("partner_source:N", title="Partner", sort="-y"),
-                            y=alt.Y("problem_rate:Q", title="Problem Rate", axis=alt.Axis(format=".0%")),
-                            color=alt.Color(
-                                "problem_rate:Q",
-                                scale=alt.Scale(domain=[0, 0.2, 0.5], range=["#2ca02c", "#ffbb78", "#d62728"]),
-                                legend=None
-                            ),
-                            tooltip=[
-                                alt.Tooltip("partner_source:N", title="Partner"),
-                                alt.Tooltip("problem_rate:Q", title="Problem Rate", format=".1%"),
-                                alt.Tooltip("loan_count:Q", title="Loans"),
-                                alt.Tooltip("avg_risk_score:Q", title="Avg Risk Score", format=".1f"),
-                            ]
-                        ).properties(height=250, title="Problem Rate by Partner (≥2 loans)")
-                        st.altair_chart(chart, use_container_width=True)
+            st.markdown("---")
 
-            with col2:
-                st.markdown("##### Industry Risk Heatmap")
-                st.caption("Problem rate by NAICS sector code")
+            # Industry Risk Heatmap - Full width section
+            st.markdown("##### Industry Risk Heatmap")
+            st.caption("Problem rate by NAICS sector code")
 
-                if not industry_rankings.empty:
+            if not industry_rankings.empty:
+                # Industry problem rate chart - Full width
+                industry_chart_data = industry_rankings[industry_rankings["loan_count"] >= 2].head(10).copy()
+                if not industry_chart_data.empty:
+                    industry_chart_data["display_label"] = industry_chart_data["sector_code"] + " - " + industry_chart_data["sector_name"].astype(str)
+                    chart = alt.Chart(industry_chart_data).mark_bar().encode(
+                        x=alt.X("display_label:N", title="Industry", sort="-y"),
+                        y=alt.Y("problem_rate:Q", title="Problem Rate", axis=alt.Axis(format=".0%")),
+                        color=alt.Color(
+                            "problem_rate:Q",
+                            scale=alt.Scale(domain=[0, 0.2, 0.5], range=["#2ca02c", "#ffbb78", "#d62728"]),
+                            legend=None
+                        ),
+                        tooltip=[
+                            alt.Tooltip("display_label:N", title="Industry"),
+                            alt.Tooltip("problem_rate:Q", title="Problem Rate", format=".1%"),
+                            alt.Tooltip("loan_count:Q", title="Loans"),
+                            alt.Tooltip("avg_risk_score:Q", title="Avg Risk Score", format=".1f"),
+                        ]
+                    ).properties(height=350, title="Problem Rate by Industry (≥2 loans)")
+                    st.altair_chart(chart, use_container_width=True)
+
+                # Table in expandable section
+                with st.expander("View industry details table", expanded=False):
                     industry_display = industry_rankings.copy()
                     industry_display["problem_rate"] = industry_display["problem_rate"].map(lambda x: f"{x:.1%}")
                     industry_display["avg_risk_score"] = industry_display["avg_risk_score"].map(lambda x: f"{x:.1f}")
@@ -1605,58 +1630,35 @@ def main():
                     industry_display.columns = ["Sector", "Name", "Loans", "Problem Rate", "Avg Risk"]
                     st.dataframe(industry_display.head(10), use_container_width=True, hide_index=True)
 
-                    # Industry problem rate chart
-                    industry_chart_data = industry_rankings[industry_rankings["loan_count"] >= 2].head(10).copy()
-                    if not industry_chart_data.empty:
-                        industry_chart_data["display_label"] = industry_chart_data["sector_code"] + " - " + industry_chart_data["sector_name"].astype(str)
-                        chart = alt.Chart(industry_chart_data).mark_bar().encode(
-                            x=alt.X("display_label:N", title="Industry", sort="-y"),
-                            y=alt.Y("problem_rate:Q", title="Problem Rate", axis=alt.Axis(format=".0%")),
-                            color=alt.Color(
-                                "problem_rate:Q",
-                                scale=alt.Scale(domain=[0, 0.2, 0.5], range=["#2ca02c", "#ffbb78", "#d62728"]),
-                                legend=None
-                            ),
-                            tooltip=[
-                                alt.Tooltip("display_label:N", title="Industry"),
-                                alt.Tooltip("problem_rate:Q", title="Problem Rate", format=".1%"),
-                                alt.Tooltip("loan_count:Q", title="Loans"),
-                                alt.Tooltip("avg_risk_score:Q", title="Avg Risk Score", format=".1f"),
-                            ]
-                        ).properties(height=250, title="Problem Rate by Industry (≥2 loans)")
-                        st.altair_chart(chart, use_container_width=True)
-
             st.markdown("---")
 
-            # Top Risk Factors from the model
+            # Top Risk Factors from the model - Full width sections
             st.markdown("##### Top Risk Factors (Model Coefficients)")
             st.caption("Features that most strongly predict problem loan status. Positive = increases risk, Negative = decreases risk.")
 
             coef_df = risk_metrics.get("coef_df", pd.DataFrame())
             if not coef_df.empty:
-                col1, col2 = st.columns(2)
+                # Risk-Increasing Factors - Full width
+                st.markdown("**Risk-Increasing Factors**")
+                top_pos = coef_df.head(10).copy()
+                if not top_pos.empty:
+                    chart_data = pd.DataFrame({
+                        "feature": top_pos["display_name"],
+                        "coef": top_pos["coef"]
+                    })
+                    chart = create_coefficient_chart(chart_data, "Risk-Increasing Features", "#d62728", height=300)
+                    st.altair_chart(chart, use_container_width=True)
 
-                with col1:
-                    st.markdown("**Risk-Increasing Factors**")
-                    top_pos = coef_df.head(10).copy()
-                    if not top_pos.empty:
-                        chart_data = pd.DataFrame({
-                            "feature": top_pos["display_name"],
-                            "coef": top_pos["coef"]
-                        })
-                        chart = create_coefficient_chart(chart_data, "Risk-Increasing Features", "#d62728")
-                        st.altair_chart(chart, use_container_width=True)
-
-                with col2:
-                    st.markdown("**Risk-Decreasing Factors**")
-                    top_neg = coef_df.tail(10).iloc[::-1].copy()
-                    if not top_neg.empty:
-                        chart_data = pd.DataFrame({
-                            "feature": top_neg["display_name"],
-                            "coef": top_neg["coef"]
-                        })
-                        chart = create_coefficient_chart(chart_data, "Risk-Decreasing Features", "#2ca02c")
-                        st.altair_chart(chart, use_container_width=True)
+                # Risk-Decreasing Factors - Full width
+                st.markdown("**Risk-Decreasing Factors**")
+                top_neg = coef_df.tail(10).iloc[::-1].copy()
+                if not top_neg.empty:
+                    chart_data = pd.DataFrame({
+                        "feature": top_neg["display_name"],
+                        "coef": top_neg["coef"]
+                    })
+                    chart = create_coefficient_chart(chart_data, "Risk-Decreasing Features", "#2ca02c", height=300)
+                    st.altair_chart(chart, use_container_width=True)
 
             # Download predictions
             st.markdown("---")

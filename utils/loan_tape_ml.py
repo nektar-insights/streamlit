@@ -31,7 +31,7 @@ from utils.loan_tape_analytics import (
 )
 
 
-def create_coefficient_chart(coef_df: pd.DataFrame, title: str, color: str = "#1f77b4") -> alt.Chart:
+def create_coefficient_chart(coef_df: pd.DataFrame, title: str, color: str = "#1f77b4", height: int = 350) -> alt.Chart:
     """
     Create a horizontal bar chart for model coefficients.
 
@@ -39,6 +39,7 @@ def create_coefficient_chart(coef_df: pd.DataFrame, title: str, color: str = "#1
         coef_df: DataFrame with 'feature' and 'coef' columns
         title: Chart title
         color: Bar color
+        height: Chart height in pixels (default 350)
 
     Returns:
         Altair chart object
@@ -52,8 +53,7 @@ def create_coefficient_chart(coef_df: pd.DataFrame, title: str, color: str = "#1
         ]
     ).properties(
         title=title,
-        width=700,
-        height=300
+        height=height
     )
     return chart
 
