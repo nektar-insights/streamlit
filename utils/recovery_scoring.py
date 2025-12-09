@@ -53,6 +53,18 @@ LEGACY_STATUS_MAPPING: Dict[str, str] = {
     "Severe": "Severe Delinquency", # Legacy -> Canonical
 }
 
+# Explicit recovery scores for statuses NOT in STATUS_RISK_MULTIPLIERS
+# These override the fallback logic for more accurate scoring
+MISSING_STATUS_SCORES: Dict[str, float] = {
+    # These statuses are in ALL_VALID_STATUSES but not in STATUS_RISK_MULTIPLIERS
+    "Charged Off": 1.0,        # Terminal - written off, minimal recovery
+    "Bankruptcy": 1.0,         # Terminal - legal protection, minimal recovery
+    "Non-Performing": 2.0,     # Stopped paying, very low recovery
+    "NSF / Suspended": 3.0,    # Payment failures, low recovery
+    "In Collections": 4.0,     # Active collection, some recovery possible
+    "Legal Action": 5.0,       # Litigation, moderate recovery via judgment
+}
+
 
 def _build_status_scores_from_risk_multipliers() -> Dict[str, float]:
     """
@@ -89,10 +101,13 @@ def _build_status_scores_from_risk_multipliers() -> Dict[str, float]:
             scores[status] = recovery_score
 
     # Add any ALL_VALID_STATUSES that aren't covered yet
-    # These get assigned scores based on their category
+    # First check MISSING_STATUS_SCORES for explicit overrides, then fall back to category-based
     missing_statuses = set(ALL_VALID_STATUSES) - set(scores.keys())
     for status in missing_statuses:
-        if status in TERMINAL_STATUSES:
+        if status in MISSING_STATUS_SCORES:
+            # Use explicit score for known missing statuses
+            scores[status] = MISSING_STATUS_SCORES[status]
+        elif status in TERMINAL_STATUSES:
             scores[status] = 1.0  # Terminal = very low recovery
         elif status in PROBLEM_STATUSES:
             scores[status] = 3.0  # Problem = low recovery
@@ -458,6 +473,15 @@ def calculate_recovery_score(
 
     # Calculate bad debt expense
     exposure = max(0.0, float(exposure_base)) if not pd.isna(exposure_base) else 0.0
+
+    # Special case: Paid Off loans have 0% loss regardless of other factors
+    if loan_status == "Paid Off":
+        loss_pct = 0.0
+        rec_midpoint = 1.0
+        rec_low = 1.0
+        rec_high = 1.0
+        band_label = "Paid Off"
+
     bad_debt_expense = exposure * loss_pct
     bad_debt_low = exposure * (1.0 - rec_high)
     bad_debt_high = exposure * (1.0 - rec_low)
@@ -595,7 +619,7 @@ def score_portfolio(
     }
     score_df = score_df.rename(columns=rename_map)
 
-    # Select columns to add
+    # Select columns to add (including exposure_base for portfolio summary)
     cols_to_add = [
         "recovery_score",
         "recovery_pct",
@@ -603,6 +627,7 @@ def score_portfolio(
         "bad_debt_expense",
         "bad_debt_low",
         "bad_debt_high",
+        "exposure_base",  # Added for get_portfolio_summary()
         "status_score",
         "industry_score",
         "collateral_score",
@@ -696,8 +721,20 @@ def get_status_score_table() -> pd.DataFrame:
     Scores are derived from STATUS_RISK_MULTIPLIERS in loan_tape_data.py.
     Shows which statuses are from the canonical ALL_VALID_STATUSES.
     """
-    # Show which statuses came from original multipliers vs filled in
-    from_multipliers = set(STATUS_RISK_MULTIPLIERS.keys()) | set(LEGACY_STATUS_MAPPING.values())
+    def _get_source(status: str) -> str:
+        """Determine the source of a status score."""
+        # Check if status (or its legacy equivalent) is in STATUS_RISK_MULTIPLIERS
+        if status in STATUS_RISK_MULTIPLIERS:
+            return "STATUS_RISK_MULTIPLIERS"
+        # Check if it's a mapped legacy status
+        for legacy, canonical in LEGACY_STATUS_MAPPING.items():
+            if canonical == status and legacy in STATUS_RISK_MULTIPLIERS:
+                return f"STATUS_RISK_MULTIPLIERS (via {legacy})"
+        # Check if it has an explicit override
+        if status in MISSING_STATUS_SCORES:
+            return "MISSING_STATUS_SCORES"
+        # Otherwise it's category-derived
+        return "Category-derived"
 
     return pd.DataFrame([
         {
@@ -705,8 +742,7 @@ def get_status_score_table() -> pd.DataFrame:
             "Recovery Score": round(score, 1),
             "Is Problem": status in PROBLEM_STATUSES,
             "Is Terminal": status in TERMINAL_STATUSES,
-            "Source": "STATUS_RISK_MULTIPLIERS" if status in from_multipliers or
-                      any(legacy == status for legacy in LEGACY_STATUS_MAPPING.values()) else "Derived"
+            "Source": _get_source(status)
         }
         for status, score in sorted(STATUS_SCORES.items(), key=lambda x: x[1])
     ])
