@@ -11,8 +11,10 @@ Estimates recovery probability and bad debt expense per deal based on:
 
 This is a pre-screening tool, not a final valuation engine.
 
-IMPORTANT: Uses canonical status constants from utils/status_constants.py
-and NAICS helpers from utils/loan_tape_data.py for consistency.
+IMPORTANT: Leverages existing codebase constants:
+- STATUS_RISK_MULTIPLIERS from utils/loan_tape_data.py (converted to recovery scores)
+- ALL_VALID_STATUSES from utils/status_constants.py
+- consolidate_sector_code from utils/loan_tape_data.py
 """
 
 import pandas as pd
@@ -30,56 +32,91 @@ from utils.status_constants import (
     is_terminal_status,
 )
 
-# Import NAICS helpers
-from utils.loan_tape_data import consolidate_sector_code
+# Import existing risk multipliers and NAICS helpers from loan_tape_data
+from utils.loan_tape_data import (
+    STATUS_RISK_MULTIPLIERS,
+    consolidate_sector_code,
+)
 
 # Import NAICS display names
 from utils.loan_tape_ml import NAICS_SECTOR_NAMES
 
 # =============================================================================
-# SCORING CONSTANTS
+# STATUS SCORING - DERIVED FROM EXISTING STATUS_RISK_MULTIPLIERS
 # =============================================================================
 
-# Status → Score (0-10)
-# Based on historical recovery rates by loan status
-# IMPORTANT: Only includes statuses from ALL_VALID_STATUSES (no legacy values)
-STATUS_SCORES: Dict[str, float] = {
-    # Terminal statuses - very low recovery
-    "Bankruptcy": 1.0,
-    "Charged Off": 1.0,
-    # Severe problem statuses
-    "Non-Performing": 2.0,
-    "Default": 2.0,
-    "Severe Delinquency": 3.0,
-    "NSF / Suspended": 3.0,
-    # Active collection/legal
-    "In Collections": 5.0,
-    "Legal Action": 5.0,
-    # Moderate delinquency
-    "Moderate Delinquency": 6.0,
-    # Minor issues
-    "Active - Frequently Late": 7.0,
-    "Past Delinquency": 8.0,
-    "Minor Delinquency": 9.0,
-    # Performing statuses
-    "Active": 10.0,
-    "Paid Off": 10.0,
+# Legacy status mapping: maps legacy names in STATUS_RISK_MULTIPLIERS to canonical names
+# These exist in STATUS_RISK_MULTIPLIERS but not in ALL_VALID_STATUSES
+LEGACY_STATUS_MAPPING: Dict[str, str] = {
+    "Bankrupt": "Bankruptcy",       # Legacy -> Canonical
+    "Late": "Minor Delinquency",    # Legacy -> Canonical (mapped to minor)
+    "Severe": "Severe Delinquency", # Legacy -> Canonical
 }
 
-# Validate that all STATUS_SCORES keys are in ALL_VALID_STATUSES
-_invalid_statuses = set(STATUS_SCORES.keys()) - set(ALL_VALID_STATUSES)
-if _invalid_statuses:
-    raise ValueError(
-        f"STATUS_SCORES contains invalid statuses not in ALL_VALID_STATUSES: {_invalid_statuses}"
-    )
+
+def _build_status_scores_from_risk_multipliers() -> Dict[str, float]:
+    """
+    Convert STATUS_RISK_MULTIPLIERS (higher = more risk) to recovery scores (higher = better recovery).
+
+    Logic:
+    - Risk multiplier range: 0.0 (Paid Off) to 5.0 (Bankruptcy/Severe)
+    - Recovery score range: 0.0 to 10.0
+    - Formula: recovery_score = 10.0 - (risk_multiplier * 2.0)
+    - Clamp to [1.0, 10.0] range
+
+    Also handles:
+    - Legacy status names via LEGACY_STATUS_MAPPING
+    - Statuses in ALL_VALID_STATUSES that aren't in STATUS_RISK_MULTIPLIERS
+    """
+    scores: Dict[str, float] = {}
+
+    # First, convert existing STATUS_RISK_MULTIPLIERS
+    for status, risk_mult in STATUS_RISK_MULTIPLIERS.items():
+        # Convert risk multiplier to recovery score (invert the scale)
+        # Risk 0.0 -> Recovery 10.0, Risk 5.0 -> Recovery 0.0
+        recovery_score = 10.0 - (risk_mult * 2.0)
+        recovery_score = max(1.0, min(10.0, recovery_score))  # Clamp to [1, 10]
+
+        # Check if this is a legacy status that needs mapping
+        if status in LEGACY_STATUS_MAPPING:
+            canonical_status = LEGACY_STATUS_MAPPING[status]
+            # Only add if canonical status is in ALL_VALID_STATUSES
+            if canonical_status in ALL_VALID_STATUSES:
+                # Use higher score if already exists (more optimistic)
+                if canonical_status not in scores or recovery_score > scores[canonical_status]:
+                    scores[canonical_status] = recovery_score
+        elif status in ALL_VALID_STATUSES:
+            scores[status] = recovery_score
+
+    # Add any ALL_VALID_STATUSES that aren't covered yet
+    # These get assigned scores based on their category
+    missing_statuses = set(ALL_VALID_STATUSES) - set(scores.keys())
+    for status in missing_statuses:
+        if status in TERMINAL_STATUSES:
+            scores[status] = 1.0  # Terminal = very low recovery
+        elif status in PROBLEM_STATUSES:
+            scores[status] = 3.0  # Problem = low recovery
+        elif status in PROTECTED_STATUSES:
+            scores[status] = 4.0  # Protected = moderate-low recovery
+        else:
+            scores[status] = 8.0  # Default for unknown = moderate-high
+
+    return scores
+
+
+# Build STATUS_SCORES from existing STATUS_RISK_MULTIPLIERS
+STATUS_SCORES: Dict[str, float] = _build_status_scores_from_risk_multipliers()
 
 DEFAULT_STATUS_SCORE = 5.0  # Unknown status - moderate risk
 
-# Industry/Sector → Score (1-10)
-# Higher score = higher expected recovery
+# =============================================================================
+# INDUSTRY SCORING - LEVERAGES naics_sector_risk_profile TABLE
+# =============================================================================
+
+# Default industry recovery scores (fallback if database unavailable)
+# Higher score = higher expected recovery (inverse of risk)
 # Based on industry volatility, asset liquidity, and historical defaults
-# Keys are 2-digit NAICS sector codes matching NAICS_SECTOR_NAMES
-INDUSTRY_SCORES: Dict[str, float] = {
+DEFAULT_INDUSTRY_SCORES: Dict[str, float] = {
     # High Risk (1-3) - Cyclical, high failure rates
     "23": 1.0,   # Construction - highest default rates, cyclical
     "11": 2.0,   # Agriculture, Forestry, Fishing - weather/commodity dependent
@@ -106,12 +143,56 @@ INDUSTRY_SCORES: Dict[str, float] = {
     "92": 10.0,  # Public Administration - government
 }
 
-# Validate that all INDUSTRY_SCORES keys are in NAICS_SECTOR_NAMES
-_invalid_sectors = set(INDUSTRY_SCORES.keys()) - set(NAICS_SECTOR_NAMES.keys())
-if _invalid_sectors:
-    raise ValueError(
-        f"INDUSTRY_SCORES contains invalid sector codes not in NAICS_SECTOR_NAMES: {_invalid_sectors}"
-    )
+
+def _load_industry_scores_from_database() -> Dict[str, float]:
+    """
+    Load industry risk scores from naics_sector_risk_profile table and convert to recovery scores.
+
+    The database has risk_score (higher = more risk), we convert to recovery (higher = better).
+    Formula: recovery_score = 10.0 - risk_score (assuming risk_score is 0-10 scale)
+
+    Falls back to DEFAULT_INDUSTRY_SCORES if database unavailable.
+    """
+    try:
+        from utils.data_loader import load_naics_sector_risk
+        naics_df = load_naics_sector_risk()
+
+        if naics_df.empty:
+            return DEFAULT_INDUSTRY_SCORES.copy()
+
+        scores: Dict[str, float] = {}
+        for _, row in naics_df.iterrows():
+            sector_code = str(row.get("sector_code", "")).strip().zfill(2)
+            risk_score = float(row.get("risk_score", 5.0))
+
+            # Apply sector consolidation (32, 33 -> 31 for Manufacturing)
+            consolidated = consolidate_sector_code(sector_code)
+
+            # Convert risk to recovery (invert scale)
+            # Assuming risk_score is 0-10 where higher = more risk
+            recovery_score = 10.0 - risk_score
+            recovery_score = max(1.0, min(10.0, recovery_score))
+
+            # Keep the first (or lower) score for consolidated sectors
+            if consolidated not in scores:
+                scores[consolidated] = recovery_score
+
+        # Fill in any missing sectors from defaults
+        for sector, score in DEFAULT_INDUSTRY_SCORES.items():
+            if sector not in scores:
+                scores[sector] = score
+
+        return scores
+
+    except Exception as e:
+        # Fall back to defaults if database unavailable
+        print(f"Could not load NAICS risk scores from database, using defaults: {e}")
+        return DEFAULT_INDUSTRY_SCORES.copy()
+
+
+# Try to load from database, fall back to defaults
+# Note: This runs at import time - scores are cached
+INDUSTRY_SCORES: Dict[str, float] = _load_industry_scores_from_database()
 
 DEFAULT_INDUSTRY_SCORE = 5.0  # Unknown industry
 
@@ -609,20 +690,40 @@ def format_percentage(value: float) -> str:
 
 
 def get_status_score_table() -> pd.DataFrame:
-    """Return STATUS_SCORES as a DataFrame for display."""
+    """
+    Return STATUS_SCORES as a DataFrame for display.
+
+    Scores are derived from STATUS_RISK_MULTIPLIERS in loan_tape_data.py.
+    Shows which statuses are from the canonical ALL_VALID_STATUSES.
+    """
+    # Show which statuses came from original multipliers vs filled in
+    from_multipliers = set(STATUS_RISK_MULTIPLIERS.keys()) | set(LEGACY_STATUS_MAPPING.values())
+
     return pd.DataFrame([
-        {"Status": status, "Score": score, "Is Problem": status in PROBLEM_STATUSES}
+        {
+            "Status": status,
+            "Recovery Score": round(score, 1),
+            "Is Problem": status in PROBLEM_STATUSES,
+            "Is Terminal": status in TERMINAL_STATUSES,
+            "Source": "STATUS_RISK_MULTIPLIERS" if status in from_multipliers or
+                      any(legacy == status for legacy in LEGACY_STATUS_MAPPING.values()) else "Derived"
+        }
         for status, score in sorted(STATUS_SCORES.items(), key=lambda x: x[1])
     ])
 
 
 def get_industry_score_table() -> pd.DataFrame:
-    """Return INDUSTRY_SCORES as a DataFrame with sector names for display."""
+    """
+    Return INDUSTRY_SCORES as a DataFrame with sector names for display.
+
+    Scores are loaded from naics_sector_risk_profile table if available,
+    otherwise fall back to DEFAULT_INDUSTRY_SCORES.
+    """
     return pd.DataFrame([
         {
             "Sector Code": code,
             "Sector Name": NAICS_SECTOR_NAMES.get(code, f"Unknown ({code})"),
-            "Score": score
+            "Recovery Score": round(score, 1),
         }
         for code, score in sorted(INDUSTRY_SCORES.items(), key=lambda x: x[1])
     ])
