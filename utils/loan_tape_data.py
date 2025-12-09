@@ -163,7 +163,8 @@ def prepare_loan_data(loans_df: pd.DataFrame, deals_df: pd.DataFrame) -> pd.Data
         deals_df["loan_id"] = _normalize_loan_id(deals_df["loan_id"])
 
         # Merge with deals data
-        merge_cols = ["loan_id", "deal_name", "partner_source", "industry", "commission_fee", "fico", "tib", "factor_rate", "loan_term"]
+        # Note: ahead_positions is lien position (0=1st lien, 1=2nd lien, etc.) - used for recovery scoring
+        merge_cols = ["loan_id", "deal_name", "partner_source", "industry", "commission_fee", "fico", "tib", "factor_rate", "loan_term", "ahead_positions"]
         merge_cols = [c for c in merge_cols if c in deals_df.columns]
         df = loans_df.merge(deals_df[merge_cols], on="loan_id", how="left")
     else:
