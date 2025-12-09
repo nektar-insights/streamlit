@@ -17,7 +17,8 @@ import altair as alt
 
 from utils.config import setup_page, PRIMARY_COLOR, COLOR_PALETTE
 from utils.data_loader import DataLoader
-from utils.loan_tape_data import prepare_loan_data
+from utils.loan_tape_data import prepare_loan_data, consolidate_sector_code
+from utils.status_constants import ALL_VALID_STATUSES, PROBLEM_STATUSES
 from utils.recovery_scoring import (
     calculate_recovery_score,
     score_portfolio,
@@ -30,6 +31,8 @@ from utils.recovery_scoring import (
     STATUS_SCORES,
     INDUSTRY_SCORES,
     WEIGHTS,
+    get_status_score_table,
+    get_industry_score_table,
 )
 from utils.loan_tape_ml import NAICS_SECTOR_NAMES
 
@@ -57,9 +60,15 @@ def load_portfolio_data():
     # Prepare loan data
     df = prepare_loan_data(loans_df, deals_df)
 
-    # Derive sector_code if not present
+    # Derive sector_code if not present, using consolidate_sector_code
     if "sector_code" not in df.columns and "industry" in df.columns:
-        df["sector_code"] = df["industry"].astype(str).str[:2].str.zfill(2)
+        df["sector_code"] = (
+            df["industry"]
+            .astype(str)
+            .str[:2]
+            .str.zfill(2)
+            .apply(consolidate_sector_code)
+        )
 
     return df
 
@@ -81,13 +90,13 @@ with tab1:
     col1, col2 = st.columns(2)
 
     with col1:
-        # Loan Status
-        status_options = ["Select Status..."] + sorted(STATUS_SCORES.keys())
+        # Loan Status - use canonical ALL_VALID_STATUSES from status_constants
+        status_options = ["Select Status..."] + sorted(ALL_VALID_STATUSES)
         selected_status = st.selectbox(
             "Loan Status",
             options=status_options,
             index=status_options.index("Active") if "Active" in status_options else 0,
-            help="Current status of the loan"
+            help="Current status of the loan (from canonical ALL_VALID_STATUSES)"
         )
         loan_status = selected_status if selected_status != "Select Status..." else "Active"
 
@@ -543,7 +552,15 @@ with st.expander("Methodology & Scoring Details"):
     ### Important Notes
 
     - This is a **pre-screening tool**, not a final valuation engine
-    - Scores assume current market conditions and historical recovery patterns
-    - Actual recovery may vary based on specific circumstances
+    - Status values are from canonical `ALL_VALID_STATUSES` in `utils/status_constants.py`
+    - Industry scores use `consolidate_sector_code()` for manufacturing subsectors (31, 32, 33)
     - Collateral and communication scores default to conservative values when not specified
+    - Actual recovery may vary based on specific circumstances
     """)
+
+    # Show scoring tables from helper functions
+    st.markdown("### Status Scores (from canonical ALL_VALID_STATUSES)")
+    st.dataframe(get_status_score_table(), use_container_width=True, height=300)
+
+    st.markdown("### Industry Scores (by NAICS Sector)")
+    st.dataframe(get_industry_score_table(), use_container_width=True, height=400)

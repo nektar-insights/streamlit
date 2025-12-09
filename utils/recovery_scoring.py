@@ -10,6 +10,9 @@ Estimates recovery probability and bad debt expense per deal based on:
 - Communication: Borrower engagement level
 
 This is a pre-screening tool, not a final valuation engine.
+
+IMPORTANT: Uses canonical status constants from utils/status_constants.py
+and NAICS helpers from utils/loan_tape_data.py for consistency.
 """
 
 import pandas as pd
@@ -17,24 +20,44 @@ import numpy as np
 from dataclasses import dataclass
 from typing import Optional, Dict, Tuple, List
 
+# Import canonical status constants
+from utils.status_constants import (
+    ALL_VALID_STATUSES,
+    PROBLEM_STATUSES,
+    TERMINAL_STATUSES,
+    PROTECTED_STATUSES,
+    is_problem_status,
+    is_terminal_status,
+)
+
+# Import NAICS helpers
+from utils.loan_tape_data import consolidate_sector_code
+
+# Import NAICS display names
+from utils.loan_tape_ml import NAICS_SECTOR_NAMES
+
 # =============================================================================
 # SCORING CONSTANTS
 # =============================================================================
 
 # Status → Score (0-10)
 # Based on historical recovery rates by loan status
+# IMPORTANT: Only includes statuses from ALL_VALID_STATUSES (no legacy values)
 STATUS_SCORES: Dict[str, float] = {
-    # Terminal/Severe statuses
+    # Terminal statuses - very low recovery
     "Bankruptcy": 1.0,
     "Charged Off": 1.0,
+    # Severe problem statuses
     "Non-Performing": 2.0,
     "Default": 2.0,
     "Severe Delinquency": 3.0,
     "NSF / Suspended": 3.0,
-    # Active problem statuses
+    # Active collection/legal
     "In Collections": 5.0,
     "Legal Action": 5.0,
+    # Moderate delinquency
     "Moderate Delinquency": 6.0,
+    # Minor issues
     "Active - Frequently Late": 7.0,
     "Past Delinquency": 8.0,
     "Minor Delinquency": 9.0,
@@ -42,26 +65,35 @@ STATUS_SCORES: Dict[str, float] = {
     "Active": 10.0,
     "Paid Off": 10.0,
 }
-DEFAULT_STATUS_SCORE = 5.0  # Unknown status
+
+# Validate that all STATUS_SCORES keys are in ALL_VALID_STATUSES
+_invalid_statuses = set(STATUS_SCORES.keys()) - set(ALL_VALID_STATUSES)
+if _invalid_statuses:
+    raise ValueError(
+        f"STATUS_SCORES contains invalid statuses not in ALL_VALID_STATUSES: {_invalid_statuses}"
+    )
+
+DEFAULT_STATUS_SCORE = 5.0  # Unknown status - moderate risk
 
 # Industry/Sector → Score (1-10)
 # Higher score = higher expected recovery
 # Based on industry volatility, asset liquidity, and historical defaults
+# Keys are 2-digit NAICS sector codes matching NAICS_SECTOR_NAMES
 INDUSTRY_SCORES: Dict[str, float] = {
-    # High Risk (1-3)
+    # High Risk (1-3) - Cyclical, high failure rates
     "23": 1.0,   # Construction - highest default rates, cyclical
-    "11": 2.0,   # Agriculture, Forestry - weather/commodity dependent
+    "11": 2.0,   # Agriculture, Forestry, Fishing - weather/commodity dependent
     "48": 2.0,   # Transportation & Warehousing - high fixed costs
     "44": 3.0,   # Retail Trade - competitive, thin margins
     "42": 3.0,   # Wholesale Trade - similar to retail
-    # Moderate Risk (4-6)
+    # Moderate Risk (4-6) - Discretionary, capital intensive
     "72": 4.0,   # Accommodation & Food Services - high failure rate
     "71": 4.0,   # Arts, Entertainment, Recreation - discretionary
-    "31": 5.0,   # Manufacturing - capital intensive
+    "31": 5.0,   # Manufacturing - capital intensive (includes 32, 33 via consolidation)
     "81": 6.0,   # Other Services - mixed
     "56": 6.0,   # Administrative & Waste Services
     "62": 6.0,   # Health Care & Social Assistance
-    # Lower Risk (7-9)
+    # Lower Risk (7-9) - Stable, asset-backed
     "54": 7.0,   # Professional Services - low capital needs
     "52": 7.0,   # Finance & Insurance
     "53": 7.0,   # Real Estate - asset-backed
@@ -69,14 +101,24 @@ INDUSTRY_SCORES: Dict[str, float] = {
     "51": 8.0,   # Information/Tech - high margins
     "22": 9.0,   # Utilities - stable, regulated
     "21": 9.0,   # Mining, Quarrying, Oil/Gas - asset-rich
-    # Lowest Risk (10)
+    # Lowest Risk (10) - Government-backed, nonprofit
     "61": 10.0,  # Educational Services - often nonprofit/gov-backed
     "92": 10.0,  # Public Administration - government
 }
+
+# Validate that all INDUSTRY_SCORES keys are in NAICS_SECTOR_NAMES
+_invalid_sectors = set(INDUSTRY_SCORES.keys()) - set(NAICS_SECTOR_NAMES.keys())
+if _invalid_sectors:
+    raise ValueError(
+        f"INDUSTRY_SCORES contains invalid sector codes not in NAICS_SECTOR_NAMES: {_invalid_sectors}"
+    )
+
 DEFAULT_INDUSTRY_SCORE = 5.0  # Unknown industry
 
 # Collateral Type → Score (1-10)
 # Higher score = more liquid/valuable collateral
+# NOTE: This field does NOT currently exist in the codebase schema.
+# These values are for future use or manual input scenarios.
 COLLATERAL_SCORES: Dict[str, float] = {
     "none": 1.0,
     "unsecured": 1.0,
@@ -92,18 +134,20 @@ COLLATERAL_SCORES: Dict[str, float] = {
     "lockbox_daca": 10.0,         # Lockbox with full DACA/control
     "cash_securities": 10.0,      # Cash, marketable securities, deposit pledge
 }
-DEFAULT_COLLATERAL_SCORE = 1.0  # Assume unsecured if unknown
+DEFAULT_COLLATERAL_SCORE = 1.0  # Assume unsecured if unknown (conservative)
 
 # Lien Position → Score
-# ahead_positions field: 0=1st lien, 1=2nd lien, 2+=junior
+# Uses existing ahead_positions field: 0=1st lien, 1=2nd lien, 2+=junior
 LIEN_SCORES: Dict[int, float] = {
     0: 10.0,  # 1st Lien - Senior position
     1: 5.0,   # 2nd Lien - Subordinate
     2: 0.0,   # 3rd+ Lien - Junior/Unsecured
 }
-DEFAULT_LIEN_SCORE = 0.0  # Assume junior if unknown
+DEFAULT_LIEN_SCORE = 0.0  # Assume junior if unknown (conservative)
 
 # Communication Status → Score (1-10)
+# NOTE: This field does NOT currently exist in the codebase schema.
+# These values are for future use or manual input scenarios.
 COMMUNICATION_SCORES: Dict[str, float] = {
     "none_hostile": 1.0,      # No contact or hostile
     "sporadic": 3.0,          # Only under pressure
@@ -166,6 +210,10 @@ class RecoveryScoreResult:
     bad_debt_low: float          # exposure_base * (1 - recovery_pct_high)
     bad_debt_high: float         # exposure_base * (1 - recovery_pct_low)
 
+    # Additional context
+    is_problem_loan: bool        # True if status is in PROBLEM_STATUSES
+    is_terminal: bool            # True if status is in TERMINAL_STATUSES
+
     def to_dict(self) -> Dict:
         """Convert to dictionary for DataFrame operations."""
         return {
@@ -184,6 +232,8 @@ class RecoveryScoreResult:
             "bad_debt_expense": self.bad_debt_expense,
             "bad_debt_low": self.bad_debt_low,
             "bad_debt_high": self.bad_debt_high,
+            "is_problem_loan": self.is_problem_loan,
+            "is_terminal": self.is_terminal,
         }
 
 
@@ -192,30 +242,52 @@ class RecoveryScoreResult:
 # =============================================================================
 
 def get_status_score(loan_status: Optional[str]) -> float:
-    """Get recovery score based on loan status."""
+    """
+    Get recovery score based on loan status.
+
+    Uses canonical ALL_VALID_STATUSES from utils/status_constants.py.
+    """
     if pd.isna(loan_status) or loan_status is None:
         return DEFAULT_STATUS_SCORE
-    return STATUS_SCORES.get(str(loan_status).strip(), DEFAULT_STATUS_SCORE)
+    status_str = str(loan_status).strip()
+    return STATUS_SCORES.get(status_str, DEFAULT_STATUS_SCORE)
 
 
 def get_industry_score(sector_code: Optional[str]) -> float:
-    """Get recovery score based on NAICS sector code (2-digit)."""
+    """
+    Get recovery score based on NAICS sector code (2-digit).
+
+    Applies consolidate_sector_code() to handle manufacturing subsectors (31, 32, 33).
+    """
     if pd.isna(sector_code) or sector_code is None:
         return DEFAULT_INDUSTRY_SCORE
-    # Normalize to 2-digit string
+    # Normalize to 2-digit string and apply consolidation
     sector_str = str(sector_code).strip()[:2].zfill(2)
-    return INDUSTRY_SCORES.get(sector_str, DEFAULT_INDUSTRY_SCORE)
+    consolidated = consolidate_sector_code(sector_str)
+    return INDUSTRY_SCORES.get(consolidated, DEFAULT_INDUSTRY_SCORE)
 
 
 def get_collateral_score(collateral_type: Optional[str]) -> float:
-    """Get recovery score based on collateral type."""
+    """
+    Get recovery score based on collateral type.
+
+    NOTE: collateral_type field does not currently exist in the schema.
+    This function is for future use or manual input scenarios.
+    """
     if pd.isna(collateral_type) or collateral_type is None:
         return DEFAULT_COLLATERAL_SCORE
     return COLLATERAL_SCORES.get(str(collateral_type).strip().lower(), DEFAULT_COLLATERAL_SCORE)
 
 
 def get_lien_score(ahead_positions: Optional[int]) -> float:
-    """Get recovery score based on lien position (ahead_positions field)."""
+    """
+    Get recovery score based on lien position (ahead_positions field).
+
+    Uses existing field from deals table:
+    - 0 = 1st lien (best, senior position)
+    - 1 = 2nd lien (subordinate)
+    - 2+ = 3rd+ lien (junior/unsecured)
+    """
     if pd.isna(ahead_positions) or ahead_positions is None:
         return DEFAULT_LIEN_SCORE
     position = int(ahead_positions)
@@ -228,7 +300,12 @@ def get_lien_score(ahead_positions: Optional[int]) -> float:
 
 
 def get_communication_score(communication_status: Optional[str]) -> float:
-    """Get recovery score based on communication status."""
+    """
+    Get recovery score based on communication status.
+
+    NOTE: communication_status field does not currently exist in the schema.
+    This function is for future use or manual input scenarios.
+    """
     if pd.isna(communication_status) or communication_status is None:
         return DEFAULT_COMMUNICATION_SCORE
     return COMMUNICATION_SCORES.get(str(communication_status).strip().lower(), DEFAULT_COMMUNICATION_SCORE)
@@ -263,7 +340,7 @@ def calculate_recovery_score(
     Calculate recovery score and bad debt expense for a deal.
 
     Args:
-        loan_status: Current loan status (e.g., "Active", "Default", "Bankruptcy")
+        loan_status: Current loan status (must be in ALL_VALID_STATUSES)
         sector_code: 2-digit NAICS sector code or full NAICS code
         collateral_type: Type of collateral (see COLLATERAL_SCORES keys)
         ahead_positions: Lien position (0=1st, 1=2nd, 2+=junior)
@@ -304,6 +381,10 @@ def calculate_recovery_score(
     bad_debt_low = exposure * (1.0 - rec_high)
     bad_debt_high = exposure * (1.0 - rec_low)
 
+    # Determine problem/terminal status using canonical helpers
+    is_problem = is_problem_status(loan_status) if loan_status else False
+    is_terminal = is_terminal_status(loan_status) if loan_status else False
+
     return RecoveryScoreResult(
         status_score=round(status_score, 2),
         industry_score=round(industry_score, 2),
@@ -320,6 +401,8 @@ def calculate_recovery_score(
         bad_debt_expense=round(bad_debt_expense, 2),
         bad_debt_low=round(bad_debt_low, 2),
         bad_debt_high=round(bad_debt_high, 2),
+        is_problem_loan=is_problem,
+        is_terminal=is_terminal,
     )
 
 
@@ -362,12 +445,12 @@ def score_portfolio(
 
     Args:
         df: DataFrame with loan data
-        status_col: Column name for loan status
-        sector_col: Column name for sector code (will also try 'industry' and extract first 2 digits)
+        status_col: Column name for loan status (default: loan_status)
+        sector_col: Column name for sector code (will derive from 'industry' if needed)
         exposure_col: Column name for exposure base (default: net_balance)
-        collateral_col: Column name for collateral type (optional)
+        collateral_col: Column name for collateral type (optional - field doesn't exist in schema)
         lien_col: Column name for lien position (default: ahead_positions)
-        communication_col: Column name for communication status (optional)
+        communication_col: Column name for communication status (optional - field doesn't exist in schema)
 
     Returns:
         DataFrame with added columns:
@@ -377,15 +460,23 @@ def score_portfolio(
         - bad_debt_expense: Estimated bad debt expense
         - bad_debt_low: Low estimate of bad debt
         - bad_debt_high: High estimate of bad debt
+        - is_problem_loan: Boolean flag from canonical PROBLEM_STATUSES
+        - is_terminal: Boolean flag from canonical TERMINAL_STATUSES
     """
     if df.empty:
         return df
 
     result_df = df.copy()
 
-    # Derive sector_code from industry if needed
+    # Derive sector_code from industry if needed, using consolidate_sector_code
     if sector_col not in result_df.columns and "industry" in result_df.columns:
-        result_df["sector_code"] = result_df["industry"].astype(str).str[:2].str.zfill(2)
+        result_df["sector_code"] = (
+            result_df["industry"]
+            .astype(str)
+            .str[:2]
+            .str.zfill(2)
+            .apply(consolidate_sector_code)
+        )
         sector_col = "sector_code"
 
     # Initialize result columns
@@ -397,7 +488,7 @@ def score_portfolio(
         sector = row.get(sector_col) if sector_col in result_df.columns else None
         exposure = row.get(exposure_col, 0) if exposure_col in result_df.columns else 0
 
-        # Optional fields
+        # Optional fields (these don't exist in current schema)
         collateral = row.get(collateral_col) if collateral_col and collateral_col in result_df.columns else "none"
         lien = row.get(lien_col) if lien_col in result_df.columns else 2
         communication = row.get(communication_col) if communication_col and communication_col in result_df.columns else "sporadic"
@@ -436,6 +527,8 @@ def score_portfolio(
         "collateral_score",
         "lien_score",
         "communication_score",
+        "is_problem_loan",
+        "is_terminal",
     ]
 
     for col in cols_to_add:
@@ -465,6 +558,8 @@ def get_portfolio_summary(df: pd.DataFrame) -> Dict:
             "avg_recovery_pct": 0,
             "avg_loss_pct": 0,
             "deal_count": 0,
+            "problem_loan_count": 0,
+            "terminal_loan_count": 0,
         }
 
     return {
@@ -476,6 +571,8 @@ def get_portfolio_summary(df: pd.DataFrame) -> Dict:
         "avg_recovery_pct": df["recovery_pct"].mean(),
         "avg_loss_pct": df["loss_pct"].mean(),
         "deal_count": len(df),
+        "problem_loan_count": df["is_problem_loan"].sum() if "is_problem_loan" in df.columns else 0,
+        "terminal_loan_count": df["is_terminal"].sum() if "is_terminal" in df.columns else 0,
     }
 
 
@@ -509,3 +606,23 @@ def format_percentage(value: float) -> str:
     if pd.isna(value):
         return "0%"
     return f"{value:.1%}"
+
+
+def get_status_score_table() -> pd.DataFrame:
+    """Return STATUS_SCORES as a DataFrame for display."""
+    return pd.DataFrame([
+        {"Status": status, "Score": score, "Is Problem": status in PROBLEM_STATUSES}
+        for status, score in sorted(STATUS_SCORES.items(), key=lambda x: x[1])
+    ])
+
+
+def get_industry_score_table() -> pd.DataFrame:
+    """Return INDUSTRY_SCORES as a DataFrame with sector names for display."""
+    return pd.DataFrame([
+        {
+            "Sector Code": code,
+            "Sector Name": NAICS_SECTOR_NAMES.get(code, f"Unknown ({code})"),
+            "Score": score
+        }
+        for code, score in sorted(INDUSTRY_SCORES.items(), key=lambda x: x[1])
+    ])
