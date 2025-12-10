@@ -164,7 +164,10 @@ def train_classification_small(df: pd.DataFrame) -> Tuple[Pipeline, Dict, pd.Dat
         - DataFrame of top positive coefficients (with human-readable names)
         - DataFrame of top negative coefficients (with human-readable names)
     """
-    y = make_problem_label(df)
+    # Use "origination" mode to properly handle active loans
+    # This compares payment progress to expected progress based on loan age,
+    # rather than incorrectly flagging all loans with <90% payment as problems
+    y = make_problem_label(df, model_type="origination")
     X = build_feature_matrix(df)
 
     num_cols = X.select_dtypes(include=[np.number]).columns.tolist()
@@ -788,8 +791,10 @@ def get_origination_model_coefficients(
     """
     from utils.loan_tape_analytics import make_problem_label, build_feature_matrix
 
-    # Create target variable
-    y = make_problem_label(df)
+    # Create target variable using "origination" mode
+    # This properly handles active loans by comparing to expected progress,
+    # rather than incorrectly flagging all loans with <90% payment as problems
+    y = make_problem_label(df, model_type="origination")
 
     # Build feature matrix (origination features only)
     X = build_feature_matrix(df, model_type="origination")
