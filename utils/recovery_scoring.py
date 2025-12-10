@@ -28,7 +28,7 @@ import pandas as pd
 import numpy as np
 
 # Import existing constants from the codebase
-from scripts.loan_status_utils import ALL_VALID_STATUSES, TERMINAL_STATUSES
+from utils.status_constants import ALL_VALID_STATUSES, TERMINAL_STATUSES
 from utils.loan_tape_data import consolidate_sector_code
 
 

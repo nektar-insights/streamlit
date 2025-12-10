@@ -9,7 +9,7 @@ import pandas as pd
 import altair as alt
 from typing import List, Dict, Optional, Any, Tuple
 
-from scripts.loan_status_utils import (
+from utils.status_constants import (
     PROBLEM_STATUSES,
     TERMINAL_STATUSES,
     PROTECTED_STATUSES
