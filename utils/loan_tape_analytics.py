@@ -66,24 +66,97 @@ METRIC_THRESHOLDS = {
 # Default performance cutoff for problem loan definition
 DEFAULT_PERFORMANCE_CUTOFF = 0.90
 
+# Shortfall threshold - how much behind expected schedule to be considered a problem
+# 0.15 means a loan is flagged if it's 15+ percentage points behind expected progress
+PERFORMANCE_SHORTFALL_THRESHOLD = 0.15
 
-def make_problem_label(df: pd.DataFrame, perf_cutoff: float = DEFAULT_PERFORMANCE_CUTOFF) -> pd.Series:
+
+def make_problem_label(
+    df: pd.DataFrame,
+    perf_cutoff: float = DEFAULT_PERFORMANCE_CUTOFF,
+    model_type: str = "default"
+) -> pd.Series:
     """
     Create binary problem label based on loan status and payment performance.
 
-    A loan is considered a "problem loan" if:
-    1. Its status is in PROBLEM_STATUSES (Late, Default, Bankrupt, etc.), OR
-    2. Its payment_performance is below the cutoff threshold (default 90%)
+    For model_type="default":
+        A loan is considered a "problem loan" if:
+        1. Its status is in PROBLEM_STATUSES (Late, Default, Bankrupt, etc.), OR
+        2. Its payment_performance is below the cutoff threshold (default 90%)
+
+    For model_type="origination":
+        A loan is considered a "problem loan" if:
+        1. Its status is in PROBLEM_STATUSES (Late, Default, Bankrupt, etc.), OR
+        2. For Paid Off loans: payment_performance < cutoff (didn't fully pay back), OR
+        3. For active loans: significantly behind expected payment schedule based on loan age
+           (payment_performance is 15+ percentage points below expected progress)
+
+        This avoids incorrectly labeling healthy active loans as "problems" just because
+        they haven't paid off yet (e.g., a loan 6 months into a 12-month term at 50% paid
+        is performing normally, not a problem).
 
     Args:
         df: DataFrame with loan data
-        perf_cutoff: Performance threshold below which a loan is considered problematic
+        perf_cutoff: Performance threshold for completed loans (default 90%)
+        model_type: "default" for legacy behavior, "origination" for smarter handling
 
     Returns:
         pd.Series: Binary labels (1 = problem loan, 0 = good loan)
     """
-    status_bad = df.get("loan_status", "").isin(PROBLEM_STATUSES)
-    perf_bad = pd.to_numeric(df.get("payment_performance", np.nan), errors="coerce") < perf_cutoff
+    # Status-based problems (always applies)
+    status_bad = df.get("loan_status", pd.Series(dtype=str)).isin(PROBLEM_STATUSES)
+
+    if model_type == "origination":
+        # For origination models, be smarter about performance-based problems
+        # Only flag loans that are actually underperforming relative to expectations
+
+        # Initialize as not a performance problem
+        perf_bad = pd.Series(False, index=df.index)
+
+        # Get required data
+        payment_perf = pd.to_numeric(df.get("payment_performance", np.nan), errors="coerce")
+        loan_status = df.get("loan_status", pd.Series(dtype=str))
+
+        # 1. Paid Off loans: flag if they didn't pay back enough
+        paid_off_mask = loan_status == "Paid Off"
+        if paid_off_mask.any():
+            perf_bad.loc[paid_off_mask] = payment_perf.loc[paid_off_mask] < perf_cutoff
+
+        # 2. Active loans: calculate expected progress based on loan age
+        active_mask = (loan_status != "Paid Off") & ~status_bad
+        if active_mask.any() and "funding_date" in df.columns:
+            today = pd.Timestamp.today().tz_localize(None)
+
+            # Calculate expected progress based on time elapsed vs term
+            funding_dates = pd.to_datetime(df.loc[active_mask, "funding_date"], errors="coerce")
+            if funding_dates.dt.tz is not None:
+                funding_dates = funding_dates.dt.tz_localize(None)
+
+            # Calculate maturity dates
+            if "maturity_date" in df.columns:
+                maturity_dates = pd.to_datetime(df.loc[active_mask, "maturity_date"], errors="coerce")
+                if maturity_dates.dt.tz is not None:
+                    maturity_dates = maturity_dates.dt.tz_localize(None)
+            else:
+                # Default to 12 months if no maturity date
+                maturity_dates = funding_dates + pd.Timedelta(days=365)
+
+            # Calculate expected progress (0 to 1, capped at 1 for past-maturity loans)
+            total_term_days = (maturity_dates - funding_dates).dt.days.replace(0, 365)
+            elapsed_days = (today - funding_dates).dt.days.clip(lower=0)
+            expected_progress = (elapsed_days / total_term_days).clip(upper=1.0)
+
+            # Calculate shortfall (how far behind expected)
+            actual_perf = payment_perf.loc[active_mask].fillna(0)
+            shortfall = expected_progress - actual_perf
+
+            # Flag as problem if significantly behind expected (by more than threshold)
+            perf_bad.loc[active_mask] = shortfall > PERFORMANCE_SHORTFALL_THRESHOLD
+
+    else:
+        # Default behavior: simple threshold on payment_performance
+        perf_bad = pd.to_numeric(df.get("payment_performance", np.nan), errors="coerce") < perf_cutoff
+
     return (status_bad | perf_bad).astype(int)
 
 
