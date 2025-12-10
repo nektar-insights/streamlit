@@ -516,14 +516,52 @@ with tab_portfolio:
                 mime="text/csv",
             )
 
-            # Disclaimer
-            st.warning("""
-            **Important Note:** These estimates use conservative defaults:
-            - **Collateral Score:** Defaulted to 1 (Unsecured) - actual collateral is not yet tracked
-            - **Communication Score:** Defaulted to 3 (Sporadic) - borrower communication is not yet tracked
+            # Dynamic disclaimer based on data availability
+            collateral_stats = summary.get("collateral_data_stats", {"with_data": 0, "using_default": len(scored_df)})
+            communication_stats = summary.get("communication_data_stats", {"with_data": 0, "using_default": len(scored_df)})
 
-            The actual bad debt may be lower if loans have better collateral or communication than assumed.
-            """)
+            total_loans = len(scored_df)
+            collateral_with_data = collateral_stats["with_data"]
+            communication_with_data = communication_stats["with_data"]
+
+            # Build dynamic disclaimer
+            disclaimer_parts = []
+
+            if collateral_stats["using_default"] > 0:
+                if collateral_with_data > 0:
+                    disclaimer_parts.append(
+                        f"- **Collateral Score:** {collateral_with_data} loans have actual data; "
+                        f"{collateral_stats['using_default']} loans use default (1 = Unsecured)"
+                    )
+                else:
+                    disclaimer_parts.append(
+                        "- **Collateral Score:** All loans use default (1 = Unsecured) - no collateral data tracked"
+                    )
+
+            if communication_stats["using_default"] > 0:
+                if communication_with_data > 0:
+                    disclaimer_parts.append(
+                        f"- **Communication Score:** {communication_with_data} loans have actual data; "
+                        f"{communication_stats['using_default']} loans use default (3 = Sporadic)"
+                    )
+                else:
+                    disclaimer_parts.append(
+                        "- **Communication Score:** All loans use default (3 = Sporadic) - no communication data tracked"
+                    )
+
+            # Show appropriate message based on data availability
+            if disclaimer_parts:
+                st.warning(f"""
+                **Data Availability Note:** Some estimates use conservative defaults where HubSpot data is missing:
+                {chr(10).join(disclaimer_parts)}
+
+                Actual bad debt may be lower for loans with better collateral or communication than the defaults assume.
+                """)
+            else:
+                st.success("""
+                **Data Quality:** All loans have actual collateral and communication data from HubSpot.
+                No conservative defaults were applied to this analysis.
+                """)
 
     else:
         st.info("Click 'Load Portfolio Data' above to begin analysis.")
@@ -568,6 +606,6 @@ with st.sidebar:
     - Industry: `sector_code` (NAICS)
     - Lien: `ahead_positions`
     - Exposure: `net_balance`
-    - Collateral: Default (1)
-    - Communication: Default (3)
+    - Collateral: HubSpot data or default (1)
+    - Communication: HubSpot data or default (3)
     """)

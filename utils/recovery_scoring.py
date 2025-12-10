@@ -223,6 +223,10 @@ COLLATERAL_SCORE_MAP: Dict[str, float] = {
 # Default collateral score when data is not available
 COLLATERAL_SCORE_DEFAULT = 1.0  # Conservative: assume unsecured
 
+# HubSpot field name variations for collateral
+# HubSpot may use different property names for the same data
+COLLATERAL_FIELD_NAMES = ["collateral_type", "collateral", "collateral_score", "collateral_category"]
+
 # =============================================================================
 # LIEN POSITION SCORE MAPPING (0-10)
 # Based on ahead_positions field (0 = 1st lien, 1 = 2nd, 2+ = junior)
@@ -266,6 +270,10 @@ COMMUNICATION_SCORE_MAP: Dict[str, float] = {
 
 # Default communication score when data is not available
 COMMUNICATION_SCORE_DEFAULT = 3.0  # Conservative: assume sporadic
+
+# HubSpot field name variations for communication
+# HubSpot may use different property names for the same data
+COMMUNICATION_FIELD_NAMES = ["communication_status", "communication", "communication_score", "borrower_communication"]
 
 # =============================================================================
 # RECOVERY BAND MAPPING
@@ -320,6 +328,10 @@ class RecoveryScoreResult:
     is_paid_off: bool = False
     data_source: str = "unknown"  # "prescreen" or "database"
 
+    # Track whether defaults were used (for transparency)
+    collateral_used_default: bool = False
+    communication_used_default: bool = False
+
     def to_dict(self) -> Dict:
         """Convert to dictionary for DataFrame construction."""
         return {
@@ -340,6 +352,8 @@ class RecoveryScoreResult:
             "estimated_bad_debt_expense_high": self.estimated_bad_debt_expense_high,
             "is_paid_off": self.is_paid_off,
             "data_source": self.data_source,
+            "collateral_used_default": self.collateral_used_default,
+            "communication_used_default": self.communication_used_default,
         }
 
 
@@ -439,6 +453,108 @@ def get_lien_score_from_ahead_positions(ahead_positions: Union[int, float, None]
             return 0.0   # Junior or unsecured
     except (ValueError, TypeError):
         return LIEN_SCORE_DEFAULT
+
+
+def get_collateral_score_from_deal(deal_data: Dict) -> Tuple[float, bool]:
+    """
+    Get the collateral score from deal data, checking multiple possible field names.
+
+    Handles both category labels (e.g., "Accounts Receivable (Verified / Insured)")
+    and numeric scores (1-10).
+
+    Args:
+        deal_data: Dictionary with deal fields
+
+    Returns:
+        Tuple of (score, used_default) where used_default is True if we fell back to default
+    """
+    # Try each possible field name
+    for field_name in COLLATERAL_FIELD_NAMES:
+        value = deal_data.get(field_name)
+
+        if pd.isna(value) or value is None or value == "":
+            continue
+
+        # Check if it's a category label
+        if isinstance(value, str):
+            value_str = str(value).strip()
+
+            # Direct match in score map
+            if value_str in COLLATERAL_SCORE_MAP:
+                return COLLATERAL_SCORE_MAP[value_str], False
+
+            # Case-insensitive search
+            value_lower = value_str.lower()
+            for category, score in COLLATERAL_SCORE_MAP.items():
+                if category.lower() == value_lower:
+                    return score, False
+
+            # Partial match (for flexible HubSpot labels)
+            for category, score in COLLATERAL_SCORE_MAP.items():
+                if value_lower in category.lower() or category.lower() in value_lower:
+                    return score, False
+
+        # Check if it's a numeric score (1-10)
+        try:
+            numeric_value = float(value)
+            if 1.0 <= numeric_value <= 10.0:
+                return numeric_value, False
+        except (ValueError, TypeError):
+            pass
+
+    # No valid value found, use default
+    return COLLATERAL_SCORE_DEFAULT, True
+
+
+def get_communication_score_from_deal(deal_data: Dict) -> Tuple[float, bool]:
+    """
+    Get the communication score from deal data, checking multiple possible field names.
+
+    Handles both category labels (e.g., "Fully engaged and proactive")
+    and numeric scores (1-10).
+
+    Args:
+        deal_data: Dictionary with deal fields
+
+    Returns:
+        Tuple of (score, used_default) where used_default is True if we fell back to default
+    """
+    # Try each possible field name
+    for field_name in COMMUNICATION_FIELD_NAMES:
+        value = deal_data.get(field_name)
+
+        if pd.isna(value) or value is None or value == "":
+            continue
+
+        # Check if it's a category label
+        if isinstance(value, str):
+            value_str = str(value).strip()
+
+            # Direct match in score map
+            if value_str in COMMUNICATION_SCORE_MAP:
+                return COMMUNICATION_SCORE_MAP[value_str], False
+
+            # Case-insensitive search
+            value_lower = value_str.lower()
+            for category, score in COMMUNICATION_SCORE_MAP.items():
+                if category.lower() == value_lower:
+                    return score, False
+
+            # Partial match (for flexible HubSpot labels)
+            for category, score in COMMUNICATION_SCORE_MAP.items():
+                if value_lower in category.lower() or category.lower() in value_lower:
+                    return score, False
+
+        # Check if it's a numeric score (1-10)
+        try:
+            numeric_value = float(value)
+            if 1.0 <= numeric_value <= 10.0:
+                return numeric_value, False
+        except (ValueError, TypeError):
+            pass
+
+    # No valid value found, use default
+    return COMMUNICATION_SCORE_DEFAULT, True
 
 
 def get_recovery_band(total_score: float) -> Tuple[str, float, float, float]:
@@ -577,8 +693,8 @@ def compute_recovery_for_deal(deal_data: Dict) -> RecoveryScoreResult:
             - industry or sector_code: NAICS code (full or 2-digit)
             - ahead_positions: Lien position (0=1st, 1=2nd, 2+=junior)
             - net_balance: Outstanding balance (exposure base)
-            - collateral_type (optional): If available, will use instead of default
-            - communication_status (optional): If available, will use instead of default
+            - collateral_type/collateral/collateral_score (optional): Collateral info from HubSpot
+            - communication_status/communication/communication_score (optional): Communication info from HubSpot
 
     Returns:
         RecoveryScoreResult with all computed values
@@ -597,23 +713,15 @@ def compute_recovery_for_deal(deal_data: Dict) -> RecoveryScoreResult:
     sector_code = deal_data.get("sector_code") or deal_data.get("industry")
     industry_score = get_industry_score_from_naics(sector_code)
 
-    # Get collateral score (use default if not available)
-    collateral_type = deal_data.get("collateral_type")
-    if collateral_type and collateral_type in COLLATERAL_SCORE_MAP:
-        collateral_score = COLLATERAL_SCORE_MAP[collateral_type]
-    else:
-        collateral_score = COLLATERAL_SCORE_DEFAULT  # Conservative default
+    # Get collateral score using enhanced helper (checks multiple field names)
+    collateral_score, collateral_used_default = get_collateral_score_from_deal(deal_data)
 
     # Get lien score from ahead_positions
     ahead_positions = deal_data.get("ahead_positions")
     lien_score = get_lien_score_from_ahead_positions(ahead_positions)
 
-    # Get communication score (use default if not available)
-    communication_status = deal_data.get("communication_status")
-    if communication_status and communication_status in COMMUNICATION_SCORE_MAP:
-        communication_score = COMMUNICATION_SCORE_MAP[communication_status]
-    else:
-        communication_score = COMMUNICATION_SCORE_DEFAULT  # Conservative default
+    # Get communication score using enhanced helper (checks multiple field names)
+    communication_score, communication_used_default = get_communication_score_from_deal(deal_data)
 
     # Compute total weighted score
     total_score = compute_total_recovery_score(
@@ -666,6 +774,8 @@ def compute_recovery_for_deal(deal_data: Dict) -> RecoveryScoreResult:
         estimated_bad_debt_expense_high=bad_debt_high,
         is_paid_off=is_paid_off,
         data_source="database",
+        collateral_used_default=collateral_used_default,
+        communication_used_default=communication_used_default,
     )
 
 
@@ -749,6 +859,8 @@ def compute_recovery_batch(df: pd.DataFrame) -> pd.DataFrame:
         "recovery_bad_debt_low",
         "recovery_bad_debt_high",
         "is_paid_off",
+        "collateral_used_default",
+        "communication_used_default",
     ]
 
     for col in cols_to_add:
@@ -773,6 +885,8 @@ def get_portfolio_bad_debt_summary(df: pd.DataFrame) -> Dict:
             - weighted_recovery_pct: Exposure-weighted average recovery %
             - weighted_loss_pct: Exposure-weighted average loss %
             - deals_by_band: Count of deals in each recovery band
+            - collateral_data_stats: Stats on collateral data availability
+            - communication_data_stats: Stats on communication data availability
     """
     if df.empty or "recovery_bad_debt_mid" not in df.columns:
         return {
@@ -783,6 +897,8 @@ def get_portfolio_bad_debt_summary(df: pd.DataFrame) -> Dict:
             "weighted_recovery_pct": 0.0,
             "weighted_loss_pct": 0.0,
             "deals_by_band": {},
+            "collateral_data_stats": {"with_data": 0, "using_default": 0},
+            "communication_data_stats": {"with_data": 0, "using_default": 0},
         }
 
     # Exclude paid-off deals from bad debt calculation
@@ -804,6 +920,25 @@ def get_portfolio_bad_debt_summary(df: pd.DataFrame) -> Dict:
     # Deals by band
     deals_by_band = df["recovery_band_label"].value_counts().to_dict()
 
+    # Calculate data availability statistics
+    total_loans = len(df)
+
+    # Collateral data stats
+    if "collateral_used_default" in df.columns:
+        collateral_using_default = df["collateral_used_default"].sum()
+        collateral_with_data = total_loans - collateral_using_default
+    else:
+        collateral_using_default = total_loans
+        collateral_with_data = 0
+
+    # Communication data stats
+    if "communication_used_default" in df.columns:
+        communication_using_default = df["communication_used_default"].sum()
+        communication_with_data = total_loans - communication_using_default
+    else:
+        communication_using_default = total_loans
+        communication_with_data = 0
+
     return {
         "total_exposure": total_exposure,
         "total_bad_debt_mid": total_bad_debt_mid,
@@ -812,6 +947,14 @@ def get_portfolio_bad_debt_summary(df: pd.DataFrame) -> Dict:
         "weighted_recovery_pct": weighted_recovery,
         "weighted_loss_pct": weighted_loss,
         "deals_by_band": deals_by_band,
+        "collateral_data_stats": {
+            "with_data": int(collateral_with_data),
+            "using_default": int(collateral_using_default),
+        },
+        "communication_data_stats": {
+            "with_data": int(communication_with_data),
+            "using_default": int(communication_using_default),
+        },
     }
 
 
@@ -832,6 +975,8 @@ __all__ = [
     "get_status_score",
     "get_industry_score_from_naics",
     "get_lien_score_from_ahead_positions",
+    "get_collateral_score_from_deal",
+    "get_communication_score_from_deal",
     "get_recovery_band",
     # Constants for UI
     "STATUS_CATEGORIES",
@@ -840,6 +985,9 @@ __all__ = [
     "LIEN_CATEGORIES",
     "COMMUNICATION_CATEGORIES",
     "WEIGHTS",
+    # Field name constants (for debugging/reference)
+    "COLLATERAL_FIELD_NAMES",
+    "COMMUNICATION_FIELD_NAMES",
 ]
 
 
