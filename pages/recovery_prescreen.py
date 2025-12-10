@@ -129,7 +129,7 @@ with tab_prescreen:
         )
 
         # Calculate button
-        calculate_btn = st.button("Calculate Recovery Score", type="primary", use_container_width=True)
+        calculate_btn = st.button("Calculate Recovery Score", type="primary", width='stretch')
 
     # Compute and display results
     with col_output:
@@ -243,7 +243,7 @@ with tab_prescreen:
             height=200
         )
 
-        st.altair_chart(chart, use_container_width=True)
+        st.altair_chart(chart, width='stretch')
 
         # Display weight explanation
         with st.expander("Understanding the Weights"):
@@ -449,7 +449,7 @@ with tab_portfolio:
                     height=300
                 )
 
-                st.altair_chart(chart, use_container_width=True)
+                st.altair_chart(chart, width='stretch')
 
             st.divider()
 
@@ -502,7 +502,7 @@ with tab_portfolio:
                 sort_idx = scored_df["recovery_bad_debt_mid"].fillna(0).sort_values(ascending=False).index
                 display_df = display_df.loc[sort_idx]
 
-            st.dataframe(display_df.head(50), use_container_width=True, hide_index=True)
+            st.dataframe(display_df.head(50), width='stretch', hide_index=True)
 
             if len(scored_df) > 50:
                 st.caption(f"Showing top 50 of {len(scored_df)} loans by estimated bad debt.")
