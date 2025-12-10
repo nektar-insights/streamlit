@@ -210,18 +210,28 @@ with tab_prescreen:
             {"Component": "Communication", "Score": result.communication_score, "Weight": f"{WEIGHTS['communication']:.0%}", "Contribution": result.communication_score * WEIGHTS['communication']},
         ])
 
+        # Add color category for Altair v6 compatibility (nested conditions not supported)
+        def score_color_category(score):
+            if score >= 7:
+                return "Good"
+            elif score >= 4:
+                return "Moderate"
+            else:
+                return "Poor"
+
+        score_data["ColorCategory"] = score_data["Score"].apply(score_color_category)
+
         # Create horizontal bar chart
         chart = alt.Chart(score_data).mark_bar().encode(
             x=alt.X("Score:Q", scale=alt.Scale(domain=[0, 10]), title="Score (0-10)"),
             y=alt.Y("Component:N", sort="-x", title=""),
-            color=alt.condition(
-                alt.datum.Score >= 7,
-                alt.value("#2ca02c"),  # Green for good scores
-                alt.condition(
-                    alt.datum.Score >= 4,
-                    alt.value("#ffbb78"),  # Orange for moderate
-                    alt.value("#d62728")  # Red for poor
-                )
+            color=alt.Color(
+                "ColorCategory:N",
+                scale=alt.Scale(
+                    domain=["Good", "Moderate", "Poor"],
+                    range=["#2ca02c", "#ffbb78", "#d62728"]
+                ),
+                legend=None
             ),
             tooltip=[
                 alt.Tooltip("Component:N", title="Component"),
