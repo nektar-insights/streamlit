@@ -190,7 +190,7 @@ with col2:
 
 # Score button
 st.markdown("---")
-score_button = st.button("Score This Deal", type="primary", use_container_width=True)
+score_button = st.button("Score This Deal", type="primary", width='stretch')
 
 # =============================================================================
 # RISK ASSESSMENT RESULTS
@@ -283,7 +283,7 @@ if score_button:
             color="gray", strokeDash=[3, 3]
         ).encode(x="x:Q")
 
-        st.altair_chart(chart + rule, use_container_width=True)
+        st.altair_chart(chart + rule, width='stretch')
 
         # Legend
         st.caption("Red bars increase risk, green bars decrease risk. Larger absolute values have more impact.")
@@ -389,7 +389,7 @@ if score_button:
                 }
                 display_df.rename(columns=rename_map, inplace=True)
 
-                st.dataframe(display_df, use_container_width=True, hide_index=True)
+                st.dataframe(display_df, width='stretch', hide_index=True)
     else:
         st.info("No similar historical deals found with current criteria. Try selecting fewer filters.")
 

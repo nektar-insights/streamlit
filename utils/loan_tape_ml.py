@@ -545,7 +545,7 @@ def render_corr_outputs(df: pd.DataFrame):
         if c in disp.columns:
             disp[c] = disp[c].map(lambda x: f"{x:.3f}" if pd.notnull(x) else "")
 
-    st.dataframe(disp, use_container_width=True, hide_index=True)
+    st.dataframe(disp, width='stretch', hide_index=True)
 
     # Heatmap visualization (Spearman correlation)
     hm = corr_df[["feature", "spearman_rho_vs_performance"]].dropna()
@@ -571,7 +571,7 @@ def render_corr_outputs(df: pd.DataFrame):
             height=150,
             title="Correlation with Payment Performance"
         )
-        st.altair_chart(chart, use_container_width=True)
+        st.altair_chart(chart, width='stretch')
 
     # Download option
     st.download_button(
@@ -647,7 +647,7 @@ def render_fico_tib_heatmap(df: pd.DataFrame):
         title="FICO × TIB Heatmap"
     )
 
-    st.altair_chart(heat, use_container_width=True)
+    st.altair_chart(heat, width='stretch')
 
 
 def render_data_quality_summary(df: pd.DataFrame):
@@ -692,7 +692,7 @@ def render_data_quality_summary(df: pd.DataFrame):
             })
 
         completeness_df = pd.DataFrame(completeness_data)
-        st.dataframe(completeness_df, use_container_width=True, hide_index=True)
+        st.dataframe(completeness_df, width='stretch', hide_index=True)
 
     # Warnings
     if quality['warnings']:

@@ -148,7 +148,7 @@ with st.expander("Data Diagnostics - Click to investigate the join"):
                 txn_df = pd.DataFrame(txn_data)
                 st.dataframe(
                     txn_df,
-                    use_container_width=True,
+                    width='stretch',
                     column_config={
                         "Total Amount": st.column_config.NumberColumn("Total Amount", format="$%.0f"),
                         "Count": st.column_config.NumberColumn("Count")
@@ -222,7 +222,7 @@ with st.expander("Data Diagnostics - Click to investigate the join"):
             top_customers_df = pd.DataFrame(top_customers_data)
             st.dataframe(
                 top_customers_df,
-                use_container_width=True,
+                width='stretch',
                 column_config={
                     "Total Payments": st.column_config.NumberColumn("Total Payments", format="$%.0f")
                 }
@@ -270,7 +270,7 @@ with tab1:
         
         st.dataframe(
             unified_data_df,
-            use_container_width=True,
+            width='stretch',
             column_config={
                 "Loan ID": st.column_config.TextColumn("Loan ID", width="small"),
                 "Deal Name": st.column_config.TextColumn("Deal Name", width="medium"),
@@ -336,7 +336,7 @@ with tab2:
         
         st.dataframe(
             loan_tape_df,
-            use_container_width=True,
+            width='stretch',
             column_config={
                 "Loan ID": st.column_config.TextColumn("Loan ID", width="small"),
                 "Customer": st.column_config.TextColumn("Customer", width="medium"),
@@ -372,7 +372,7 @@ with tab3:
     if not customer_summary_df.empty:
         st.dataframe(
             customer_summary_df,
-            use_container_width=True,
+            width='stretch',
             column_config={
                 "Customer": st.column_config.TextColumn("Customer", width="medium"),
                 "Total Payments": st.column_config.NumberColumn("Total Payments", width="medium", format="$%.0f"),
@@ -532,7 +532,7 @@ else:
                 title="Customer Risk Profile: Payment Ratio vs Outstanding Balance"
             )
             
-            st.altair_chart(risk_chart, use_container_width=True)
+            st.altair_chart(risk_chart, width='stretch')
 
 # -------------------------
 # ENHANCED CASH FLOW ANALYSIS
@@ -651,7 +651,7 @@ else:
         title="30-Day Cash Flow Forecast"
     )
     
-    st.altair_chart(forecast_chart, use_container_width=True)
+    st.altair_chart(forecast_chart, width='stretch')
     
     # Forecast summary metrics
     forecast_sum = sum(forecast_values)
@@ -759,7 +759,7 @@ else:
         title="Cohort Performance: Customer Value vs Overall Benchmark"
     )
     
-    st.altair_chart(performance_chart, use_container_width=True)
+    st.altair_chart(performance_chart, width='stretch')
     
     # Detailed cohort table
     st.subheader("Detailed Cohort Metrics")
@@ -782,7 +782,7 @@ else:
             "value_vs_benchmark": "Value vs Benchmark",
             "efficiency_vs_benchmark": "Efficiency vs Benchmark"
         }),
-        use_container_width=True
+        width='stretch'
     )
 
 # -------------------------

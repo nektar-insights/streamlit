@@ -117,9 +117,9 @@ def display_summary_table(
 
     if format_dict:
         styled_df = display_df.style.format(format_dict)
-        st.dataframe(styled_df, use_container_width=True, hide_index=hide_index)
+        st.dataframe(styled_df, width='stretch', hide_index=hide_index)
     else:
-        st.dataframe(display_df, use_container_width=True, hide_index=hide_index)
+        st.dataframe(display_df, width='stretch', hide_index=hide_index)
 
 
 def create_comparison_chart(
@@ -207,7 +207,7 @@ def display_data_quality_metrics(
         null_df = null_df[null_df['Null Count'] > 0]
 
         if not null_df.empty:
-            st.dataframe(null_df, use_container_width=True, hide_index=True)
+            st.dataframe(null_df, width='stretch', hide_index=True)
         else:
             st.success("No null values found!")
 

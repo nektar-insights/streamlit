@@ -385,7 +385,7 @@ def render_issue_card(title, check_result, show_data=True):
                 if "date" in col.lower() and display_df[col].dtype == 'datetime64[ns]':
                     display_df[col] = display_df[col].dt.strftime('%Y-%m-%d')
 
-            st.dataframe(display_df, use_container_width=True, hide_index=True)
+            st.dataframe(display_df, width='stretch', hide_index=True)
 
             # Download button
             csv = check_result["data"].to_csv(index=False)
@@ -570,7 +570,7 @@ with st.expander("🔧 Developer Tools", expanded=False):
         {"Data Source": k, "Record Count": f"{v:,}"}
         for k, v in record_counts.items()
     ])
-    st.dataframe(counts_df, use_container_width=True, hide_index=True)
+    st.dataframe(counts_df, width='stretch', hide_index=True)
 
     st.markdown("---")
 
@@ -677,7 +677,7 @@ with st.expander("🔧 Developer Tools", expanded=False):
             })
 
     if freshness_data:
-        st.dataframe(pd.DataFrame(freshness_data), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(freshness_data), width='stretch', hide_index=True)
     else:
         st.info("No freshness data available")
 
