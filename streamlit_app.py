@@ -323,6 +323,78 @@ col5a.metric("Avg Participation/Month", f"${avg_participation_per_month:,.0f}")
 participation_last_30 = closed_won[closed_won["date_created"] >= today - pd.Timedelta(days=30)]["amount"].sum()
 col6a.metric("Total Participation/30 Days", f"${participation_last_30:,.0f}")
 
+# ----------------------------
+# Current Week/Month vs Historical Participation
+# ----------------------------
+st.write("**Current Period vs Historical Participation**")
+
+# Calculate current week boundaries (Monday to Sunday)
+current_week_start = today - pd.Timedelta(days=today.weekday())
+current_week_end = current_week_start + pd.Timedelta(days=6)
+
+# Calculate current month boundaries
+current_month_start = today.replace(day=1)
+
+# Current week participation (closed won deals in current week)
+current_week_deals = closed_won[
+    (closed_won["date_created"] >= current_week_start) &
+    (closed_won["date_created"] <= current_week_end)
+]
+current_week_participation = current_week_deals["amount"].sum()
+
+# Current month participation (closed won deals in current month)
+current_month_deals = closed_won[closed_won["date_created"] >= current_month_start]
+current_month_participation = current_month_deals["amount"].sum()
+
+# Historical weekly average (excluding current week)
+historical_deals = closed_won[closed_won["date_created"] < current_week_start]
+if not historical_deals.empty:
+    historical_date_range_days = (historical_deals["date_created"].max() - historical_deals["date_created"].min()).days + 1
+    historical_weeks = max(historical_date_range_days / 7, 1)
+    historical_week_avg = historical_deals["amount"].sum() / historical_weeks
+else:
+    historical_week_avg = 0
+
+# Historical monthly average (excluding current month)
+historical_month_deals = closed_won[closed_won["date_created"] < current_month_start]
+if not historical_month_deals.empty:
+    historical_month_range_days = (historical_month_deals["date_created"].max() - historical_month_deals["date_created"].min()).days + 1
+    historical_months = max(historical_month_range_days / 30.44, 1)
+    historical_month_avg = historical_month_deals["amount"].sum() / historical_months
+else:
+    historical_month_avg = 0
+
+# Calculate deltas (variance from historical)
+week_delta = current_week_participation - historical_week_avg
+month_delta = current_month_participation - historical_month_avg
+
+# Display current vs historical metrics
+col_cw1, col_cw2, col_cw3 = st.columns(3)
+col_cw1.metric(
+    "Current Week Participation",
+    f"${current_week_participation:,.0f}",
+    delta=f"${week_delta:,.0f} vs avg" if historical_week_avg > 0 else None,
+    delta_color="normal"
+)
+col_cw2.metric(
+    "Current Month Participation",
+    f"${current_month_participation:,.0f}",
+    delta=f"${month_delta:,.0f} vs avg" if historical_month_avg > 0 else None,
+    delta_color="normal"
+)
+col_cw3.metric(
+    "Week Deal Count",
+    f"{len(current_week_deals)}",
+    delta=f"{len(current_week_deals) - (len(historical_deals) / max(historical_weeks, 1)):.1f} vs avg" if not historical_deals.empty else None,
+    delta_color="normal"
+)
+
+# Historical reference row
+col_hw1, col_hw2, col_hw3 = st.columns(3)
+col_hw1.metric("Historical Avg/Week", f"${historical_week_avg:,.0f}")
+col_hw2.metric("Historical Avg/Month", f"${historical_month_avg:,.0f}")
+col_hw3.metric("Month Deal Count", f"{len(current_month_deals)}")
+
 # New Average Deal Characteristics 
 st.write("**Average Deal Characteristics (All Deals)**")
 col7, col8 = st.columns(2)
