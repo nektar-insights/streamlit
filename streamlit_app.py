@@ -792,7 +792,34 @@ combined_summary_display = pd.DataFrame({
     "Avg Participation": combined_summary["avg_participation_size"].apply(lambda x: f"${x:,.0f}")
 })
 
-st.dataframe(combined_summary_display, width='stretch', height=400)
+# Calculate totals row with proper weighted averages
+total_deals_sum = combined_summary["total_deals"].sum()
+csl_deals_sum = combined_summary["participated_deal_count"].sum()
+total_amount_sum = combined_summary["total_amount"].sum()
+participated_amount_sum = combined_summary["participated_amount"].sum()
+
+# Calculate derived metrics for totals
+total_deal_rate = csl_deals_sum / total_deals_sum if total_deals_sum > 0 else 0
+total_avg_deal_size = total_amount_sum / total_deals_sum if total_deals_sum > 0 else 0
+total_pct_capital = participated_amount_sum / total_capital_deployed if total_capital_deployed > 0 else 0
+total_avg_participation = participated_amount_sum / csl_deals_sum if csl_deals_sum > 0 else 0
+
+# Create totals row
+totals_row = pd.DataFrame({
+    "Partner": ["TOTAL"],
+    "Total Deals": [int(total_deals_sum)],
+    "CSL Deals": [int(csl_deals_sum)],
+    "Deal Rate": [f"{total_deal_rate:.1%}"],
+    "Avg Deal Size": [f"${total_avg_deal_size:,.0f}"],
+    "$ Participated": [f"${participated_amount_sum:,.0f}"],
+    "% of Capital": [f"{total_pct_capital:.1%}"],
+    "Avg Participation": [f"${total_avg_participation:,.0f}"]
+})
+
+# Append totals row to display DataFrame
+combined_summary_display = pd.concat([combined_summary_display, totals_row], ignore_index=True)
+
+st.dataframe(combined_summary_display, width='stretch', height=450)
 
 # ----------------------------
 # DOWNLOAD FUNCTIONS
