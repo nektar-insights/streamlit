@@ -182,15 +182,15 @@ with tabs[0]:
         )
         sector_code = sector_options[selected_sector]
 
-        # Deal Size
+        # CSL Participation Amount
         deal_size = st.number_input(
-            "Deal Size ($)",
+            "CSL Participation ($)",
             min_value=0,
             max_value=10_000_000,
             value=50_000,
             step=5000,
             format="%d",
-            help="Total loan/participation amount"
+            help="CSL's capital at risk in this deal (not total deal size)"
         )
 
         # Factor Rate
@@ -494,7 +494,7 @@ with tabs[0]:
         - **Lien Position**: Priority in repayment hierarchy
         - **Industry (NAICS)**: Sector-specific risk patterns
         - **Partner Source**: Historical performance by originator
-        - **Deal Size**: Loan amount
+        - **CSL Participation**: CSL's capital at risk in the deal
 
         #### Risk Score Interpretation:
         | Score Range | Risk Level | Recommendation |

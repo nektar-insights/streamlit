@@ -985,7 +985,7 @@ def calculate_deal_risk_score(
                 "raw_value": position
             })
 
-    # Deal Size contribution
+    # CSL Participation Amount contribution
     if "total_invested" in coefficients and deal_size is not None:
         size_mean = feature_means.get("total_invested", 50000)
         size_std = feature_stds.get("total_invested", 30000)
@@ -995,7 +995,7 @@ def calculate_deal_risk_score(
             log_odds += size_contribution
             size_points = size_contribution * 10
             factor_contributions.append({
-                "factor": f"Deal Size (${deal_size:,.0f})",
+                "factor": f"CSL Participation (${deal_size:,.0f})",
                 "contribution": round(size_points, 1),
                 "direction": "positive" if size_points > 0 else "negative",
                 "raw_value": deal_size

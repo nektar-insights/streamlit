@@ -23,7 +23,7 @@ FEATURE_DISPLAY_NAMES = {
     # Core numeric features
     "fico": "FICO Score",
     "tib": "Time in Business (Years)",
-    "total_invested": "Total Amount Invested",
+    "total_invested": "CSL Participation Amount",
     "net_balance": "Net Outstanding Balance",
     "sector_risk": "Industry Risk Score",
     "total_paid": "Total Payments Received",
