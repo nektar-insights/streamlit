@@ -142,14 +142,15 @@ moic = total_expected_return_sum / total_capital_deployed if total_capital_deplo
 projected_irr = (moic ** (12 / avg_term) - 1) if avg_term > 0 else 0
 
 # Principal Outstanding calculation from loan summaries
-if not loan_data.empty and "net_balance" in loan_data.columns and "loan_status" in loan_data.columns:
+if not loan_data.empty and "csl_participation_amount" in loan_data.columns and "loan_status" in loan_data.columns:
     active_loans = loan_data[loan_data["loan_status"] != "Paid Off"]
-    total_principal_outstanding = active_loans["net_balance"].sum() if not active_loans.empty else 0
+    # Principal = original capital deployed (excludes fees and commissions)
+    total_principal_outstanding = active_loans["csl_participation_amount"].sum() if not active_loans.empty else 0
     active_loan_count = len(active_loans)
-    # Collection rate: how much has been collected relative to total invested
-    total_invested_loans = loan_data["total_invested"].sum() if "total_invested" in loan_data.columns else 0
+    # Collection rate: how much has been collected relative to principal deployed
+    total_principal_deployed = loan_data["csl_participation_amount"].sum() if "csl_participation_amount" in loan_data.columns else 0
     total_collected = loan_data["total_paid"].sum() if "total_paid" in loan_data.columns else 0
-    collection_rate = total_collected / total_invested_loans if total_invested_loans > 0 else 0
+    collection_rate = total_collected / total_principal_deployed if total_principal_deployed > 0 else 0
 else:
     total_principal_outstanding = 0
     active_loan_count = 0
