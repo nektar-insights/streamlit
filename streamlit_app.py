@@ -8,6 +8,7 @@ from utils.config import (
 )
 from utils.data_loader import load_deals, load_loan_summaries
 from utils.loan_tape_data import prepare_loan_data
+from utils.status_constants import PROBLEM_STATUSES
 
 # ----------------------------
 # Apply Branding
@@ -144,17 +145,76 @@ projected_irr = (moic ** (12 / avg_term) - 1) if avg_term > 0 else 0
 # Principal Outstanding calculation from loan summaries
 if not loan_data.empty and "csl_participation_amount" in loan_data.columns and "loan_status" in loan_data.columns:
     active_loans = loan_data[loan_data["loan_status"] != "Paid Off"]
+    paid_off_loans = loan_data[loan_data["loan_status"] == "Paid Off"]
+
     # Principal = original capital deployed (excludes fees and commissions)
     total_principal_outstanding = active_loans["csl_participation_amount"].sum() if not active_loans.empty else 0
     active_loan_count = len(active_loans)
+
     # Collection rate: how much has been collected relative to principal deployed
     total_principal_deployed = loan_data["csl_participation_amount"].sum() if "csl_participation_amount" in loan_data.columns else 0
     total_collected = loan_data["total_paid"].sum() if "total_paid" in loan_data.columns else 0
     collection_rate = total_collected / total_principal_deployed if total_principal_deployed > 0 else 0
+
+    # Net Profit/Loss: total collected minus total cost basis (principal + fees + commissions)
+    total_cost_basis = loan_data["total_invested"].sum() if "total_invested" in loan_data.columns else 0
+    net_profit_loss = total_collected - total_cost_basis
+
+    # Realized IRR: average IRR from paid-off loans only
+    if not paid_off_loans.empty and "realized_irr" in paid_off_loans.columns:
+        realized_irr_values = paid_off_loans["realized_irr"].dropna()
+        avg_realized_irr = realized_irr_values.mean() if len(realized_irr_values) > 0 else 0
+    else:
+        avg_realized_irr = 0
+
+    # Delinquency Rate: % of active loans in problem statuses
+    if not active_loans.empty:
+        problem_loans = active_loans[active_loans["loan_status"].isin(PROBLEM_STATUSES)]
+        delinquency_rate = len(problem_loans) / len(active_loans) if len(active_loans) > 0 else 0
+        # At-Risk Balance: principal in problem statuses
+        at_risk_balance = problem_loans["csl_participation_amount"].sum() if not problem_loans.empty else 0
+    else:
+        delinquency_rate = 0
+        at_risk_balance = 0
+
+    # Weighted Average Factor Rate (by participation amount)
+    if "factor_rate" in loan_data.columns:
+        valid_factor = loan_data[loan_data["factor_rate"].notna() & (loan_data["csl_participation_amount"] > 0)]
+        if not valid_factor.empty:
+            weighted_factor = (valid_factor["factor_rate"] * valid_factor["csl_participation_amount"]).sum()
+            total_weight = valid_factor["csl_participation_amount"].sum()
+            weighted_avg_factor = weighted_factor / total_weight if total_weight > 0 else 0
+        else:
+            weighted_avg_factor = 0
+    else:
+        weighted_avg_factor = 0
+
+    # Average Days to Payoff (for paid-off loans)
+    if not paid_off_loans.empty and "funding_date" in paid_off_loans.columns and "payoff_date" in paid_off_loans.columns:
+        paid_off_with_dates = paid_off_loans[
+            paid_off_loans["funding_date"].notna() &
+            paid_off_loans["payoff_date"].notna()
+        ].copy()
+        if not paid_off_with_dates.empty:
+            paid_off_with_dates["days_to_payoff"] = (
+                pd.to_datetime(paid_off_with_dates["payoff_date"]) -
+                pd.to_datetime(paid_off_with_dates["funding_date"])
+            ).dt.days
+            avg_days_to_payoff = paid_off_with_dates["days_to_payoff"].mean()
+        else:
+            avg_days_to_payoff = 0
+    else:
+        avg_days_to_payoff = 0
 else:
     total_principal_outstanding = 0
     active_loan_count = 0
     collection_rate = 0
+    net_profit_loss = 0
+    avg_realized_irr = 0
+    delinquency_rate = 0
+    at_risk_balance = 0
+    weighted_avg_factor = 0
+    avg_days_to_payoff = 0
 
 
 
@@ -289,6 +349,18 @@ col17a, col18a, col19a = st.columns(3)
 col17a.metric("Principal Outstanding", f"${total_principal_outstanding:,.0f}")
 col18a.metric("Active Loans", f"{active_loan_count}")
 col19a.metric("Collection Rate", f"{collection_rate:.1%}")
+
+col20a, col21a, col22a = st.columns(3)
+col20a.metric("Net Profit/Loss", f"${net_profit_loss:,.0f}")
+col21a.metric("Realized IRR", f"{avg_realized_irr:.1%}" if avg_realized_irr else "N/A")
+col22a.metric("Avg Days to Payoff", f"{avg_days_to_payoff:.0f}" if avg_days_to_payoff else "N/A")
+
+# Portfolio Health
+st.subheader("Portfolio Health")
+col23a, col24a, col25a = st.columns(3)
+col23a.metric("Delinquency Rate", f"{delinquency_rate:.1%}")
+col24a.metric("At-Risk Principal", f"${at_risk_balance:,.0f}")
+col25a.metric("Weighted Avg Factor", f"{weighted_avg_factor:.3f}" if weighted_avg_factor else "N/A")
 
 # Deal Characteristics
 st.subheader("Deal Characteristics (Participated Only)")
