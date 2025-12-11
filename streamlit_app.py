@@ -196,10 +196,10 @@ if not loan_data.empty and "csl_participation_amount" in loan_data.columns and "
             paid_off_loans["payoff_date"].notna()
         ].copy()
         if not paid_off_with_dates.empty:
-            paid_off_with_dates["days_to_payoff"] = (
-                pd.to_datetime(paid_off_with_dates["payoff_date"]) -
-                pd.to_datetime(paid_off_with_dates["funding_date"])
-            ).dt.days
+            # Normalize both dates to tz-naive to avoid timezone mismatch
+            payoff_dates = pd.to_datetime(paid_off_with_dates["payoff_date"], utc=True).dt.tz_localize(None)
+            funding_dates = pd.to_datetime(paid_off_with_dates["funding_date"], utc=True).dt.tz_localize(None)
+            paid_off_with_dates["days_to_payoff"] = (payoff_dates - funding_dates).dt.days
             avg_days_to_payoff = paid_off_with_dates["days_to_payoff"].mean()
         else:
             avg_days_to_payoff = 0
