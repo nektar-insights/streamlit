@@ -305,10 +305,9 @@ col6.metric("Avg Deals/Month", f"{avg_deals_per_month:.1f}")
 
 # Last 30 Days Flow
 st.write("**Deal Flow - Last 30 Days**")
-col4b, col5b, col6b = st.columns(3)
+col4b, col5b = st.columns(2)
 col4b.metric("AVG Deals/Week (Last 30d)", f"{avg_deals_per_week_30d:.2f}")
 col5b.metric("Total Deals (Last 30d)", f"{deals_last_30}")
-col6b.metric("", "")
 
 st.write("**Average Participation Amounts**")
 col4a, col5a, col6a = st.columns(3)
