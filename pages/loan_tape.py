@@ -1007,6 +1007,15 @@ def plot_irr_by_partner(df: pd.DataFrame):
 def main():
     st.title("Loan Tape Dashboard")
 
+    # Initialize session state for tab persistence
+    if "loan_tape_active_tab" not in st.session_state:
+        st.session_state.loan_tape_active_tab = 0
+
+    # Check if we need to stay on Loan Tape tab (after status update)
+    if st.session_state.get("stay_on_loan_tape_tab", False):
+        st.session_state.loan_tape_active_tab = 4  # Loan Tape tab index
+        st.session_state.stay_on_loan_tape_tab = False
+
     last_updated = get_last_updated()
     st.caption(f"Data last updated: {last_updated}")
 
@@ -1055,8 +1064,29 @@ def main():
     st.sidebar.markdown("---")
     st.sidebar.write(f"**Showing:** {len(filtered_df)} of {len(df)} loans")
 
-    # Tabs
-    tabs = st.tabs(["Summary", "Capital Flow", "Performance Analysis", "Risk Analytics", "Loan Tape"])
+    # Tabs with persistence support
+    tab_names = ["Summary", "Capital Flow", "Performance Analysis", "Risk Analytics", "Loan Tape"]
+    tabs = st.tabs(tab_names)
+
+    # Inject JavaScript to click the correct tab if we need to stay on Loan Tape
+    if st.session_state.loan_tape_active_tab == 4:
+        import streamlit.components.v1 as components
+        components.html(
+            """
+            <script>
+                // Wait for the page to load, then click the Loan Tape tab
+                setTimeout(function() {
+                    const tabs = window.parent.document.querySelectorAll('[data-baseweb="tab"]');
+                    if (tabs.length >= 5) {
+                        tabs[4].click();
+                    }
+                }, 100);
+            </script>
+            """,
+            height=0
+        )
+        # Reset after injection
+        st.session_state.loan_tape_active_tab = 0
 
     with tabs[0]:
         st.header("Portfolio Overview")
@@ -1306,9 +1336,18 @@ def main():
         st.markdown("---")
         st.subheader("Manual Status Override")
 
+        # Callback to keep user on Loan Tape tab when selecting a loan
+        def on_loan_select_change():
+            st.session_state.stay_on_loan_tape_tab = True
+
         # Let user select a loan to edit
         loan_options = filtered_df["loan_id"].tolist()
-        selected_loan = st.selectbox("Select Loan to Edit", options=[""] + loan_options, key="status_editor_loan_select")
+        selected_loan = st.selectbox(
+            "Select Loan to Edit",
+            options=[""] + loan_options,
+            key="status_editor_loan_select",
+            on_change=on_loan_select_change
+        )
 
         if selected_loan:
             loan_row = filtered_df[filtered_df["loan_id"] == selected_loan].iloc[0]

@@ -188,12 +188,17 @@ def render_manual_status_editor(
         except ValueError:
             default_index = 0
 
+        # Callback to keep user on Loan Tape tab when changing status
+        def on_status_change():
+            st.session_state.stay_on_loan_tape_tab = True
+
         new_status = st.selectbox(
             "Status" if compact else "Select New Status",
             options=status_options,
             index=default_index,
             key=f"status_select_{loan_id}",
-            label_visibility="collapsed" if compact else "visible"
+            label_visibility="collapsed" if compact else "visible",
+            on_change=on_status_change
         )
 
     with col2:
@@ -203,6 +208,8 @@ def render_manual_status_editor(
                     success, message = update_loan_status_manual(loan_id, new_status)
                 if success:
                     st.success(message)
+                    # Set flag to stay on Loan Tape tab after rerun
+                    st.session_state.stay_on_loan_tape_tab = True
                     st.rerun()
                 else:
                     st.error(message)
