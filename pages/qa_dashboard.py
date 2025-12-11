@@ -108,11 +108,14 @@ def check_duplicate_loan_ids(deals_df):
             "action": "No loan_id data available"
         }
 
-    # Filter to valid loan IDs only
+    # Filter to valid loan IDs only (exclude null, empty, and null-like strings)
+    loan_id_str = deals_df["loan_id"].astype(str).str.strip().str.lower()
     valid = deals_df[
         (deals_df["loan_id"].notna()) &
-        (deals_df["loan_id"].astype(str).str.strip() != "") &
-        (deals_df["loan_id"].astype(str).str.strip() != "nan")
+        (loan_id_str != "") &
+        (loan_id_str != "nan") &
+        (loan_id_str != "none") &
+        (loan_id_str != "null")
     ].copy()
 
     if valid.empty:
