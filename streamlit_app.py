@@ -40,38 +40,44 @@ df["loan_id"] = df["loan_id"].astype("string")
 df["is_participated"] = df["is_closed_won"] == True
 
 # ----------------------------
-# Filters
+# Sidebar Filters
 # ----------------------------
-st.title("Pipeline Dashboard")
+st.sidebar.header("Filters")
 
 min_date, max_date = df["date_created"].min(), df["date_created"].max()
-start_date, end_date = st.date_input(
-    "Filter by Date Range", 
-    [min_date, max_date], 
-    min_value=min_date, 
+start_date, end_date = st.sidebar.date_input(
+    "Filter by Date Range",
+    [min_date, max_date],
+    min_value=min_date,
     max_value=max_date
 )
-df = df[(df["date_created"] >= pd.to_datetime(start_date)) & 
+df = df[(df["date_created"] >= pd.to_datetime(start_date)) &
         (df["date_created"] <= pd.to_datetime(end_date))]
 
 partner_options = sorted(df["partner_source"].dropna().unique())
-selected_partner = st.selectbox(
-    "Filter by Partner Source", 
-    options=["All Partners"] + partner_options
+selected_partners = st.sidebar.multiselect(
+    "Filter by Partner Source",
+    options=partner_options,
+    default=partner_options,
+    help="Select one or more partners to filter"
 )
-if selected_partner != "All Partners":
-    df = df[df["partner_source"] == selected_partner]
+if selected_partners:
+    df = df[df["partner_source"].isin(selected_partners)]
 
-participation_filter = st.radio(
-    "Show Deals", 
+participation_filter = st.sidebar.radio(
+    "Show Deals",
     ["All Deals", "Participated Only", "Not Participated"],
-    horizontal=True
 )
 
 if participation_filter == "Participated Only":
     df = df[df["is_closed_won"] == True]
 elif participation_filter == "Not Participated":
     df = df[df["is_closed_won"] != True]
+
+# ----------------------------
+# Main Content
+# ----------------------------
+st.title("Pipeline Dashboard")
 
 # ----------------------------
 # Calculate all metrics
