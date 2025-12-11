@@ -420,7 +420,7 @@ with tabs[0]:
                         "payment_performance": "Performance",
                         "fico": "FICO",
                         "tib": "TIB (yrs)",
-                        "total_invested": "Amount",
+                        "total_invested": "Total Cost Basis",
                         "is_problem": "Problem?",
                         "problem_reason": "Reason"
                     }
