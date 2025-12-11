@@ -657,7 +657,7 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
             col1, col2 = st.columns(2)
 
             with col1:
-                industry_donut = alt.Chart(industry_exposure).mark_arc(innerRadius=60, outerRadius=120).encode(
+                industry_donut = alt.Chart(industry_exposure).mark_arc(innerRadius=80, outerRadius=150).encode(
                     theta=alt.Theta("outstanding_balance:Q", stack=True),
                     color=alt.Color(
                         "display_label:N",
@@ -669,12 +669,12 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
                         alt.Tooltip("outstanding_balance:Q", title="Exposure", format="$,.0f"),
                         alt.Tooltip("deal_count:Q", title="Loans"),
                     ],
-                ).properties(width=300, height=350, title="Exposure by Industry")
+                ).properties(width=400, height=450, title="Exposure by Industry")
 
                 # Add center text showing total
                 total_exposure = industry_exposure["outstanding_balance"].sum()
                 center_text = alt.Chart(pd.DataFrame({"text": [f"${total_exposure/1e6:.1f}M"]})).mark_text(
-                    size=20, fontWeight="bold", color="#333"
+                    size=24, fontWeight="bold", color="#333"
                 ).encode(text="text:N")
 
                 st.altair_chart(industry_donut + center_text, width='stretch')
@@ -684,7 +684,7 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
                 status_list = status_exposure["loan_status"].tolist()
                 status_colors = [status_color_map.get(s, "#7f7f7f") for s in status_list]
 
-                status_donut = alt.Chart(status_exposure).mark_arc(innerRadius=60, outerRadius=120).encode(
+                status_donut = alt.Chart(status_exposure).mark_arc(innerRadius=80, outerRadius=150).encode(
                     theta=alt.Theta("outstanding_balance:Q", stack=True),
                     color=alt.Color(
                         "loan_status:N",
@@ -696,11 +696,11 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
                         alt.Tooltip("outstanding_balance:Q", title="Exposure", format="$,.0f"),
                         alt.Tooltip("deal_count:Q", title="Loans"),
                     ],
-                ).properties(width=300, height=350, title="Exposure by Status")
+                ).properties(width=400, height=450, title="Exposure by Status")
 
                 # Add center text
                 center_text2 = alt.Chart(pd.DataFrame({"text": [f"${total_exposure/1e6:.1f}M"]})).mark_text(
-                    size=20, fontWeight="bold", color="#333"
+                    size=24, fontWeight="bold", color="#333"
                 ).encode(text="text:N")
 
                 st.altair_chart(status_donut + center_text2, width='stretch')
@@ -736,7 +736,7 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
                     alt.Tooltip("deal_count:Q", title="Loans"),
                 ],
                 order=alt.Order("loan_status:N"),
-            ).properties(width=700, height=400, title="Industry Exposure Breakdown by Loan Status")
+            ).properties(width=800, height=500, title="Industry Exposure Breakdown by Loan Status")
 
             st.altair_chart(stacked_bar, width='stretch')
 
