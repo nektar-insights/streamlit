@@ -301,6 +301,91 @@ def plot_tib_histogram(df: pd.DataFrame):
     st.altair_chart(chart, width='stretch')
 
 
+def _build_return_timeline_from_summaries(df: pd.DataFrame) -> pd.Series:
+    """
+    Build a return timeline from loan_summaries when loan_schedules data is unavailable.
+
+    Uses payoff_date for paid off loans and today for active loans with payments.
+    This provides a reasonable approximation of when capital was returned.
+
+    Args:
+        df: DataFrame with funding_date, payoff_date, total_paid, loan_status columns
+
+    Returns:
+        pd.Series: Timeline of payments indexed by date
+    """
+    today = pd.Timestamp.today().normalize()
+
+    # Prepare data
+    d = df.copy()
+    d["payoff_date"] = pd.to_datetime(d.get("payoff_date"), errors="coerce").dt.tz_localize(None)
+    d["funding_date"] = pd.to_datetime(d.get("funding_date"), errors="coerce").dt.tz_localize(None)
+    d["total_paid"] = pd.to_numeric(d.get("total_paid", 0), errors="coerce").fillna(0)
+
+    # Only include loans with payments
+    d = d[d["total_paid"] > 0].copy()
+
+    if d.empty:
+        return pd.Series(dtype=float)
+
+    # Determine the payment attribution date for each loan:
+    # - Paid Off loans: use payoff_date
+    # - Active loans: use today (representing payments received so far)
+    d["payment_attribution_date"] = d.apply(
+        lambda row: row["payoff_date"] if pd.notnull(row.get("payoff_date")) and row.get("loan_status") == "Paid Off"
+        else today,
+        axis=1
+    )
+
+    # Group payments by attribution date
+    payment_data = d[["payment_attribution_date", "total_paid"]].dropna()
+    if payment_data.empty:
+        return pd.Series(dtype=float)
+
+    return_timeline = payment_data.groupby("payment_attribution_date")["total_paid"].sum().sort_index().cumsum()
+    return return_timeline
+
+
+def _get_return_timeline(df: pd.DataFrame, schedules: pd.DataFrame) -> pd.Series:
+    """
+    Get the return timeline, preferring loan_schedules data if available,
+    otherwise falling back to loan_summaries.
+
+    Args:
+        df: Loan summaries dataframe
+        schedules: Loan schedules dataframe (may be empty or missing actual_payment)
+
+    Returns:
+        pd.Series: Cumulative return timeline indexed by date
+    """
+    # Normalize loan_ids in df for filtering
+    loan_ids_in_df = set(df["loan_id"].astype(str).str.strip().str.replace(r'\.0$', '', regex=True).dropna())
+
+    # Try to use loan_schedules if available
+    if not schedules.empty and "payment_date" in schedules.columns and "actual_payment" in schedules.columns:
+        schedules = schedules.copy()
+
+        # Filter schedules to only loans in df
+        if "loan_id" in schedules.columns:
+            schedules["loan_id_norm"] = schedules["loan_id"].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+            schedules = schedules[schedules["loan_id_norm"].isin(loan_ids_in_df)]
+
+        schedules["payment_date"] = pd.to_datetime(schedules["payment_date"], errors="coerce").dt.tz_localize(None)
+        schedules["actual_payment"] = pd.to_numeric(schedules["actual_payment"], errors="coerce")
+
+        payment_data = schedules[
+            schedules["actual_payment"].notna() &
+            (schedules["actual_payment"] > 0) &
+            schedules["payment_date"].notna()
+        ]
+
+        if not payment_data.empty:
+            return payment_data.groupby("payment_date")["actual_payment"].sum().sort_index().cumsum()
+
+    # Fallback to loan_summaries-based timeline
+    return _build_return_timeline_from_summaries(df)
+
+
 def plot_capital_flow(df: pd.DataFrame):
     """Plot capital deployment vs returns over time"""
     st.subheader("Capital Flow: Deployment vs. Returns")
@@ -313,14 +398,9 @@ def plot_capital_flow(df: pd.DataFrame):
     # Calculate total deployed from the dataframe
     total_deployed = d["csl_participation_amount"].sum()
 
-    # Calculate total returned from loan schedules actual payments to ensure consistency
-    if not schedules.empty and "actual_payment" in schedules.columns:
-        schedules_copy = schedules.copy()
-        schedules_copy["actual_payment"] = pd.to_numeric(schedules_copy["actual_payment"], errors="coerce")
-        total_returned = schedules_copy[schedules_copy["actual_payment"] > 0]["actual_payment"].sum()
-    else:
-        # Fallback to total_paid from dataframe if schedules not available
-        total_returned = d["total_paid"].sum()
+    # Calculate total returned from loan_summaries total_paid
+    # This represents actual payments received by CSL
+    total_returned = d["total_paid"].sum()
 
     col1, col2 = st.columns(2)
     with col1:
@@ -331,17 +411,8 @@ def plot_capital_flow(df: pd.DataFrame):
     deploy_data = d[["funding_date", "csl_participation_amount"]].dropna()
     deploy_timeline = deploy_data.groupby("funding_date")["csl_participation_amount"].sum().sort_index().cumsum()
 
-    if not schedules.empty and "payment_date" in schedules.columns:
-        schedules["payment_date"] = pd.to_datetime(schedules["payment_date"], errors="coerce").dt.tz_localize(None)
-        schedules["actual_payment"] = pd.to_numeric(schedules["actual_payment"], errors="coerce")
-        payment_data = schedules[
-            schedules["actual_payment"].notna() &
-            (schedules["actual_payment"] > 0) &
-            schedules["payment_date"].notna()
-        ]
-        return_timeline = payment_data.groupby("payment_date")["actual_payment"].sum().sort_index().cumsum()
-    else:
-        return_timeline = pd.Series(dtype=float)
+    # Get return timeline from schedules or fallback to summaries
+    return_timeline = _get_return_timeline(d, schedules)
 
     if not deploy_timeline.empty:
         min_date = deploy_timeline.index.min()
@@ -399,17 +470,8 @@ def plot_investment_net_position(df: pd.DataFrame):
     deploy_data = d[["funding_date", "csl_participation_amount"]].dropna()
     deploy_timeline = deploy_data.groupby("funding_date")["csl_participation_amount"].sum().sort_index().cumsum()
 
-    if not schedules.empty and "payment_date" in schedules.columns:
-        schedules["payment_date"] = pd.to_datetime(schedules["payment_date"], errors="coerce").dt.tz_localize(None)
-        schedules["actual_payment"] = pd.to_numeric(schedules["actual_payment"], errors="coerce")
-        payment_data = schedules[
-            schedules["actual_payment"].notna() &
-            (schedules["actual_payment"] > 0) &
-            schedules["payment_date"].notna()
-        ]
-        return_timeline = payment_data.groupby("payment_date")["actual_payment"].sum().sort_index().cumsum()
-    else:
-        return_timeline = pd.Series(dtype=float)
+    # Get return timeline from schedules or fallback to summaries
+    return_timeline = _get_return_timeline(d, schedules)
 
     if not deploy_timeline.empty:
         min_date = deploy_timeline.index.min()
