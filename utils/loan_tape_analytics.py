@@ -15,11 +15,8 @@ from utils.loan_tape_data import consolidate_sector_code
 # CONSTANTS - Single Source of Truth
 # =============================================================================
 
-# Problem loan statuses (canonical definition - import this elsewhere)
-PROBLEM_STATUSES = {
-    "Late", "Default", "Bankrupt", "Severe", "Severe Delinquency",
-    "Moderate Delinquency", "Active - Frequently Late"
-}
+# Import problem statuses from centralized definition
+from utils.status_constants import PROBLEM_STATUSES
 
 # Feature name mapping for human-readable display
 FEATURE_DISPLAY_NAMES = {
@@ -74,19 +71,20 @@ PERFORMANCE_SHORTFALL_THRESHOLD = 0.15
 def make_problem_label(
     df: pd.DataFrame,
     perf_cutoff: float = DEFAULT_PERFORMANCE_CUTOFF,
-    model_type: str = "default"
+    model_type: str = "default",
+    include_reason: bool = False
 ) -> pd.Series:
     """
     Create binary problem label based on loan status and payment performance.
 
     For model_type="default":
         A loan is considered a "problem loan" if:
-        1. Its status is in PROBLEM_STATUSES (Late, Default, Bankrupt, etc.), OR
+        1. Its status is in PROBLEM_STATUSES (Default, Bankruptcy, Charged Off, etc.), OR
         2. Its payment_performance is below the cutoff threshold (default 90%)
 
     For model_type="origination":
         A loan is considered a "problem loan" if:
-        1. Its status is in PROBLEM_STATUSES (Late, Default, Bankrupt, etc.), OR
+        1. Its status is in PROBLEM_STATUSES (Default, Bankruptcy, Charged Off, etc.), OR
         2. For Paid Off loans: payment_performance < cutoff (didn't fully pay back), OR
         3. For active loans: significantly behind expected payment schedule based on loan age
            (payment_performance is 15+ percentage points below expected progress)
@@ -99,12 +97,22 @@ def make_problem_label(
         df: DataFrame with loan data
         perf_cutoff: Performance threshold for completed loans (default 90%)
         model_type: "default" for legacy behavior, "origination" for smarter handling
+        include_reason: If True, also returns a Series with problem reasons
 
     Returns:
         pd.Series: Binary labels (1 = problem loan, 0 = good loan)
+        If include_reason=True, returns tuple of (labels, reasons)
     """
+    # Initialize reason tracking
+    reasons = pd.Series("", index=df.index)
+
     # Status-based problems (always applies)
-    status_bad = df.get("loan_status", pd.Series(dtype=str)).isin(PROBLEM_STATUSES)
+    loan_status = df.get("loan_status", pd.Series(dtype=str))
+    status_bad = loan_status.isin(PROBLEM_STATUSES)
+
+    # Set reasons for status-based problems
+    if status_bad.any():
+        reasons.loc[status_bad] = "Status: " + loan_status.loc[status_bad].astype(str)
 
     if model_type == "origination":
         # For origination models, be smarter about performance-based problems
@@ -115,12 +123,19 @@ def make_problem_label(
 
         # Get required data
         payment_perf = pd.to_numeric(df.get("payment_performance", np.nan), errors="coerce")
-        loan_status = df.get("loan_status", pd.Series(dtype=str))
 
         # 1. Paid Off loans: flag if they didn't pay back enough
         paid_off_mask = loan_status == "Paid Off"
         if paid_off_mask.any():
-            perf_bad.loc[paid_off_mask] = payment_perf.loc[paid_off_mask] < perf_cutoff
+            paid_off_problem = payment_perf.loc[paid_off_mask] < perf_cutoff
+            perf_bad.loc[paid_off_mask] = paid_off_problem
+
+            # Set reason for paid-off underperformers (only if not already status-flagged)
+            paid_off_problem_idx = paid_off_mask & perf_bad & (reasons == "")
+            if paid_off_problem_idx.any():
+                reasons.loc[paid_off_problem_idx] = payment_perf.loc[paid_off_problem_idx].apply(
+                    lambda x: f"Paid off at {x:.0%} (below {perf_cutoff:.0%} threshold)"
+                )
 
         # 2. Active loans: calculate expected progress based on loan age
         active_mask = (loan_status != "Paid Off") & ~status_bad
@@ -151,13 +166,38 @@ def make_problem_label(
             shortfall = expected_progress - actual_perf
 
             # Flag as problem if significantly behind expected (by more than threshold)
-            perf_bad.loc[active_mask] = shortfall > PERFORMANCE_SHORTFALL_THRESHOLD
+            behind_schedule = shortfall > PERFORMANCE_SHORTFALL_THRESHOLD
+            perf_bad.loc[active_mask] = behind_schedule
+
+            # Set reason for behind-schedule active loans (only if not already flagged)
+            behind_idx = active_mask & perf_bad & (reasons == "")
+            if behind_idx.any():
+                # Build reason string showing expected vs actual
+                for idx in df.index[behind_idx]:
+                    if idx in expected_progress.index:
+                        exp = expected_progress.loc[idx]
+                        act = actual_perf.loc[idx] if idx in actual_perf.index else 0
+                        shortfall_val = exp - act
+                        reasons.loc[idx] = f"Behind schedule: {act:.0%} paid vs {exp:.0%} expected ({shortfall_val:.0%} shortfall)"
 
     else:
         # Default behavior: simple threshold on payment_performance
-        perf_bad = pd.to_numeric(df.get("payment_performance", np.nan), errors="coerce") < perf_cutoff
+        payment_perf = pd.to_numeric(df.get("payment_performance", np.nan), errors="coerce")
+        perf_bad = payment_perf < perf_cutoff
 
-    return (status_bad | perf_bad).astype(int)
+        # Set reason for performance-based problems (only if not already status-flagged)
+        perf_problem_idx = perf_bad & (reasons == "")
+        if perf_problem_idx.any():
+            reasons.loc[perf_problem_idx] = payment_perf.loc[perf_problem_idx].apply(
+                lambda x: f"Performance: {x:.0%} (below {perf_cutoff:.0%} threshold)" if pd.notnull(x) else "Performance: Unknown"
+            )
+
+    # Combine into final label
+    is_problem = (status_bad | perf_bad).astype(int)
+
+    if include_reason:
+        return is_problem, reasons
+    return is_problem
 
 
 def safe_kfold(n_items: int, preferred: int = 5) -> int:
@@ -858,8 +898,10 @@ def find_similar_deals(
             pos_labels = {0: "1st", 1: "2nd", 2: "3rd+"}
             criteria_used.append(f"Position: {pos_labels.get(position, str(position))}")
 
-    # Add problem label
-    similar["is_problem"] = make_problem_label(similar)
+    # Add problem label with reasons
+    is_problem, problem_reason = make_problem_label(similar, model_type="origination", include_reason=True)
+    similar["is_problem"] = is_problem
+    similar["problem_reason"] = problem_reason
 
     # Calculate summary statistics
     match_count = len(similar)
@@ -876,7 +918,7 @@ def find_similar_deals(
         "fico", "tib", "ahead_positions",
         "loan_status", "payment_performance",
         "total_invested", "total_paid", "net_balance",
-        "is_problem"
+        "is_problem", "problem_reason"
     ]
 
     # Add sector columns if available
