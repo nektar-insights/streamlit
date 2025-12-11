@@ -354,13 +354,16 @@ if score_button:
         with st.expander("View Similar Deals"):
             similar_deals = comparison["similar_deals"]
 
-            # Format for display
+            # Format for display - include problem_reason for tooltip
             display_cols = ["deal_name", "partner_source", "loan_status", "payment_performance",
-                          "fico", "tib", "total_invested", "is_problem"]
+                          "fico", "tib", "total_invested", "is_problem", "problem_reason"]
             display_cols = [c for c in display_cols if c in similar_deals.columns]
 
             if not similar_deals.empty:
                 display_df = similar_deals[display_cols].head(20).copy()
+
+                # Store original problem_reason for tooltip before formatting
+                problem_reasons = display_df.get("problem_reason", pd.Series("", index=display_df.index))
 
                 # Format columns
                 if "payment_performance" in display_df.columns:
@@ -372,8 +375,15 @@ if score_button:
                         lambda x: f"${x:,.0f}" if pd.notnull(x) else "N/A"
                     )
                 if "is_problem" in display_df.columns:
+                    # Create Problem column with indicator
                     display_df["is_problem"] = display_df["is_problem"].apply(
-                        lambda x: "Yes" if x else "No"
+                        lambda x: "⚠️ Yes" if x else "✓ No"
+                    )
+
+                # Add problem reason column (show dash for non-problems)
+                if "problem_reason" in display_df.columns:
+                    display_df["problem_reason"] = problem_reasons.apply(
+                        lambda x: x if x else "—"
                     )
 
                 # Rename columns for display
@@ -385,11 +395,20 @@ if score_button:
                     "fico": "FICO",
                     "tib": "TIB (yrs)",
                     "total_invested": "Amount",
-                    "is_problem": "Problem?"
+                    "is_problem": "Problem?",
+                    "problem_reason": "Reason"
                 }
                 display_df.rename(columns=rename_map, inplace=True)
 
-                st.dataframe(display_df, width='stretch', hide_index=True)
+                st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+                # Add legend explaining problem classification
+                st.caption("""
+                **Problem Classification Logic:**
+                - **Status-based**: Loan status is Default, Bankruptcy, Charged Off, In Collections, Legal Action, NSF/Suspended, Non-Performing, Severe/Moderate Delinquency, or Active - Frequently Late
+                - **Paid off underperformance**: Loan paid off but recovered less than 90% of expected payments
+                - **Behind schedule**: Active loan is 15+ percentage points behind expected payment progress based on loan age
+                """)
     else:
         st.info("No similar historical deals found with current criteria. Try selecting fewer filters.")
 
@@ -441,7 +460,7 @@ with st.expander("How This Works"):
     ### Deal Risk Scoring Methodology
 
     This tool uses a **logistic regression model** trained on historical loan outcomes to predict
-    the probability that a new deal will become a "problem loan" (late payments, defaults, etc.).
+    the probability that a new deal will become a "problem loan."
 
     #### Features Used:
     - **FICO Score**: Borrower creditworthiness
@@ -458,6 +477,24 @@ with st.expander("How This Works"):
     | 40-60 | MODERATE | Proceed with caution |
     | 60-80 | ELEVATED | Additional review needed |
     | 80-100 | HIGH | Consider declining |
+
+    #### Problem Loan Classification:
+    A loan is classified as a "problem" if ANY of the following apply:
+
+    1. **Status-based problems**: The loan status is one of:
+       - Default, Bankruptcy, Charged Off
+       - In Collections, Legal Action
+       - NSF / Suspended, Non-Performing
+       - Severe Delinquency, Moderate Delinquency
+       - Active - Frequently Late
+
+    2. **Paid-off underperformance**: The loan has been paid off but recovered
+       less than 90% of expected payments (indicating a settlement or loss).
+
+    3. **Behind schedule**: For active loans, payment performance is more than
+       15 percentage points behind where it should be based on loan age.
+       (e.g., a loan 50% through its term should be ~50% paid; if only 30% paid,
+       it's 20pp behind and flagged as a problem)
 
     #### Similar Deals Comparison:
     The tool also finds historical deals with similar characteristics to show how those deals
