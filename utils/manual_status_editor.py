@@ -7,35 +7,107 @@ by backend scripts (manual_status flag = True).
 """
 import streamlit as st
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Tuple
 from utils.status_constants import ALL_VALID_STATUSES, TERMINAL_STATUSES, PROTECTED_STATUSES
 from utils.config import get_supabase_client
 
 
-def update_loan_status_manual(loan_id: str, new_status: str) -> bool:
+def clear_loan_summaries_cache():
+    """Clear the loan_summaries cache to force a fresh load after updates."""
+    try:
+        # Clear the DataLoader's cached load_loan_summaries method
+        from utils.data_loader import DataLoader
+        DataLoader.load_loan_summaries.clear()
+        print("Cache cleared for load_loan_summaries")
+    except Exception as e:
+        print(f"Warning: Could not clear cache: {e}")
+
+
+def update_loan_status_manual(loan_id: str, new_status: str) -> Tuple[bool, str]:
     """
     Update loan status manually and set manual_status flag.
+
+    This function updates the loan_summaries table with:
+    - loan_status: The new status value
+    - manual_status: True (to flag this as a manual override)
+    - status_last_manual_update: Timestamp of this update
+    - status_changed_at: Timestamp of status change
+    - updated_at: General update timestamp
 
     Args:
         loan_id: The loan ID to update
         new_status: The new status to set
 
     Returns:
-        True if successful, False otherwise
+        Tuple of (success: bool, message: str)
     """
     try:
         supabase = get_supabase_client()
-        supabase.table("loan_summaries").update({
+        timestamp = datetime.now().isoformat()
+
+        # Full update payload with all expected columns
+        update_data = {
             "loan_status": new_status,
             "manual_status": True,
-            "status_last_manual_update": datetime.now().isoformat(),
-            "status_changed_at": datetime.now().isoformat(),
-            "updated_at": datetime.now().isoformat()
-        }).eq("loan_id", loan_id).execute()
-        return True
+            "status_last_manual_update": timestamp,
+            "status_changed_at": timestamp,
+            "updated_at": timestamp
+        }
+
+        print(f"Attempting to update loan {loan_id} to status '{new_status}'")
+        print(f"Update payload: {update_data}")
+
+        # Try the full update first
+        try:
+            response = supabase.table("loan_summaries").update(update_data).eq("loan_id", loan_id).execute()
+        except Exception as full_error:
+            # If full update fails (likely due to missing columns), try minimal update
+            error_str = str(full_error).lower()
+            if "column" in error_str and "does not exist" in error_str:
+                print(f"Full update failed, trying minimal update: {full_error}")
+                # Try with just the essential fields
+                minimal_data = {"loan_status": new_status}
+
+                # Try adding optional columns one by one
+                for col, val in [
+                    ("manual_status", True),
+                    ("updated_at", timestamp),
+                    ("status_changed_at", timestamp),
+                    ("status_last_manual_update", timestamp)
+                ]:
+                    try:
+                        test_data = {**minimal_data, col: val}
+                        supabase.table("loan_summaries").update(test_data).eq("loan_id", loan_id).limit(0).execute()
+                        minimal_data[col] = val
+                    except Exception:
+                        print(f"Column '{col}' does not exist, skipping")
+
+                response = supabase.table("loan_summaries").update(minimal_data).eq("loan_id", loan_id).execute()
+                print(f"Minimal update with columns: {list(minimal_data.keys())}")
+            else:
+                raise full_error
+
+        # Check if any rows were affected
+        if response.data:
+            print(f"Update successful. Response: {response.data}")
+            # Clear cache so the UI shows updated data
+            clear_loan_summaries_cache()
+            return True, f"Status updated to '{new_status}'"
+        else:
+            print(f"No rows updated. Response: {response}")
+            return False, f"No loan found with ID '{loan_id}'. Check if the loan exists."
+
     except Exception as e:
-        st.error(f"Failed to update status: {e}")
-        return False
+        error_msg = str(e)
+        print(f"Update failed with error: {error_msg}")
+
+        # Provide helpful error messages for common issues
+        if "column" in error_msg.lower() and "does not exist" in error_msg.lower():
+            return False, f"Database schema mismatch: {error_msg}. Contact admin to verify column names."
+        elif "permission" in error_msg.lower() or "denied" in error_msg.lower():
+            return False, f"Permission denied. Check Supabase service role key permissions."
+        else:
+            return False, f"Update failed: {error_msg}"
 
 
 def render_status_badge(status: str) -> str:
@@ -127,13 +199,15 @@ def render_manual_status_editor(
     with col2:
         if st.button("Update", key=f"update_btn_{loan_id}", type="primary"):
             if new_status != current_status:
-                with st.spinner("Updating..."):
-                    success = update_loan_status_manual(loan_id, new_status)
+                with st.spinner("Updating status in database..."):
+                    success, message = update_loan_status_manual(loan_id, new_status)
                 if success:
-                    st.success("Updated")
+                    st.success(message)
                     st.rerun()
+                else:
+                    st.error(message)
             else:
-                st.info("No change")
+                st.info("No change - select a different status")
 
     if not compact:
         st.caption("Manual status will be preserved by automated jobs for 30 days")
@@ -175,9 +249,29 @@ def render_bulk_status_editor(loan_ids: list, current_statuses: dict):
 
     if st.button(f"Update {len(editable_loans)} Loans", type="primary"):
         success_count = 0
-        for loan_id in editable_loans:
-            if update_loan_status_manual(loan_id, new_status):
-                success_count += 1
+        errors = []
+        progress_bar = st.progress(0)
 
-        st.success(f"Updated {success_count}/{len(editable_loans)} loans to '{new_status}'")
+        for i, loan_id in enumerate(editable_loans):
+            success, message = update_loan_status_manual(loan_id, new_status)
+            if success:
+                success_count += 1
+            else:
+                errors.append(f"Loan {loan_id}: {message}")
+            progress_bar.progress((i + 1) / len(editable_loans))
+
+        progress_bar.empty()
+
+        if success_count == len(editable_loans):
+            st.success(f"Successfully updated all {success_count} loans to '{new_status}'")
+        elif success_count > 0:
+            st.warning(f"Updated {success_count}/{len(editable_loans)} loans. Some failed.")
+            with st.expander("View errors"):
+                for error in errors:
+                    st.error(error)
+        else:
+            st.error(f"Failed to update any loans")
+            with st.expander("View errors"):
+                for error in errors:
+                    st.error(error)
         st.rerun()

@@ -1332,6 +1332,16 @@ def main():
                 payment_perf = loan_row.get('payment_performance', 0)
                 st.write(f"**Payment Performance:** {payment_perf:.1%}" if pd.notna(payment_perf) else "**Payment Performance:** N/A")
 
+                # Show manual status indicator and last update time
+                is_manual = loan_row.get("manual_status", False)
+                if is_manual:
+                    last_update = loan_row.get("status_last_manual_update") or loan_row.get("status_changed_at")
+                    if pd.notna(last_update):
+                        update_time = pd.to_datetime(last_update).strftime("%Y-%m-%d %H:%M")
+                        st.info(f"Manual override active (set {update_time})")
+                    else:
+                        st.info("Manual override active")
+
             with col2:
                 render_manual_status_editor(
                     loan_id=selected_loan,
