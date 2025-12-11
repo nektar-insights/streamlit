@@ -64,7 +64,7 @@ def display_kpi_cards(
 
     Example:
         display_kpi_cards({
-            'Total Invested': 1500000,
+            'Total Cost Basis': 1500000,
             'Total Returned': 1200000,
             'Net Position': 300000,
             'ROI': 0.25

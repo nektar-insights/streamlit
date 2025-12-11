@@ -1294,7 +1294,7 @@ def main():
             "factor_rate": "Factor Rate",
             "commission_fee": "Commission %",
             "csl_participation_amount": "Capital Deployed",
-            "total_invested": "Total Invested",
+            "total_invested": "Total Cost Basis",
             "total_paid": "Total Paid",
             "net_balance": "Net Balance",
             "current_roi": "ROI",
