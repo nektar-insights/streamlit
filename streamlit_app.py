@@ -6,7 +6,8 @@ from utils.config import (
     COLOR_PALETTE,
     PLATFORM_FEE_RATE,
 )
-from utils.data_loader import load_deals
+from utils.data_loader import load_deals, load_loan_summaries
+from utils.loan_tape_data import prepare_loan_data
 
 # ----------------------------
 # Apply Branding
@@ -18,6 +19,13 @@ setup_page("CSL Capital | Dashboard")
 # ----------------------------
 df = load_deals()
 today = pd.to_datetime("today").normalize()
+
+# Load loan summaries for principal outstanding calculation
+loan_summaries_df = load_loan_summaries()
+if not loan_summaries_df.empty and not df.empty:
+    loan_data = prepare_loan_data(loan_summaries_df, df)
+else:
+    loan_data = pd.DataFrame()
 
 # ----------------------------
 # Data preprocessing
@@ -132,6 +140,20 @@ total_expected_return = ((closed_won["amount"] * closed_won["factor_rate"]) -
 total_expected_return_sum = total_expected_return.sum()
 moic = total_expected_return_sum / total_capital_deployed if total_capital_deployed > 0 else 0
 projected_irr = (moic ** (12 / avg_term) - 1) if avg_term > 0 else 0
+
+# Principal Outstanding calculation from loan summaries
+if not loan_data.empty and "net_balance" in loan_data.columns and "loan_status" in loan_data.columns:
+    active_loans = loan_data[loan_data["loan_status"] != "Paid Off"]
+    total_principal_outstanding = active_loans["net_balance"].sum() if not active_loans.empty else 0
+    active_loan_count = len(active_loans)
+    # Collection rate: how much has been collected relative to total invested
+    total_invested_loans = loan_data["total_invested"].sum() if "total_invested" in loan_data.columns else 0
+    total_collected = loan_data["total_paid"].sum() if "total_paid" in loan_data.columns else 0
+    collection_rate = total_collected / total_invested_loans if total_invested_loans > 0 else 0
+else:
+    total_principal_outstanding = 0
+    active_loan_count = 0
+    collection_rate = 0
 
 
 
@@ -261,6 +283,11 @@ col14, col15, col16 = st.columns(3)
 col14.metric("Projected IRR", f"{projected_irr:.1%}")
 col15.metric("Avg % of Deal", f"{avg_participation_pct:.1%}")
 col16.metric("Commission Paid", f"${total_commissions_paid:,.0f}")
+
+col17a, col18a, col19a = st.columns(3)
+col17a.metric("Principal Outstanding", f"${total_principal_outstanding:,.0f}")
+col18a.metric("Active Loans", f"{active_loan_count}")
+col19a.metric("Collection Rate", f"{collection_rate:.1%}")
 
 # Deal Characteristics
 st.subheader("Deal Characteristics (Participated Only)")
