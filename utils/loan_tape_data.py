@@ -16,18 +16,27 @@ from utils.config import PLATFORM_FEE_RATE
 PLATFORM_FEE = PLATFORM_FEE_RATE
 
 # Status risk multipliers for risk scoring
+# Covers all valid statuses from status_constants.ALL_VALID_STATUSES
+# Higher multipliers indicate higher risk
 STATUS_RISK_MULTIPLIERS = {
+    # Active statuses
     "Active": 1.0,
     "Active - Frequently Late": 1.3,
+    # Delinquency statuses (escalating severity)
     "Minor Delinquency": 1.5,
-    "Past Delinquency": 1.2,
     "Moderate Delinquency": 2.0,
-    "Late": 2.5,
     "Severe Delinquency": 3.0,
+    "Past Delinquency": 1.2,
+    # Problem statuses
     "Default": 4.0,
-    "Bankrupt": 5.0,
-    "Severe": 5.0,
+    "NSF / Suspended": 3.5,
+    "Non-Performing": 4.5,
+    "In Collections": 4.0,
+    "Legal Action": 4.5,
+    # Terminal statuses
     "Paid Off": 0.0,
+    "Charged Off": 5.0,
+    "Bankruptcy": 5.0,
 }
 
 # NAICS Sector Consolidation Mapping

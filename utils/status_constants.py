@@ -57,6 +57,46 @@ ALL_VALID_STATUSES = [
     "Paid Off"
 ]
 
+# Status Colors - Unified color mapping for all valid statuses
+# Organized by category for visual consistency across all pages
+STATUS_COLORS = {
+    # Active statuses - green tones
+    "Active": "#2ca02c",                    # Green
+    "Active - Frequently Late": "#98df8a",  # Light green
+    # Delinquency statuses - yellow/orange progression
+    "Minor Delinquency": "#ffdd57",         # Yellow
+    "Moderate Delinquency": "#ffbb78",      # Light orange
+    "Severe Delinquency": "#ff9800",        # Orange
+    "Past Delinquency": "#aec7e8",          # Light blue (recovered)
+    # Problem statuses - red/orange tones
+    "Default": "#ff7f0e",                   # Dark orange
+    "NSF / Suspended": "#e377c2",           # Pink
+    "Non-Performing": "#d62728",            # Red
+    "In Collections": "#9467bd",            # Purple
+    "Legal Action": "#8c564b",              # Brown
+    # Terminal statuses
+    "Paid Off": "#1f77b4",                  # Blue
+    "Charged Off": "#d62728",               # Red
+    "Bankruptcy": "#7f0000",                # Dark red
+}
+
+# Status groupings for summary views
+STATUS_GROUPS = {
+    "Active": ["Active", "Active - Frequently Late"],
+    "Delinquent": ["Minor Delinquency", "Moderate Delinquency", "Severe Delinquency", "Past Delinquency"],
+    "Problem": ["Default", "NSF / Suspended", "Non-Performing", "In Collections", "Legal Action"],
+    "Terminal": ["Paid Off", "Charged Off", "Bankruptcy"],
+}
+
+# Group colors for summary charts
+STATUS_GROUP_COLORS = {
+    "Active": "#2ca02c",      # Green
+    "Delinquent": "#ffbb78",  # Orange
+    "Problem": "#d62728",     # Red
+    "Terminal": "#1f77b4",    # Blue
+}
+
+
 # =============================================================================
 # CONFIGURATION CONSTANTS
 # =============================================================================
@@ -379,6 +419,9 @@ __all__ = [
     "PROBLEM_STATUSES",
     "DELINQUENCY_STATUSES",
     "ALL_VALID_STATUSES",
+    "STATUS_COLORS",
+    "STATUS_GROUPS",
+    "STATUS_GROUP_COLORS",
     "MANUAL_STATUS_THRESHOLD_DAYS",
     "PAID_OFF_TOLERANCE",
     "PAYMENT_AHEAD_THRESHOLD",

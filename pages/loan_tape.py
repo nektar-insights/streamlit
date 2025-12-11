@@ -50,6 +50,12 @@ from utils.loan_tape_analytics import (
     PROBLEM_STATUSES,
     get_display_name,
 )
+from utils.status_constants import (
+    STATUS_COLORS,
+    STATUS_GROUPS,
+    STATUS_GROUP_COLORS,
+    ALL_VALID_STATUSES,
+)
 from utils.display_components import (
     create_date_range_filter,
     create_partner_source_filter,
@@ -67,26 +73,27 @@ setup_page("CSL Capital | Loan Tape")
 # -------------
 PLATFORM_FEE = PLATFORM_FEE_RATE
 
-LOAN_STATUS_COLORS = {
-    "Active": "#2ca02c",
-    "Late": "#ffbb78",
-    "Default": "#ff7f0e",
-    "Paid Off": "#1f77b4",
-    "Bankrupt": "#d62728",
-}
-
+# Status risk multipliers for all valid statuses
+# Higher multipliers indicate higher risk
 STATUS_RISK_MULTIPLIERS = {
+    # Active statuses
     "Active": 1.0,
     "Active - Frequently Late": 1.3,
+    # Delinquency statuses (escalating severity)
     "Minor Delinquency": 1.5,
-    "Past Delinquency": 1.2,
     "Moderate Delinquency": 2.0,
-    "Late": 2.5,
     "Severe Delinquency": 3.0,
+    "Past Delinquency": 1.2,
+    # Problem statuses
     "Default": 4.0,
-    "Bankrupt": 5.0,
-    "Severe": 5.0,
+    "NSF / Suspended": 3.5,
+    "Non-Performing": 4.5,
+    "In Collections": 4.0,
+    "Legal Action": 4.5,
+    # Terminal statuses
     "Paid Off": 0.0,
+    "Charged Off": 5.0,
+    "Bankruptcy": 5.0,
 }
 
 
@@ -95,9 +102,13 @@ STATUS_RISK_MULTIPLIERS = {
 # -------------------
 
 def plot_status_distribution(df: pd.DataFrame):
-    """Plot loan status distribution"""
+    """Plot loan status distribution with all valid statuses colored"""
     status_counts = df["loan_status"].value_counts().reset_index()
     status_counts.columns = ["status", "count"]
+
+    # Get colors for statuses in the data
+    status_list = status_counts["status"].tolist()
+    status_colors = [STATUS_COLORS.get(s, "#7f7f7f") for s in status_list]
 
     chart = alt.Chart(status_counts).mark_bar().encode(
         x=alt.X("status:N", title="Loan Status", sort="-y"),
@@ -105,8 +116,8 @@ def plot_status_distribution(df: pd.DataFrame):
         color=alt.Color(
             "status:N",
             scale=alt.Scale(
-                domain=list(LOAN_STATUS_COLORS.keys()),
-                range=list(LOAN_STATUS_COLORS.values())
+                domain=status_list,
+                range=status_colors
             ),
             legend=None
         ),
@@ -639,20 +650,6 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
             ).reset_index()
             status_exposure = status_exposure.sort_values("outstanding_balance", ascending=False)
 
-            # Define status colors (extend LOAN_STATUS_COLORS for any missing statuses)
-            status_color_map = {
-                "Active": "#2ca02c",
-                "Late": "#ffbb78",
-                "Default": "#ff7f0e",
-                "Bankrupt": "#d62728",
-                "Severe": "#d62728",
-                "Severe Delinquency": "#e377c2",
-                "Moderate Delinquency": "#ff9896",
-                "Minor Delinquency": "#98df8a",
-                "Past Delinquency": "#aec7e8",
-                "Active - Frequently Late": "#dbdb8d",
-            }
-
             # Create two donut charts side by side
             col1, col2 = st.columns(2)
 
@@ -680,9 +677,9 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
                 st.altair_chart(industry_donut + center_text, width='stretch')
 
             with col2:
-                # Get colors for statuses present in data
+                # Get colors for statuses present in data (uses shared STATUS_COLORS)
                 status_list = status_exposure["loan_status"].tolist()
-                status_colors = [status_color_map.get(s, "#7f7f7f") for s in status_list]
+                status_colors = [STATUS_COLORS.get(s, "#7f7f7f") for s in status_list]
 
                 status_donut = alt.Chart(status_exposure).mark_arc(innerRadius=80, outerRadius=150).encode(
                     theta=alt.Theta("outstanding_balance:Q", stack=True),
@@ -717,9 +714,9 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
             # Sort industries by total exposure
             industry_order = industry_exposure["display_label"].tolist()
 
-            # Get all statuses for color scale
+            # Get all statuses for color scale (uses shared STATUS_COLORS)
             all_statuses = industry_status_exposure["loan_status"].unique().tolist()
-            all_status_colors = [status_color_map.get(s, "#7f7f7f") for s in all_statuses]
+            all_status_colors = [STATUS_COLORS.get(s, "#7f7f7f") for s in all_statuses]
 
             stacked_bar = alt.Chart(industry_status_exposure).mark_bar().encode(
                 y=alt.Y("display_label:N", title="Industry", sort=industry_order),
