@@ -745,8 +745,10 @@ if not health_df.empty:
                           "RTR Amount", "Collection %", "Remaining", "Days Since Last Payment", "Partner Source"]
         available_cols = [c for c in all_display_cols if c in health_df.columns]
 
+        # Sort by Priority Score first (if exists), then select display columns
+        sorted_health_df = health_df.sort_values("Priority Score", ascending=False) if "Priority Score" in health_df.columns else health_df
         st.dataframe(
-            health_df[available_cols].sort_values("Priority Score", ascending=False),
+            sorted_health_df[available_cols],
             column_config={
                 "Deal Name": st.column_config.TextColumn("Deal", width="medium"),
                 "Health Status": st.column_config.TextColumn("Status"),
