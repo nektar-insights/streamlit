@@ -85,7 +85,8 @@ def calculate_portfolio_metrics(deals_df, unified_df, qbo_df):
         metrics["expected_profit"] = metrics["expected_total_return"] - metrics["total_deployed"]
 
     # Actual cash received (from QBO payments)
-    payment_types = ["Payment", "Deposit", "Receipt"]
+    # Note: Exclude "Deposit" to avoid double-counting - Deposits often contain the same payments
+    payment_types = ["Payment", "Receipt"]
     if "transaction_type" in qbo_df.columns:
         payments = qbo_df[qbo_df["transaction_type"].isin(payment_types)].copy()
         # Exclude internal transfers
@@ -206,7 +207,8 @@ def calculate_cash_forecast(deals_df, qbo_df, months_forward=6):
     forecast = []
 
     # Get historical monthly inflows
-    payment_types = ["Payment", "Deposit", "Receipt"]
+    # Note: Exclude "Deposit" to avoid double-counting - Deposits often contain the same payments
+    payment_types = ["Payment", "Receipt"]
     if "transaction_type" in qbo_df.columns:
         payments = qbo_df[qbo_df["transaction_type"].isin(payment_types)].copy()
         if "customer_name" in payments.columns:
@@ -477,7 +479,8 @@ with tab1:
     st.subheader("Monthly Cash Collection Trend")
 
     # Get monthly payment data
-    payment_types = ["Payment", "Deposit", "Receipt"]
+    # Note: Exclude "Deposit" to avoid double-counting - Deposits often contain the same payments
+    payment_types = ["Payment", "Receipt"]
     if "transaction_type" in df.columns:
         payments = df[df["transaction_type"].isin(payment_types)].copy()
         if "customer_name" in payments.columns:
