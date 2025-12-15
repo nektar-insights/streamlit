@@ -1398,15 +1398,13 @@ def main():
             "funding_date", "maturity_date", "projected_payoff_date",
             "factor_rate", "commission_fee",
             "csl_participation_amount", "total_invested", "total_paid", "net_balance",
-            "current_roi", "roi_grade_display",
-            "payment_performance", "payment_grade_display",
+            "roi_with_grade", "payment_perf_with_grade",
             "remaining_maturity_months", "is_past_maturity",
         ]
 
-        # Add IRR columns for Paid Off loans
-        if "realized_irr" in filtered_df.columns:
-            display_columns.append("realized_irr")
-            display_columns.append("irr_grade_display")
+        # Add IRR column for Paid Off loans (with grade icon)
+        if "irr_with_grade" in filtered_df.columns:
+            display_columns.append("irr_with_grade")
 
         column_rename = {
             "loan_id": "Loan ID",
@@ -1426,14 +1424,11 @@ def main():
             "total_invested": "Total Cost Basis",
             "total_paid": "Total Paid",
             "net_balance": "Net Balance",
-            "current_roi": "ROI",
-            "roi_grade_display": "ROI Grade",
-            "payment_performance": "Payment Perf",
-            "payment_grade_display": "Payment Grade",
+            "roi_with_grade": "ROI",
+            "payment_perf_with_grade": "Payment Perf",
             "remaining_maturity_months": "Months Left",
             "is_past_maturity": "Past Maturity",
-            "realized_irr": "IRR (Paid Off)",
-            "irr_grade_display": "Speed Grade",
+            "irr_with_grade": "IRR (Paid Off)",
         }
 
         loan_tape = format_dataframe_for_display(filtered_df, display_columns, column_rename)

@@ -854,18 +854,10 @@ def get_ontime_grade(pct_on_time: float) -> str:
     return calculate_grade(pct_on_time, ONTIME_GRADE_THRESHOLDS)
 
 
-def format_grade_with_indicator(grade: str) -> str:
-    """
-    Format grade with emoji indicator for display.
-
-    Args:
-        grade: Letter grade (A, B, C, D, F, or N/A)
-
-    Returns:
-        String like "🟢 A" or "🔴 F"
-    """
+def get_grade_emoji(grade: str) -> str:
+    """Get just the emoji indicator for a grade."""
     indicator = GRADE_INDICATORS.get(grade, GRADE_INDICATORS["N/A"])
-    return f"{indicator['emoji']} {grade}"
+    return indicator["emoji"]
 
 
 def add_performance_grades(df: pd.DataFrame) -> pd.DataFrame:
@@ -873,12 +865,12 @@ def add_performance_grades(df: pd.DataFrame) -> pd.DataFrame:
     Add performance grade columns to a loan dataframe.
 
     Adds:
-        - irr_grade: Grade for realized_irr (only for terminal loans)
-        - roi_grade: Grade for current_roi
-        - payment_grade: Grade for pct_on_time
-        - irr_grade_display: IRR grade with emoji indicator
-        - roi_grade_display: ROI grade with emoji indicator
-        - payment_grade_display: Payment grade with emoji indicator
+        - irr_grade: Letter grade for realized_irr (A-F)
+        - roi_grade: Letter grade for current_roi (A-F)
+        - payment_grade: Letter grade for pct_on_time (A-F)
+        - roi_with_grade: ROI value with emoji prefix (e.g., "🟢 35.2%")
+        - payment_perf_with_grade: Payment perf with emoji prefix
+        - irr_with_grade: IRR value with emoji prefix (paid off loans)
 
     Args:
         df: Dataframe with loan metrics (realized_irr, current_roi, pct_on_time)
@@ -888,29 +880,56 @@ def add_performance_grades(df: pd.DataFrame) -> pd.DataFrame:
     """
     result = df.copy()
 
+    # ROI Grade - add icon to the metric value
+    if "current_roi" in result.columns:
+        result["roi_grade"] = result["current_roi"].apply(get_roi_grade)
+
+        def format_roi_with_grade(row):
+            grade = row["roi_grade"]
+            roi = row["current_roi"]
+            emoji = get_grade_emoji(grade)
+            if pd.isna(roi):
+                return f"{emoji} —"
+            return f"{emoji} {roi:.1%}"
+
+        result["roi_with_grade"] = result.apply(format_roi_with_grade, axis=1)
+    else:
+        result["roi_grade"] = "N/A"
+        result["roi_with_grade"] = f"{get_grade_emoji('N/A')} —"
+
+    # Payment Grade - add icon to payment_performance
+    if "pct_on_time" in result.columns:
+        result["payment_grade"] = result["pct_on_time"].apply(get_ontime_grade)
+
+        def format_payment_with_grade(row):
+            grade = row["payment_grade"]
+            perf = row.get("payment_performance")
+            emoji = get_grade_emoji(grade)
+            if pd.isna(perf):
+                return f"{emoji} —"
+            return f"{emoji} {perf:.1%}"
+
+        result["payment_perf_with_grade"] = result.apply(format_payment_with_grade, axis=1)
+    else:
+        result["payment_grade"] = "N/A"
+        result["payment_perf_with_grade"] = f"{get_grade_emoji('N/A')} —"
+
     # IRR Grade (Speed to Payoff) - only for terminal loans with realized_irr
     if "realized_irr" in result.columns:
         result["irr_grade"] = result["realized_irr"].apply(get_irr_grade)
-        result["irr_grade_display"] = result["irr_grade"].apply(format_grade_with_indicator)
+
+        def format_irr_with_grade(row):
+            grade = row["irr_grade"]
+            irr = row["realized_irr"]
+            emoji = get_grade_emoji(grade)
+            if pd.isna(irr):
+                return f"{emoji} —"
+            return f"{emoji} {irr:.1%}"
+
+        result["irr_with_grade"] = result.apply(format_irr_with_grade, axis=1)
     else:
         result["irr_grade"] = "N/A"
-        result["irr_grade_display"] = format_grade_with_indicator("N/A")
-
-    # ROI Grade
-    if "current_roi" in result.columns:
-        result["roi_grade"] = result["current_roi"].apply(get_roi_grade)
-        result["roi_grade_display"] = result["roi_grade"].apply(format_grade_with_indicator)
-    else:
-        result["roi_grade"] = "N/A"
-        result["roi_grade_display"] = format_grade_with_indicator("N/A")
-
-    # Payment Grade (On-Time Performance)
-    if "pct_on_time" in result.columns:
-        result["payment_grade"] = result["pct_on_time"].apply(get_ontime_grade)
-        result["payment_grade_display"] = result["payment_grade"].apply(format_grade_with_indicator)
-    else:
-        result["payment_grade"] = "N/A"
-        result["payment_grade_display"] = format_grade_with_indicator("N/A")
+        result["irr_with_grade"] = f"{get_grade_emoji('N/A')} —"
 
     return result
 
