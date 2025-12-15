@@ -373,6 +373,12 @@ def calculate_irr(df: pd.DataFrame, schedules_df: Optional[pd.DataFrame] = None)
 
     def calc_realized_irr(row):
         """Calculate TRUE IRR for paid-off loans using all actual payment cash flows"""
+        # Only calculate realized IRR for terminal loans (Paid Off, Charged Off, Bankruptcy)
+        # Realized IRR only makes sense when the loan lifecycle is complete
+        loan_status = row.get("loan_status", "")
+        if loan_status not in ["Paid Off", "Charged Off", "Bankruptcy"]:
+            return None
+
         if pd.isna(row.get("funding_date")) or row.get("total_invested", 0) <= 0:
             return None
 
