@@ -37,10 +37,12 @@ from utils.loan_tape_data import (
     calculate_risk_scores,
     calculate_expected_payment_to_date,
     format_dataframe_for_display,
+    add_performance_grades,
 )
 from utils.loan_tape_analytics import (
     PROBLEM_STATUSES,
     get_display_name,
+    get_payment_behavior_features,
 )
 from utils.status_constants import (
     STATUS_COLORS,
@@ -1089,6 +1091,23 @@ def main():
     df = prepare_loan_data(loans_df, deals_df)
     df = calculate_irr(df)
 
+    # Load payment behavior features for on-time performance grading
+    schedules_df = load_loan_schedules()
+    if not schedules_df.empty:
+        payment_behavior = get_payment_behavior_features(schedules_df)
+        if not payment_behavior.empty:
+            # Normalize loan_id for merge
+            payment_behavior["loan_id"] = (
+                payment_behavior["loan_id"]
+                .astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+            )
+            df["loan_id"] = df["loan_id"].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+            df = df.merge(
+                payment_behavior[["loan_id", "pct_on_time", "pct_late", "pct_missed", "consecutive_missed"]],
+                on="loan_id",
+                how="left"
+            )
+
     # Sidebar Filters
     st.sidebar.header("Filters")
 
@@ -1125,6 +1144,9 @@ def main():
 
     st.sidebar.markdown("---")
     st.sidebar.write(f"**Showing:** {len(filtered_df)} of {len(df)} loans")
+
+    # Add performance grades to filtered data
+    filtered_df = add_performance_grades(filtered_df)
 
     # Tabs with persistence support
     tab_names = ["Summary", "Loan Tape", "Capital Flow", "Performance Analysis", "Risk Analytics"]
@@ -1201,6 +1223,49 @@ def main():
             plot_csl_participation_histogram(filtered_df)
         with hist_col6:
             plot_tib_histogram(filtered_df)
+
+        # Performance Grades Summary
+        st.markdown("---")
+        st.subheader("Performance Grades Overview")
+        st.caption("Letter grades (A-F) based on ROI, payment behavior, and payoff speed")
+
+        grade_col1, grade_col2, grade_col3 = st.columns(3)
+
+        with grade_col1:
+            st.markdown("**ROI Grade Distribution**")
+            if "roi_grade" in filtered_df.columns:
+                roi_grades = filtered_df["roi_grade"].value_counts()
+                for grade in ["A", "B", "C", "D", "F", "N/A"]:
+                    count = roi_grades.get(grade, 0)
+                    if count > 0:
+                        emoji = {"A": "🟢", "B": "🟢", "C": "🟡", "D": "🟠", "F": "🔴", "N/A": "⚪"}.get(grade, "⚪")
+                        st.write(f"{emoji} **{grade}**: {count}")
+
+        with grade_col2:
+            st.markdown("**Payment Grade Distribution**")
+            if "payment_grade" in filtered_df.columns:
+                payment_grades = filtered_df["payment_grade"].value_counts()
+                for grade in ["A", "B", "C", "D", "F", "N/A"]:
+                    count = payment_grades.get(grade, 0)
+                    if count > 0:
+                        emoji = {"A": "🟢", "B": "🟢", "C": "🟡", "D": "🟠", "F": "🔴", "N/A": "⚪"}.get(grade, "⚪")
+                        st.write(f"{emoji} **{grade}**: {count}")
+
+        with grade_col3:
+            st.markdown("**Speed Grade Distribution**")
+            st.caption("(Paid Off loans only)")
+            if "irr_grade" in filtered_df.columns:
+                # Only show for paid off loans
+                paid_off_df = filtered_df[filtered_df["loan_status"] == "Paid Off"]
+                if not paid_off_df.empty:
+                    irr_grades = paid_off_df["irr_grade"].value_counts()
+                    for grade in ["A", "B", "C", "D", "F", "N/A"]:
+                        count = irr_grades.get(grade, 0)
+                        if count > 0:
+                            emoji = {"A": "🟢", "B": "🟢", "C": "🟡", "D": "🟠", "F": "🔴", "N/A": "⚪"}.get(grade, "⚪")
+                            st.write(f"{emoji} **{grade}**: {count}")
+                else:
+                    st.write("No paid off loans")
 
     with tabs[2]:
         st.header("Capital Flow Analysis")
@@ -1333,13 +1398,15 @@ def main():
             "funding_date", "maturity_date", "projected_payoff_date",
             "factor_rate", "commission_fee",
             "csl_participation_amount", "total_invested", "total_paid", "net_balance",
-            "current_roi", "payment_performance", "remaining_maturity_months",
-            "is_past_maturity",
+            "current_roi", "roi_grade_display",
+            "payment_performance", "payment_grade_display",
+            "remaining_maturity_months", "is_past_maturity",
         ]
 
         # Add IRR columns for Paid Off loans
         if "realized_irr" in filtered_df.columns:
             display_columns.append("realized_irr")
+            display_columns.append("irr_grade_display")
 
         column_rename = {
             "loan_id": "Loan ID",
@@ -1360,10 +1427,13 @@ def main():
             "total_paid": "Total Paid",
             "net_balance": "Net Balance",
             "current_roi": "ROI",
+            "roi_grade_display": "ROI Grade",
             "payment_performance": "Payment Perf",
+            "payment_grade_display": "Payment Grade",
             "remaining_maturity_months": "Months Left",
             "is_past_maturity": "Past Maturity",
             "realized_irr": "IRR (Paid Off)",
+            "irr_grade_display": "Speed Grade",
         }
 
         loan_tape = format_dataframe_for_display(filtered_df, display_columns, column_rename)
