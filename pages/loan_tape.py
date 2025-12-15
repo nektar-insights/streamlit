@@ -1224,49 +1224,6 @@ def main():
         with hist_col6:
             plot_tib_histogram(filtered_df)
 
-        # Performance Grades Summary
-        st.markdown("---")
-        st.subheader("Performance Grades Overview")
-        st.caption("Letter grades (A-F) based on ROI, payment behavior, and payoff speed")
-
-        grade_col1, grade_col2, grade_col3 = st.columns(3)
-
-        with grade_col1:
-            st.markdown("**ROI Grade Distribution**")
-            if "roi_grade" in filtered_df.columns:
-                roi_grades = filtered_df["roi_grade"].value_counts()
-                for grade in ["A", "B", "C", "D", "F", "N/A"]:
-                    count = roi_grades.get(grade, 0)
-                    if count > 0:
-                        emoji = {"A": "🟢", "B": "🟢", "C": "🟡", "D": "🟠", "F": "🔴", "N/A": "⚪"}.get(grade, "⚪")
-                        st.write(f"{emoji} **{grade}**: {count}")
-
-        with grade_col2:
-            st.markdown("**Payment Grade Distribution**")
-            if "payment_grade" in filtered_df.columns:
-                payment_grades = filtered_df["payment_grade"].value_counts()
-                for grade in ["A", "B", "C", "D", "F", "N/A"]:
-                    count = payment_grades.get(grade, 0)
-                    if count > 0:
-                        emoji = {"A": "🟢", "B": "🟢", "C": "🟡", "D": "🟠", "F": "🔴", "N/A": "⚪"}.get(grade, "⚪")
-                        st.write(f"{emoji} **{grade}**: {count}")
-
-        with grade_col3:
-            st.markdown("**Speed Grade Distribution**")
-            st.caption("(Paid Off loans only)")
-            if "irr_grade" in filtered_df.columns:
-                # Only show for paid off loans
-                paid_off_df = filtered_df[filtered_df["loan_status"] == "Paid Off"]
-                if not paid_off_df.empty:
-                    irr_grades = paid_off_df["irr_grade"].value_counts()
-                    for grade in ["A", "B", "C", "D", "F", "N/A"]:
-                        count = irr_grades.get(grade, 0)
-                        if count > 0:
-                            emoji = {"A": "🟢", "B": "🟢", "C": "🟡", "D": "🟠", "F": "🔴", "N/A": "⚪"}.get(grade, "⚪")
-                            st.write(f"{emoji} **{grade}**: {count}")
-                else:
-                    st.write("No paid off loans")
-
     with tabs[2]:
         st.header("Capital Flow Analysis")
         plot_capital_flow(filtered_df)
