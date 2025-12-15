@@ -804,3 +804,165 @@ def format_dataframe_for_display(
         pass
 
     return display_df
+
+
+# =============================================================================
+# PERFORMANCE GRADING FUNCTIONS
+# =============================================================================
+
+from utils.config import (
+    IRR_GRADE_THRESHOLDS,
+    ROI_GRADE_THRESHOLDS,
+    ONTIME_GRADE_THRESHOLDS,
+    GRADE_INDICATORS,
+)
+
+
+def calculate_grade(value: float, thresholds: dict) -> str:
+    """
+    Calculate letter grade based on value and threshold dictionary.
+
+    Args:
+        value: The metric value to grade (float)
+        thresholds: Dictionary mapping grades to minimum thresholds
+                   Must be ordered from highest grade (A) to lowest (F)
+
+    Returns:
+        Letter grade (A, B, C, D, F) or "N/A" if value is null/invalid
+    """
+    if pd.isna(value):
+        return "N/A"
+
+    # Thresholds are ordered A -> F, each grade requires >= threshold
+    for grade in ["A", "B", "C", "D", "F"]:
+        if value >= thresholds[grade]:
+            return grade
+
+    return "F"
+
+
+def get_irr_grade(irr_value: float) -> str:
+    """Calculate grade for IRR (Speed to Payoff)."""
+    return calculate_grade(irr_value, IRR_GRADE_THRESHOLDS)
+
+
+def get_roi_grade(roi_value: float) -> str:
+    """Calculate grade for ROI."""
+    return calculate_grade(roi_value, ROI_GRADE_THRESHOLDS)
+
+
+def get_ontime_grade(pct_on_time: float) -> str:
+    """Calculate grade for on-time payment performance."""
+    return calculate_grade(pct_on_time, ONTIME_GRADE_THRESHOLDS)
+
+
+def get_grade_emoji(grade: str) -> str:
+    """Get just the emoji indicator for a grade."""
+    indicator = GRADE_INDICATORS.get(grade, GRADE_INDICATORS["N/A"])
+    return indicator["emoji"]
+
+
+def add_performance_grades(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Add performance grade columns to a loan dataframe.
+
+    Adds:
+        - irr_grade: Letter grade for realized_irr (A-F)
+        - roi_grade: Letter grade for current_roi (A-F)
+        - payment_grade: Letter grade for pct_on_time (A-F)
+        - roi_with_grade: ROI value with emoji prefix (e.g., "🟢 35.2%")
+        - payment_perf_with_grade: Payment perf with emoji prefix
+        - irr_with_grade: IRR value with emoji prefix (paid off loans)
+
+    Args:
+        df: Dataframe with loan metrics (realized_irr, current_roi, pct_on_time)
+
+    Returns:
+        DataFrame with added grade columns
+    """
+    result = df.copy()
+
+    # ROI Grade - add icon to the metric value
+    if "current_roi" in result.columns:
+        result["roi_grade"] = result["current_roi"].apply(get_roi_grade)
+
+        def format_roi_with_grade(row):
+            grade = row["roi_grade"]
+            roi = row["current_roi"]
+            emoji = get_grade_emoji(grade)
+            if pd.isna(roi):
+                return f"{emoji} —"
+            return f"{emoji} {roi:.1%}"
+
+        result["roi_with_grade"] = result.apply(format_roi_with_grade, axis=1)
+    else:
+        result["roi_grade"] = "N/A"
+        result["roi_with_grade"] = f"{get_grade_emoji('N/A')} —"
+
+    # Payment Grade - add icon to payment_performance
+    if "pct_on_time" in result.columns:
+        result["payment_grade"] = result["pct_on_time"].apply(get_ontime_grade)
+
+        def format_payment_with_grade(row):
+            grade = row["payment_grade"]
+            perf = row.get("payment_performance")
+            emoji = get_grade_emoji(grade)
+            if pd.isna(perf):
+                return f"{emoji} —"
+            return f"{emoji} {perf:.1%}"
+
+        result["payment_perf_with_grade"] = result.apply(format_payment_with_grade, axis=1)
+    else:
+        result["payment_grade"] = "N/A"
+        result["payment_perf_with_grade"] = f"{get_grade_emoji('N/A')} —"
+
+    # IRR Grade (Speed to Payoff) - only for terminal loans with realized_irr
+    if "realized_irr" in result.columns:
+        result["irr_grade"] = result["realized_irr"].apply(get_irr_grade)
+
+        def format_irr_with_grade(row):
+            grade = row["irr_grade"]
+            irr = row["realized_irr"]
+            emoji = get_grade_emoji(grade)
+            if pd.isna(irr):
+                return f"{emoji} —"
+            return f"{emoji} {irr:.1%}"
+
+        result["irr_with_grade"] = result.apply(format_irr_with_grade, axis=1)
+    else:
+        result["irr_grade"] = "N/A"
+        result["irr_with_grade"] = f"{get_grade_emoji('N/A')} —"
+
+    return result
+
+
+def get_grade_color(grade: str) -> str:
+    """Get the color associated with a grade for styling."""
+    return GRADE_INDICATORS.get(grade, GRADE_INDICATORS["N/A"])["color"]
+
+
+def get_grade_summary(df: pd.DataFrame) -> dict:
+    """
+    Calculate summary statistics for grades in a dataframe.
+
+    Args:
+        df: DataFrame with grade columns (irr_grade, roi_grade, payment_grade)
+
+    Returns:
+        Dictionary with grade distribution counts for each metric
+    """
+    summary = {}
+
+    for grade_col in ["irr_grade", "roi_grade", "payment_grade"]:
+        if grade_col in df.columns:
+            counts = df[grade_col].value_counts().to_dict()
+            summary[grade_col] = {
+                "A": counts.get("A", 0),
+                "B": counts.get("B", 0),
+                "C": counts.get("C", 0),
+                "D": counts.get("D", 0),
+                "F": counts.get("F", 0),
+                "N/A": counts.get("N/A", 0),
+            }
+
+    return summary

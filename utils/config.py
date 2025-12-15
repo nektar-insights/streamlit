@@ -34,6 +34,49 @@ COLOR_PALETTE = [
 PLATFORM_FEE_RATE = 0.03
 
 # ----------------------------
+# Performance Grade Thresholds
+# ----------------------------
+# IRR Grade Thresholds (annualized IRR as decimal)
+# Typical MCA deals have 30-50% gross return over 6-12 months
+IRR_GRADE_THRESHOLDS = {
+    "A": 0.60,  # >= 60% annualized IRR (excellent speed)
+    "B": 0.40,  # >= 40% annualized IRR (good speed)
+    "C": 0.20,  # >= 20% annualized IRR (acceptable)
+    "D": 0.00,  # >= 0% annualized IRR (below target but positive)
+    "F": float("-inf"),  # < 0% (loss)
+}
+
+# ROI Grade Thresholds (cumulative ROI as decimal)
+# Expected full return is 30-50% on typical deals
+ROI_GRADE_THRESHOLDS = {
+    "A": 0.30,  # >= 30% ROI (fully achieved expected return)
+    "B": 0.20,  # >= 20% ROI (strong return)
+    "C": 0.10,  # >= 10% ROI (moderate return)
+    "D": 0.00,  # >= 0% ROI (capital preserved)
+    "F": float("-inf"),  # < 0% (loss)
+}
+
+# On-Time Payment Grade Thresholds (pct_on_time as decimal 0-1)
+# Based on percentage of payments made on time
+ONTIME_GRADE_THRESHOLDS = {
+    "A": 0.95,  # >= 95% on-time (excellent borrower)
+    "B": 0.80,  # >= 80% on-time (good borrower)
+    "C": 0.60,  # >= 60% on-time (fair performance)
+    "D": 0.40,  # >= 40% on-time (problematic)
+    "F": 0.00,  # < 40% on-time (high-risk borrower)
+}
+
+# Grade Visual Indicators (emoji + color)
+GRADE_INDICATORS = {
+    "A": {"emoji": "🟢", "color": "#28a745", "label": "Excellent"},
+    "B": {"emoji": "🟢", "color": "#34a853", "label": "Good"},
+    "C": {"emoji": "🟡", "color": "#ffc107", "label": "Fair"},
+    "D": {"emoji": "🟠", "color": "#fd7e14", "label": "Poor"},
+    "F": {"emoji": "🔴", "color": "#dc3545", "label": "Failing"},
+    "N/A": {"emoji": "⚪", "color": "#6c757d", "label": "Not Available"},
+}
+
+# ----------------------------
 # Page Setup Functions
 # ----------------------------
 def setup_page(title: str = "CSL Capital | Dashboard", layout: str = "wide"):
