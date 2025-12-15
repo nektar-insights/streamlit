@@ -387,47 +387,51 @@ def calculate_irr(df: pd.DataFrame, schedules_df: Optional[pd.DataFrame] = None)
         try:
             funding_date = pd.to_datetime(row["funding_date"]).tz_localize(None)
             loan_id = row.get("loan_id")
+            total_invested = row["total_invested"]
+            total_paid = row.get("total_paid", 0)
 
             # Get all actual payments for this loan from schedules
+            loan_payments = pd.DataFrame()
             if not schedules_df.empty and loan_id:
                 loan_payments = schedules_df[schedules_df["loan_id"] == loan_id].copy()
 
-                if not loan_payments.empty:
-                    # Sort by payment date
-                    loan_payments = loan_payments.sort_values("payment_date")
+            # Calculate schedule sum for validation
+            schedule_sum = loan_payments["actual_payment"].sum() if not loan_payments.empty else 0
 
-                    # Build cash flow series with dates
-                    cash_flows = []
-                    dates = []
+            # Validate: only use XIRR if schedules are complete (within 5% tolerance)
+            # This prevents negative IRR on profitable loans due to incomplete schedule data
+            schedules_valid = (
+                not loan_payments.empty
+                and total_paid > 0
+                and abs(schedule_sum - total_paid) / max(total_paid, 1) <= 0.05
+            )
 
-                    # Initial investment (negative cash flow)
-                    cash_flows.append(-row["total_invested"])
-                    dates.append(funding_date)
+            if schedules_valid:
+                # Sort by payment date
+                loan_payments = loan_payments.sort_values("payment_date")
 
-                    # All actual payments (positive cash flows)
-                    for _, payment in loan_payments.iterrows():
-                        cash_flows.append(payment["actual_payment"])
-                        dates.append(payment["payment_date"])
+                # Build cash flow series with dates
+                cash_flows = []
+                dates = []
 
-                    # Check we have at least 2 cash flows
-                    if len(cash_flows) < 2:
-                        return None
+                # Initial investment (negative cash flow)
+                cash_flows.append(-total_invested)
+                dates.append(funding_date)
 
-                    # Calculate time periods in years from funding date
-                    years = [(d - funding_date).days / 365.0 for d in dates]
+                # All actual payments (positive cash flows)
+                for _, payment in loan_payments.iterrows():
+                    cash_flows.append(payment["actual_payment"])
+                    dates.append(payment["payment_date"])
 
-                    # Use XIRR-style calculation (IRR with irregular periods)
-                    # For numpy-financial, we need to convert to periodic cash flows
-                    # We'll use daily periods and place cash flows on the correct days
+                # Check we have at least 2 cash flows
+                if len(cash_flows) >= 2 and len(set(dates)) == len(dates):
+                    # Calculate using Newton's method for XIRR
+                    irr = calculate_xirr(cash_flows, dates)
+                    if irr is not None and -0.99 <= irr <= 10:
+                        return irr
 
-                    if len(set(dates)) == len(dates):  # All unique dates
-                        # Calculate using Newton's method for XIRR
-                        irr = calculate_xirr(cash_flows, dates)
-                        if irr is not None and -0.99 <= irr <= 10:
-                            return irr
-
-            # Fallback: Use simple 2-cash-flow method if schedules not available
-            if pd.isna(row.get("payoff_date")) or row.get("total_paid", 0) <= 0:
+            # Fallback: Use CAGR with total_paid from summaries (more reliable than schedules)
+            if pd.isna(row.get("payoff_date")) or total_paid <= 0:
                 return None
 
             payoff_date = pd.to_datetime(row["payoff_date"]).tz_localize(None)
@@ -439,7 +443,7 @@ def calculate_irr(df: pd.DataFrame, schedules_df: Optional[pd.DataFrame] = None)
                 return None
 
             # CAGR fallback (annualized return)
-            simple = (row["total_paid"] / row["total_invested"]) - 1
+            simple = (total_paid / total_invested) - 1
             return (1 + simple) ** (1 / years) - 1
 
         except Exception as e:
