@@ -883,10 +883,16 @@ def add_performance_grades(df: pd.DataFrame) -> pd.DataFrame:
     result = df.copy()
 
     # ROI Grade - add icon to the metric value
+    # Leave ROI blank for active loans (loans with months left)
     if "current_roi" in result.columns:
         result["roi_grade"] = result["current_roi"].apply(get_roi_grade)
 
         def format_roi_with_grade(row):
+            # If loan has months left (active loan), leave ROI blank
+            remaining_months = row.get("remaining_maturity_months", 0)
+            if pd.notna(remaining_months) and remaining_months > 0:
+                return ""
+
             grade = row["roi_grade"]
             roi = row["current_roi"]
             emoji = get_grade_emoji(grade)
