@@ -1075,7 +1075,7 @@ def main():
 
     # Check if we need to stay on Loan Tape tab (after status update)
     if st.session_state.get("stay_on_loan_tape_tab", False):
-        st.session_state.loan_tape_active_tab = 4  # Loan Tape tab index
+        st.session_state.loan_tape_active_tab = 1  # Loan Tape tab index
         st.session_state.stay_on_loan_tape_tab = False
 
     last_updated = get_last_updated()
@@ -1127,11 +1127,11 @@ def main():
     st.sidebar.write(f"**Showing:** {len(filtered_df)} of {len(df)} loans")
 
     # Tabs with persistence support
-    tab_names = ["Summary", "Capital Flow", "Performance Analysis", "Risk Analytics", "Loan Tape"]
+    tab_names = ["Summary", "Loan Tape", "Capital Flow", "Performance Analysis", "Risk Analytics"]
     tabs = st.tabs(tab_names)
 
     # Inject JavaScript to click the correct tab if we need to stay on Loan Tape
-    if st.session_state.loan_tape_active_tab == 4:
+    if st.session_state.loan_tape_active_tab == 1:
         import streamlit.components.v1 as components
         components.html(
             """
@@ -1139,8 +1139,8 @@ def main():
                 // Wait for the page to load, then click the Loan Tape tab
                 setTimeout(function() {
                     const tabs = window.parent.document.querySelectorAll('[data-baseweb="tab"]');
-                    if (tabs.length >= 5) {
-                        tabs[4].click();
+                    if (tabs.length >= 2) {
+                        tabs[1].click();
                     }
                 }, 100);
             </script>
@@ -1202,7 +1202,7 @@ def main():
         with hist_col6:
             plot_tib_histogram(filtered_df)
 
-    with tabs[1]:
+    with tabs[2]:
         st.header("Capital Flow Analysis")
         plot_capital_flow(filtered_df)
 
@@ -1220,7 +1220,7 @@ def main():
         st.subheader("Average IRR by Partner")
         plot_irr_by_partner(filtered_df)
 
-    with tabs[2]:
+    with tabs[3]:
         st.header("Performance Analysis")
 
         plot_industry_performance_analysis(filtered_df)
@@ -1231,7 +1231,7 @@ def main():
         st.markdown("---")
         plot_tib_performance_analysis(filtered_df)
 
-    with tabs[3]:
+    with tabs[4]:
         st.header("Risk Analytics")
 
         risk_df = calculate_risk_scores(filtered_df)
@@ -1324,7 +1324,7 @@ def main():
         else:
             st.info("No active loans to calculate risk scores.")
 
-    with tabs[4]:
+    with tabs[1]:
         st.header("Complete Loan Tape")
 
         display_columns = [
