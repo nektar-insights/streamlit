@@ -614,7 +614,6 @@ def compute_recovery_prescreen(
     industry_category: str,
     collateral_type: str,
     lien_position: str,
-    communication_status: str
 ) -> RecoveryScoreResult:
     """
     Compute recovery score for a PRE-SCREEN scenario (manual inputs).
@@ -622,13 +621,16 @@ def compute_recovery_prescreen(
     This is used for forward-looking assessment of prospective deals
     that are NOT yet in our database.
 
+    Note: Communication is excluded from pre-screen scoring since borrower
+    responsiveness is unknown at this stage. The 10% weight is redistributed
+    proportionally to the other 4 components.
+
     Args:
         exposure_amount: Principal/exposure amount to assess
         status_category: One of STATUS_CATEGORIES
         industry_category: One of INDUSTRY_CATEGORIES
         collateral_type: One of COLLATERAL_CATEGORIES
         lien_position: One of LIEN_CATEGORIES
-        communication_status: One of COMMUNICATION_CATEGORIES
 
     Returns:
         RecoveryScoreResult with all computed values
@@ -638,11 +640,23 @@ def compute_recovery_prescreen(
     industry_score = PRESCREEN_INDUSTRY_SCORE_MAP.get(industry_category, 5.0)
     collateral_score = COLLATERAL_SCORE_MAP.get(collateral_type, COLLATERAL_SCORE_DEFAULT)
     lien_score = LIEN_SCORE_MAP.get(lien_position, LIEN_SCORE_DEFAULT)
-    communication_score = COMMUNICATION_SCORE_MAP.get(communication_status, COMMUNICATION_SCORE_DEFAULT)
 
-    # Compute total weighted score
-    total_score = compute_total_recovery_score(
-        status_score, industry_score, collateral_score, lien_score, communication_score
+    # Pre-screen weights: redistribute communication's 10% to other components
+    # Original: status=10%, industry=30%, collateral=30%, lien=20%, communication=10%
+    # Pre-screen: scale the 4 components to sum to 100% (divide by 0.90)
+    prescreen_weights = {
+        "status": WEIGHTS["status"] / 0.90,      # 10% -> 11.1%
+        "industry": WEIGHTS["industry"] / 0.90,  # 30% -> 33.3%
+        "collateral": WEIGHTS["collateral"] / 0.90,  # 30% -> 33.3%
+        "lien": WEIGHTS["lien"] / 0.90,          # 20% -> 22.2%
+    }
+
+    # Compute total weighted score (without communication)
+    total_score = (
+        prescreen_weights["status"] * status_score +
+        prescreen_weights["industry"] * industry_score +
+        prescreen_weights["collateral"] * collateral_score +
+        prescreen_weights["lien"] * lien_score
     )
 
     # Get recovery band
@@ -664,7 +678,7 @@ def compute_recovery_prescreen(
         industry_score=industry_score,
         collateral_score=collateral_score,
         lien_score=lien_score,
-        communication_score=communication_score,
+        communication_score=0.0,  # Not used in pre-screen
         total_recovery_score=total_score,
         recovery_band_label=band_label,
         recovery_pct_midpoint=recovery_mid,

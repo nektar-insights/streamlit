@@ -48,17 +48,18 @@ bad debt on your existing portfolio.
 
 with st.expander("Scoring Methodology", expanded=False):
     st.markdown("""
-    **Scoring Components & Weights:**
+    **Pre-Screen Scoring (4 components):**
 
     | Component | Weight | Description |
     |-----------|--------|-------------|
-    | Status | 10% | Loan status severity (Active, Delinquent, Default, etc.) |
-    | Industry | 30% | NAICS sector risk based on historical performance |
-    | Collateral | 30% | Collateral type and quality (Real Estate, Equipment, Unsecured) |
-    | Lien Position | 20% | Position in capital stack (1st Lien, 2nd Lien, etc.) |
-    | Communication* | 10% | Borrower responsiveness and engagement |
+    | Status | 11% | Loan status severity (Active, Delinquent, Default, etc.) |
+    | Industry | 33% | NAICS sector risk based on historical performance |
+    | Collateral | 33% | Collateral type and quality (Real Estate, Equipment, Unsecured) |
+    | Lien Position | 22% | Position in capital stack (1st Lien, 2nd Lien, etc.) |
 
-    *Communication uses a conservative default for pre-screening (borrower responsiveness is unknown at that stage).
+    *Note: Communication is excluded from pre-screening since borrower responsiveness is unknown at that stage.*
+
+    **Portfolio Scoring (5 components):** Includes Communication (10% weight) when analyzing existing loans.
 
     **Recovery Score Bands:**
     - **9-10**: Excellent (90-100% expected recovery)
@@ -148,14 +149,12 @@ with tab_prescreen:
         st.markdown("#### Recovery Analysis")
 
         # Always compute (for real-time updates)
-        # Communication uses default "Sporadic" since we don't know borrower responsiveness at pre-screen
         result = compute_recovery_prescreen(
             exposure_amount=exposure_amount,
             status_category=status_category,
             industry_category=industry_category,
             collateral_type=collateral_type,
             lien_position=lien_position,
-            communication_status="Sporadic / only under pressure",  # Default for pre-screen
         )
 
         # Display key metrics
@@ -259,17 +258,20 @@ with tab_prescreen:
 
         # Display weight explanation
         with st.expander("Understanding the Weights"):
+            # Pre-screen weights (communication excluded, weights redistributed)
+            ps_status = WEIGHTS['status'] / 0.90
+            ps_industry = WEIGHTS['industry'] / 0.90
+            ps_collateral = WEIGHTS['collateral'] / 0.90
+            ps_lien = WEIGHTS['lien'] / 0.90
+
             st.markdown(f"""
             | Component | Weight | Your Score | Contribution |
             |-----------|--------|------------|--------------|
-            | Status | {WEIGHTS['status']:.0%} | {result.status_score:.1f} | {result.status_score * WEIGHTS['status']:.2f} |
-            | Industry | {WEIGHTS['industry']:.0%} | {result.industry_score:.1f} | {result.industry_score * WEIGHTS['industry']:.2f} |
-            | Collateral | {WEIGHTS['collateral']:.0%} | {result.collateral_score:.1f} | {result.collateral_score * WEIGHTS['collateral']:.2f} |
-            | Lien Position | {WEIGHTS['lien']:.0%} | {result.lien_score:.1f} | {result.lien_score * WEIGHTS['lien']:.2f} |
-            | Communication* | {WEIGHTS['communication']:.0%} | 3.0 | {3.0 * WEIGHTS['communication']:.2f} |
+            | Status | {ps_status:.0%} | {result.status_score:.1f} | {result.status_score * ps_status:.2f} |
+            | Industry | {ps_industry:.0%} | {result.industry_score:.1f} | {result.industry_score * ps_industry:.2f} |
+            | Collateral | {ps_collateral:.0%} | {result.collateral_score:.1f} | {result.collateral_score * ps_collateral:.2f} |
+            | Lien Position | {ps_lien:.0%} | {result.lien_score:.1f} | {result.lien_score * ps_lien:.2f} |
             | **Total** | **100%** | | **{result.total_recovery_score:.2f}** |
-
-            *Communication uses a conservative default (Sporadic) for pre-screening since borrower responsiveness is unknown.
             """)
 
     # Disclaimer
