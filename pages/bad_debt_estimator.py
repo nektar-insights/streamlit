@@ -23,7 +23,6 @@ from utils.recovery_scoring import (
     INDUSTRY_CATEGORIES,
     COLLATERAL_CATEGORIES,
     LIEN_CATEGORIES,
-    COMMUNICATION_CATEGORIES,
     WEIGHTS,
 )
 from utils.display_components import (
@@ -57,7 +56,9 @@ with st.expander("Scoring Methodology", expanded=False):
     | Industry | 30% | NAICS sector risk based on historical performance |
     | Collateral | 30% | Collateral type and quality (Real Estate, Equipment, Unsecured) |
     | Lien Position | 20% | Position in capital stack (1st Lien, 2nd Lien, etc.) |
-    | Communication | 10% | Borrower responsiveness and engagement |
+    | Communication* | 10% | Borrower responsiveness and engagement |
+
+    *Communication uses a conservative default for pre-screening (borrower responsiveness is unknown at that stage).
 
     **Recovery Score Bands:**
     - **9-10**: Excellent (90-100% expected recovery)
@@ -139,14 +140,6 @@ with tab_prescreen:
             help="Your position in the capital stack"
         )
 
-        # Communication Status
-        communication_status = st.selectbox(
-            "Communication Status",
-            options=COMMUNICATION_CATEGORIES,
-            index=1,  # Default to "Sporadic / only under pressure"
-            help="How responsive and engaged is the borrower?"
-        )
-
         # Calculate button
         calculate_btn = st.button("Calculate Recovery Score", type="primary", width='stretch')
 
@@ -155,13 +148,14 @@ with tab_prescreen:
         st.markdown("#### Recovery Analysis")
 
         # Always compute (for real-time updates)
+        # Communication uses default "Sporadic" since we don't know borrower responsiveness at pre-screen
         result = compute_recovery_prescreen(
             exposure_amount=exposure_amount,
             status_category=status_category,
             industry_category=industry_category,
             collateral_type=collateral_type,
             lien_position=lien_position,
-            communication_status=communication_status,
+            communication_status="Sporadic / only under pressure",  # Default for pre-screen
         )
 
         # Display key metrics
@@ -220,13 +214,12 @@ with tab_prescreen:
         # Component Scores Breakdown
         st.markdown("#### Score Breakdown")
 
-        # Create score breakdown data
+        # Create score breakdown data (excludes Communication which uses a default for pre-screen)
         score_data = pd.DataFrame([
             {"Component": "Status", "Score": result.status_score, "Weight": f"{WEIGHTS['status']:.0%}", "Contribution": result.status_score * WEIGHTS['status']},
             {"Component": "Industry", "Score": result.industry_score, "Weight": f"{WEIGHTS['industry']:.0%}", "Contribution": result.industry_score * WEIGHTS['industry']},
             {"Component": "Collateral", "Score": result.collateral_score, "Weight": f"{WEIGHTS['collateral']:.0%}", "Contribution": result.collateral_score * WEIGHTS['collateral']},
             {"Component": "Lien Position", "Score": result.lien_score, "Weight": f"{WEIGHTS['lien']:.0%}", "Contribution": result.lien_score * WEIGHTS['lien']},
-            {"Component": "Communication", "Score": result.communication_score, "Weight": f"{WEIGHTS['communication']:.0%}", "Contribution": result.communication_score * WEIGHTS['communication']},
         ])
 
         # Add color category for Altair v6 compatibility (nested conditions not supported)
@@ -273,8 +266,10 @@ with tab_prescreen:
             | Industry | {WEIGHTS['industry']:.0%} | {result.industry_score:.1f} | {result.industry_score * WEIGHTS['industry']:.2f} |
             | Collateral | {WEIGHTS['collateral']:.0%} | {result.collateral_score:.1f} | {result.collateral_score * WEIGHTS['collateral']:.2f} |
             | Lien Position | {WEIGHTS['lien']:.0%} | {result.lien_score:.1f} | {result.lien_score * WEIGHTS['lien']:.2f} |
-            | Communication | {WEIGHTS['communication']:.0%} | {result.communication_score:.1f} | {result.communication_score * WEIGHTS['communication']:.2f} |
+            | Communication* | {WEIGHTS['communication']:.0%} | 3.0 | {3.0 * WEIGHTS['communication']:.2f} |
             | **Total** | **100%** | | **{result.total_recovery_score:.2f}** |
+
+            *Communication uses a conservative default (Sporadic) for pre-screening since borrower responsiveness is unknown.
             """)
 
     # Disclaimer
