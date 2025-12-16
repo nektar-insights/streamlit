@@ -1,6 +1,6 @@
-# pages/recovery_prescreen.py
+# pages/bad_debt_estimator.py
 """
-Recovery Pre-Screen & Bad Debt Estimator
+Bad Debt Estimator
 
 This page provides two tools:
 1. PRE-SCREEN TOOL: Manual inputs for prospective deals (forward-looking)
@@ -26,28 +26,47 @@ from utils.recovery_scoring import (
     COMMUNICATION_CATEGORIES,
     WEIGHTS,
 )
+from utils.display_components import (
+    create_status_filter,
+    create_partner_source_filter,
+    create_date_range_filter,
+)
 
 # Page setup
-setup_page("CSL Capital | Recovery Pre-Screen")
+setup_page("CSL Capital | Bad Debt Estimator")
 
 # =============================================================================
 # PAGE HEADER
 # =============================================================================
 
-st.title("Recovery Pre-Screen & Bad Debt Estimator")
+st.title("Bad Debt Estimator")
 
 st.markdown("""
 This tool uses a **unified recovery scoring framework** to estimate potential losses.
 The same scoring logic applies to both pre-screening prospective deals and estimating
 bad debt on your existing portfolio.
-
-**Scoring Components:**
-- Status (10%): Loan status severity
-- Industry (30%): NAICS sector risk
-- Collateral (30%): Collateral type/quality
-- Lien Position (20%): Lien seniority
-- Communication (10%): Borrower responsiveness
 """)
+
+with st.expander("Scoring Methodology", expanded=False):
+    st.markdown("""
+    **Scoring Components & Weights:**
+
+    | Component | Weight | Description |
+    |-----------|--------|-------------|
+    | Status | 10% | Loan status severity (Active, Delinquent, Default, etc.) |
+    | Industry | 30% | NAICS sector risk based on historical performance |
+    | Collateral | 30% | Collateral type and quality (Real Estate, Equipment, Unsecured) |
+    | Lien Position | 20% | Position in capital stack (1st Lien, 2nd Lien, etc.) |
+    | Communication | 10% | Borrower responsiveness and engagement |
+
+    **Recovery Score Bands:**
+    - **9-10**: Excellent (90-100% expected recovery)
+    - **7-8.9**: Good (70-89% expected recovery)
+    - **5-6.9**: Moderate (50-69% expected recovery)
+    - **3-4.9**: Concerning (30-49% expected recovery)
+    - **1-2.9**: Poor (10-29% expected recovery)
+    - **0-1**: Severe (<10% expected recovery)
+    """)
 
 st.divider()
 
@@ -305,26 +324,48 @@ with tab_portfolio:
     if "portfolio_df" in st.session_state:
         df = st.session_state["portfolio_df"]
 
-        # Filter options
+        # =================================================================
+        # FILTER OPTIONS
+        # =================================================================
         st.markdown("#### Filter Options")
 
         col_filter1, col_filter2 = st.columns(2)
 
         with col_filter1:
-            # Status filter
-            status_options = ["All"] + sorted(df["loan_status"].dropna().unique().tolist())
-            selected_status = st.selectbox("Filter by Status", options=status_options, index=0)
+            # Status filter using centralized component
+            filtered_df, selected_status = create_status_filter(
+                df,
+                status_col="loan_status",
+                label="Filter by Status",
+                include_all_option=True,
+                key_prefix="bde_status"
+            )
 
         with col_filter2:
-            # Include paid off toggle
-            include_paid_off = st.checkbox("Include Paid Off Loans", value=False)
+            # Partner filter using centralized component
+            filtered_df, selected_partners = create_partner_source_filter(
+                filtered_df,
+                partner_col="partner_source",
+                label="Filter by Partner Source",
+                default_all=True,
+                key_prefix="bde_partner"
+            )
 
-        # Apply filters
-        filtered_df = df.copy()
+        # Date/Vintage filter
+        st.markdown("##### Vintage Filter")
+        filtered_df, date_filter_active = create_date_range_filter(
+            filtered_df,
+            date_col="funding_date",
+            label="Select Funding Date Range",
+            checkbox_label="Filter by Vintage (Funding Date)",
+            default_enabled=False,
+            key_prefix="bde_vintage"
+        )
 
-        if selected_status != "All":
-            filtered_df = filtered_df[filtered_df["loan_status"] == selected_status]
+        # Include paid off toggle
+        include_paid_off = st.checkbox("Include Paid Off Loans", value=False, key="bde_include_paid_off")
 
+        # Apply paid off filter
         if not include_paid_off:
             filtered_df = filtered_df[filtered_df["loan_status"] != "Paid Off"]
 
@@ -512,7 +553,7 @@ with tab_portfolio:
             st.download_button(
                 label="Download Full Results (CSV)",
                 data=csv,
-                file_name="recovery_analysis.csv",
+                file_name="bad_debt_analysis.csv",
                 mime="text/csv",
             )
 
