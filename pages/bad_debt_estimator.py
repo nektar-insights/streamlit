@@ -1,6 +1,6 @@
-# pages/recovery_prescreen.py
+# pages/bad_debt_estimator.py
 """
-Recovery Pre-Screen & Bad Debt Estimator
+Bad Debt Estimator
 
 This page provides two tools:
 1. PRE-SCREEN TOOL: Manual inputs for prospective deals (forward-looking)
@@ -23,31 +23,52 @@ from utils.recovery_scoring import (
     INDUSTRY_CATEGORIES,
     COLLATERAL_CATEGORIES,
     LIEN_CATEGORIES,
-    COMMUNICATION_CATEGORIES,
     WEIGHTS,
+)
+from utils.display_components import (
+    create_status_filter,
+    create_partner_source_filter,
+    create_date_range_filter,
 )
 
 # Page setup
-setup_page("CSL Capital | Recovery Pre-Screen")
+setup_page("CSL Capital | Bad Debt Estimator")
 
 # =============================================================================
 # PAGE HEADER
 # =============================================================================
 
-st.title("Recovery Pre-Screen & Bad Debt Estimator")
+st.title("Bad Debt Estimator")
 
 st.markdown("""
 This tool uses a **unified recovery scoring framework** to estimate potential losses.
 The same scoring logic applies to both pre-screening prospective deals and estimating
 bad debt on your existing portfolio.
-
-**Scoring Components:**
-- Status (10%): Loan status severity
-- Industry (30%): NAICS sector risk
-- Collateral (30%): Collateral type/quality
-- Lien Position (20%): Lien seniority
-- Communication (10%): Borrower responsiveness
 """)
+
+with st.expander("Scoring Methodology", expanded=False):
+    st.markdown("""
+    **Pre-Screen Scoring (4 components):**
+
+    | Component | Weight | Description |
+    |-----------|--------|-------------|
+    | Status | 11% | Loan status severity (Active, Delinquent, Default, etc.) |
+    | Industry | 33% | NAICS sector risk based on historical performance |
+    | Collateral | 33% | Collateral type and quality (Real Estate, Equipment, Unsecured) |
+    | Lien Position | 22% | Position in capital stack (1st Lien, 2nd Lien, etc.) |
+
+    *Note: Communication is excluded from pre-screening since borrower responsiveness is unknown at that stage.*
+
+    **Portfolio Scoring (5 components):** Includes Communication (10% weight) when analyzing existing loans.
+
+    **Recovery Score Bands:**
+    - **9-10**: Excellent (90-100% expected recovery)
+    - **7-8.9**: Good (70-89% expected recovery)
+    - **5-6.9**: Moderate (50-69% expected recovery)
+    - **3-4.9**: Concerning (30-49% expected recovery)
+    - **1-2.9**: Poor (10-29% expected recovery)
+    - **0-1**: Severe (<10% expected recovery)
+    """)
 
 st.divider()
 
@@ -55,9 +76,9 @@ st.divider()
 # TAB NAVIGATION
 # =============================================================================
 
-tab_prescreen, tab_portfolio = st.tabs([
-    "Pre-Screen Tool",
-    "Portfolio Bad Debt Estimator"
+tab_portfolio, tab_prescreen = st.tabs([
+    "Portfolio Bad Debt Estimator",
+    "Pre-Screen Tool"
 ])
 
 # =============================================================================
@@ -120,14 +141,6 @@ with tab_prescreen:
             help="Your position in the capital stack"
         )
 
-        # Communication Status
-        communication_status = st.selectbox(
-            "Communication Status",
-            options=COMMUNICATION_CATEGORIES,
-            index=1,  # Default to "Sporadic / only under pressure"
-            help="How responsive and engaged is the borrower?"
-        )
-
         # Calculate button
         calculate_btn = st.button("Calculate Recovery Score", type="primary", width='stretch')
 
@@ -142,7 +155,6 @@ with tab_prescreen:
             industry_category=industry_category,
             collateral_type=collateral_type,
             lien_position=lien_position,
-            communication_status=communication_status,
         )
 
         # Display key metrics
@@ -201,13 +213,12 @@ with tab_prescreen:
         # Component Scores Breakdown
         st.markdown("#### Score Breakdown")
 
-        # Create score breakdown data
+        # Create score breakdown data (excludes Communication which uses a default for pre-screen)
         score_data = pd.DataFrame([
             {"Component": "Status", "Score": result.status_score, "Weight": f"{WEIGHTS['status']:.0%}", "Contribution": result.status_score * WEIGHTS['status']},
             {"Component": "Industry", "Score": result.industry_score, "Weight": f"{WEIGHTS['industry']:.0%}", "Contribution": result.industry_score * WEIGHTS['industry']},
             {"Component": "Collateral", "Score": result.collateral_score, "Weight": f"{WEIGHTS['collateral']:.0%}", "Contribution": result.collateral_score * WEIGHTS['collateral']},
             {"Component": "Lien Position", "Score": result.lien_score, "Weight": f"{WEIGHTS['lien']:.0%}", "Contribution": result.lien_score * WEIGHTS['lien']},
-            {"Component": "Communication", "Score": result.communication_score, "Weight": f"{WEIGHTS['communication']:.0%}", "Contribution": result.communication_score * WEIGHTS['communication']},
         ])
 
         # Add color category for Altair v6 compatibility (nested conditions not supported)
@@ -247,14 +258,19 @@ with tab_prescreen:
 
         # Display weight explanation
         with st.expander("Understanding the Weights"):
+            # Pre-screen weights (communication excluded, weights redistributed)
+            ps_status = WEIGHTS['status'] / 0.90
+            ps_industry = WEIGHTS['industry'] / 0.90
+            ps_collateral = WEIGHTS['collateral'] / 0.90
+            ps_lien = WEIGHTS['lien'] / 0.90
+
             st.markdown(f"""
             | Component | Weight | Your Score | Contribution |
             |-----------|--------|------------|--------------|
-            | Status | {WEIGHTS['status']:.0%} | {result.status_score:.1f} | {result.status_score * WEIGHTS['status']:.2f} |
-            | Industry | {WEIGHTS['industry']:.0%} | {result.industry_score:.1f} | {result.industry_score * WEIGHTS['industry']:.2f} |
-            | Collateral | {WEIGHTS['collateral']:.0%} | {result.collateral_score:.1f} | {result.collateral_score * WEIGHTS['collateral']:.2f} |
-            | Lien Position | {WEIGHTS['lien']:.0%} | {result.lien_score:.1f} | {result.lien_score * WEIGHTS['lien']:.2f} |
-            | Communication | {WEIGHTS['communication']:.0%} | {result.communication_score:.1f} | {result.communication_score * WEIGHTS['communication']:.2f} |
+            | Status | {ps_status:.0%} | {result.status_score:.1f} | {result.status_score * ps_status:.2f} |
+            | Industry | {ps_industry:.0%} | {result.industry_score:.1f} | {result.industry_score * ps_industry:.2f} |
+            | Collateral | {ps_collateral:.0%} | {result.collateral_score:.1f} | {result.collateral_score * ps_collateral:.2f} |
+            | Lien Position | {ps_lien:.0%} | {result.lien_score:.1f} | {result.lien_score * ps_lien:.2f} |
             | **Total** | **100%** | | **{result.total_recovery_score:.2f}** |
             """)
 
@@ -305,26 +321,48 @@ with tab_portfolio:
     if "portfolio_df" in st.session_state:
         df = st.session_state["portfolio_df"]
 
-        # Filter options
+        # =================================================================
+        # FILTER OPTIONS
+        # =================================================================
         st.markdown("#### Filter Options")
 
         col_filter1, col_filter2 = st.columns(2)
 
         with col_filter1:
-            # Status filter
-            status_options = ["All"] + sorted(df["loan_status"].dropna().unique().tolist())
-            selected_status = st.selectbox("Filter by Status", options=status_options, index=0)
+            # Status filter using centralized component
+            filtered_df, selected_status = create_status_filter(
+                df,
+                status_col="loan_status",
+                label="Filter by Status",
+                include_all_option=True,
+                key_prefix="bde_status"
+            )
 
         with col_filter2:
-            # Include paid off toggle
-            include_paid_off = st.checkbox("Include Paid Off Loans", value=False)
+            # Partner filter using centralized component
+            filtered_df, selected_partners = create_partner_source_filter(
+                filtered_df,
+                partner_col="partner_source",
+                label="Filter by Partner Source",
+                default_all=True,
+                key_prefix="bde_partner"
+            )
 
-        # Apply filters
-        filtered_df = df.copy()
+        # Date/Vintage filter
+        st.markdown("##### Vintage Filter")
+        filtered_df, date_filter_active = create_date_range_filter(
+            filtered_df,
+            date_col="funding_date",
+            label="Select Funding Date Range",
+            checkbox_label="Filter by Vintage (Funding Date)",
+            default_enabled=False,
+            key_prefix="bde_vintage"
+        )
 
-        if selected_status != "All":
-            filtered_df = filtered_df[filtered_df["loan_status"] == selected_status]
+        # Include paid off toggle
+        include_paid_off = st.checkbox("Include Paid Off Loans", value=False, key="bde_include_paid_off")
 
+        # Apply paid off filter
         if not include_paid_off:
             filtered_df = filtered_df[filtered_df["loan_status"] != "Paid Off"]
 
@@ -512,7 +550,7 @@ with tab_portfolio:
             st.download_button(
                 label="Download Full Results (CSV)",
                 data=csv,
-                file_name="recovery_analysis.csv",
+                file_name="bad_debt_analysis.csv",
                 mime="text/csv",
             )
 
