@@ -74,9 +74,9 @@ st.divider()
 # TAB NAVIGATION
 # =============================================================================
 
-tab_prescreen, tab_portfolio = st.tabs([
-    "Pre-Screen Tool",
-    "Portfolio Bad Debt Estimator"
+tab_portfolio, tab_prescreen = st.tabs([
+    "Portfolio Bad Debt Estimator",
+    "Pre-Screen Tool"
 ])
 
 # =============================================================================
