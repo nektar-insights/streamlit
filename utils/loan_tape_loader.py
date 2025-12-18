@@ -420,6 +420,7 @@ def _create_unified_loan_customer_table(deals_df, qbo_df):
         "loan_id": "Loan ID",
         "deal_name": "Deal Name",
         "customer_name": "QBO Customer",
+        "loan_status": "Loan Status",
         "factor_rate": "Factor Rate",
         "amount": "Participation Amount",
         "total_return": "Expected Return",

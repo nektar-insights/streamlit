@@ -25,6 +25,7 @@ from utils.loan_tape_loader import (
     get_customer_payment_summary,
     get_data_diagnostics,
 )
+from utils.status_constants import TERMINAL_STATUSES, PROBLEM_STATUSES
 import numpy as np
 from datetime import datetime, timedelta
 import warnings
@@ -157,8 +158,21 @@ def calculate_loan_health(unified_df, qbo_df):
         days_since = row.get("Days Since Last Payment", 999)
         collection_pct = row.get("Collection %", 0)
         rtr = row.get("RTR Amount", 0)
+        loan_status = row.get("Loan Status", "")
 
-        # Fully collected
+        # Check terminal statuses first - these loans have completed their lifecycle
+        if loan_status == "Paid Off":
+            return "✅ Paid Off"
+        if loan_status == "Charged Off":
+            return "⚫ Charged Off"
+        if loan_status == "Bankruptcy":
+            return "⚫ Bankruptcy"
+
+        # Check other problem statuses
+        if loan_status in PROBLEM_STATUSES:
+            return f"🔴 {loan_status}"
+
+        # Fully collected (but not yet marked as Paid Off in status)
         if collection_pct >= 95:
             return "✅ Complete"
 
@@ -184,14 +198,21 @@ def calculate_loan_health(unified_df, qbo_df):
         status = row.get("Health Status", "")
         remaining = row.get("Remaining", 0)
 
-        if "Complete" in status:
+        # Terminal statuses - no action needed
+        if "Paid Off" in status or "Complete" in status:
             return 0
+        elif "Charged Off" in status or "Bankruptcy" in status:
+            return 1  # Terminal but negative outcome - low priority for collection
+        # Problem statuses - needs attention
         elif "No Payments" in status:
             return 100 + remaining / 1000
         elif "Stale" in status:
             return 80 + remaining / 1000
         elif "Slow" in status:
             return 60 + remaining / 1000
+        # Other problem statuses from loan_status
+        elif status.startswith("🔴"):
+            return 90 + remaining / 1000
         else:
             return 20 + remaining / 1000
 
@@ -685,38 +706,47 @@ if not health_df.empty:
     # Health summary cards
     health_counts = health_df["Health Status"].value_counts()
 
-    col1, col2, col3, col4, col5 = st.columns(5)
+    # First row: Terminal and healthy statuses
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
 
     with col1:
+        paid_off = health_counts.get("✅ Paid Off", 0)
         complete = health_counts.get("✅ Complete", 0)
-        st.metric("Complete", complete, help="Loans that are 95%+ collected")
+        st.metric("Paid Off / Complete", paid_off + complete, help="Loans fully paid or 95%+ collected")
 
     with col2:
+        charged_off = health_counts.get("⚫ Charged Off", 0)
+        bankruptcy = health_counts.get("⚫ Bankruptcy", 0)
+        terminal_bad = charged_off + bankruptcy
+        st.metric("Charged Off / BK", terminal_bad, help="Loans written off or in bankruptcy")
+
+    with col3:
         active = health_counts.get("🟢 Active", 0)
         st.metric("Active", active, help="Loans with recent payments (within 30 days)")
 
-    with col3:
+    with col4:
         slow = health_counts.get("🟡 Slow (30+ days)", 0)
         st.metric("Slow", slow, help="No payment in 30-45 days", delta="attention" if slow > 0 else None, delta_color="off")
 
-    with col4:
+    with col5:
         stale = health_counts.get("🟠 Stale (45+ days)", 0)
         st.metric("Stale", stale, help="No payment in 45+ days", delta="review" if stale > 0 else None, delta_color="inverse")
 
-    with col5:
+    with col6:
         no_payments = health_counts.get("🔴 No Payments", 0)
         st.metric("No Payments", no_payments, help="Loans with zero payments", delta="urgent" if no_payments > 0 else None, delta_color="inverse")
 
     # Loans needing attention
     st.subheader("⚠️ Loans Requiring Attention")
 
-    # Filter to loans needing attention (not complete, not active)
-    attention_df = health_df[~health_df["Health Status"].isin(["✅ Complete", "🟢 Active"])].copy()
+    # Filter to loans needing attention (exclude terminal statuses and healthy loans)
+    terminal_statuses = ["✅ Complete", "✅ Paid Off", "⚫ Charged Off", "⚫ Bankruptcy", "🟢 Active"]
+    attention_df = health_df[~health_df["Health Status"].isin(terminal_statuses)].copy()
     attention_df = attention_df.sort_values("Priority Score", ascending=False)
 
     if not attention_df.empty:
         # Select key columns for display
-        display_cols = ["Deal Name", "Health Status", "Participation Amount", "Expected Return",
+        display_cols = ["Deal Name", "Loan Status", "Health Status", "Participation Amount", "Expected Return",
                        "RTR Amount", "Collection %", "Remaining", "Days Since Last Payment"]
         available_cols = [c for c in display_cols if c in attention_df.columns]
 
@@ -724,7 +754,8 @@ if not health_df.empty:
             attention_df[available_cols].head(20),
             column_config={
                 "Deal Name": st.column_config.TextColumn("Deal", width="medium"),
-                "Health Status": st.column_config.TextColumn("Status", width="small"),
+                "Loan Status": st.column_config.TextColumn("Loan Status", width="small"),
+                "Health Status": st.column_config.TextColumn("Health", width="small"),
                 "Participation Amount": st.column_config.NumberColumn("Deployed", format="$%.0f"),
                 "Expected Return": st.column_config.NumberColumn("Expected", format="$%.0f"),
                 "RTR Amount": st.column_config.NumberColumn("Collected", format="$%.0f"),
@@ -744,7 +775,7 @@ if not health_df.empty:
 
     # Full loan health table (expandable)
     with st.expander("View All Loans Health Status"):
-        all_display_cols = ["Deal Name", "Health Status", "Participation Amount", "Expected Return",
+        all_display_cols = ["Deal Name", "Loan Status", "Health Status", "Participation Amount", "Expected Return",
                           "RTR Amount", "Collection %", "Remaining", "Days Since Last Payment", "Partner Source"]
         available_cols = [c for c in all_display_cols if c in health_df.columns]
 
@@ -754,7 +785,8 @@ if not health_df.empty:
             sorted_health_df[available_cols],
             column_config={
                 "Deal Name": st.column_config.TextColumn("Deal", width="medium"),
-                "Health Status": st.column_config.TextColumn("Status"),
+                "Loan Status": st.column_config.TextColumn("Loan Status"),
+                "Health Status": st.column_config.TextColumn("Health"),
                 "Participation Amount": st.column_config.NumberColumn("Deployed", format="$%.0f"),
                 "Expected Return": st.column_config.NumberColumn("Expected", format="$%.0f"),
                 "RTR Amount": st.column_config.NumberColumn("Collected", format="$%.0f"),
