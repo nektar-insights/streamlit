@@ -199,6 +199,31 @@ def plot_factor_histogram(df: pd.DataFrame):
     st.altair_chart(chart, width='stretch')
 
 
+def plot_net_moic_histogram(df: pd.DataFrame):
+    """Plot Net MOIC distribution histogram"""
+    if "net_moic" not in df.columns:
+        st.info("Net MOIC data not available")
+        return
+
+    moic_data = df[df["net_moic"].notna() & (df["net_moic"] > 0)].copy()
+
+    if moic_data.empty:
+        st.info("No Net MOIC data available for visualization")
+        return
+
+    chart = alt.Chart(moic_data).mark_bar().encode(
+        alt.X("net_moic:Q", bin=alt.Bin(maxbins=25), title="Net MOIC"),
+        y=alt.Y("count():Q", title="Number of Loans"),
+        color=alt.value("#2ca02c"),  # Green for returns
+        tooltip=[
+            alt.Tooltip("net_moic:Q", title="Net MOIC", format=".3f", bin=True),
+            alt.Tooltip("count():Q", title="Count"),
+        ]
+    ).properties(height=300, title="Net MOIC Distribution (Factor Rate - Commission - Platform Fee)")
+
+    st.altair_chart(chart, width='stretch')
+
+
 def plot_term_histogram(df: pd.DataFrame):
     """Plot Loan Term distribution histogram"""
     if "loan_term" not in df.columns:
@@ -1191,6 +1216,30 @@ def main():
             net_balance = filtered_df["net_balance"].sum()
             st.metric("Net Outstanding", f"${net_balance:,.0f}")
 
+        # Second row: Factor Rate and Net MOIC metrics
+        col5, col6, col7, col8 = st.columns(4)
+        with col5:
+            avg_factor_rate = filtered_df["factor_rate"].mean()
+            st.metric("Avg Factor Rate", f"{avg_factor_rate:.3f}x" if pd.notna(avg_factor_rate) else "N/A")
+        with col6:
+            avg_net_moic = filtered_df["net_moic"].mean()
+            st.metric("Avg Net MOIC", f"{avg_net_moic:.3f}x" if pd.notna(avg_net_moic) else "N/A",
+                      help="Factor Rate minus Commission and Platform Fee (3%)")
+        with col7:
+            avg_commission = filtered_df["commission_fee"].mean()
+            st.metric("Avg Commission", f"{avg_commission:.1%}" if pd.notna(avg_commission) else "N/A")
+        with col8:
+            # Calculate weighted average net MOIC by capital deployed
+            if filtered_df["csl_participation_amount"].sum() > 0:
+                weighted_net_moic = (
+                    (filtered_df["net_moic"] * filtered_df["csl_participation_amount"]).sum() /
+                    filtered_df["csl_participation_amount"].sum()
+                )
+                st.metric("Wtd Avg Net MOIC", f"{weighted_net_moic:.3f}x" if pd.notna(weighted_net_moic) else "N/A",
+                          help="Net MOIC weighted by capital deployed")
+            else:
+                st.metric("Wtd Avg Net MOIC", "N/A")
+
         st.markdown("---")
         st.subheader("Loan Status Distribution")
         plot_status_distribution(filtered_df)
@@ -1210,19 +1259,26 @@ def main():
         with hist_col2:
             plot_factor_histogram(filtered_df)
 
-        # Row 2: Term and Months Left
+        # Row 2: Net MOIC and Term
         hist_col3, hist_col4 = st.columns(2)
         with hist_col3:
-            plot_term_histogram(filtered_df)
+            plot_net_moic_histogram(filtered_df)
         with hist_col4:
-            plot_months_left_histogram(filtered_df)
+            plot_term_histogram(filtered_df)
 
-        # Row 3: CSL Participation and TIB
+        # Row 3: Months Left and CSL Participation
         hist_col5, hist_col6 = st.columns(2)
         with hist_col5:
-            plot_csl_participation_histogram(filtered_df)
+            plot_months_left_histogram(filtered_df)
         with hist_col6:
+            plot_csl_participation_histogram(filtered_df)
+
+        # Row 4: TIB
+        hist_col7, hist_col8 = st.columns(2)
+        with hist_col7:
             plot_tib_histogram(filtered_df)
+        with hist_col8:
+            pass  # Empty column for balance
 
     with tabs[2]:
         st.header("Capital Flow Analysis")
@@ -1353,7 +1409,7 @@ def main():
             "loan_id", "deal_name", "partner_source", "loan_status",
             "industry_name", "sector_code", "fico", "tib",
             "funding_date", "maturity_date", "projected_payoff_date",
-            "factor_rate", "commission_fee",
+            "factor_rate", "commission_fee", "net_moic",
             "csl_participation_amount", "total_invested", "total_paid", "net_balance",
             "roi_with_grade", "payment_perf_with_grade",
             "remaining_maturity_months", "is_past_maturity",
@@ -1377,6 +1433,7 @@ def main():
             "projected_payoff_date": "Proj. Payoff",
             "factor_rate": "Factor Rate",
             "commission_fee": "Commission %",
+            "net_moic": "Net MOIC",
             "csl_participation_amount": "Capital Deployed",
             "total_invested": "Total Cost Basis",
             "total_paid": "Total Paid",
