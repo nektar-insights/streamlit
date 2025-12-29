@@ -207,6 +207,11 @@ def prepare_loan_data(loans_df: pd.DataFrame, deals_df: pd.DataFrame) -> pd.Data
     df["total_invested"] = df["csl_participation_amount"] + df["platform_fees"] + df["commission_fees"]
     df["net_balance"] = df["total_invested"] - df["total_paid"]
 
+    # Calculate Net MOIC (Multiple on Invested Capital)
+    # Net MOIC = factor_rate - commission_fee - platform_fee
+    # This represents the net return multiple after all fees
+    df["net_moic"] = df["factor_rate"] - df["commission_fee"] - PLATFORM_FEE
+
     # Calculate ROI
     df["current_roi"] = np.where(
         df["total_invested"] > 0,
@@ -789,7 +794,10 @@ def format_dataframe_for_display(
     # Format numeric columns based on column name patterns
     for col in display_df.select_dtypes(include=["float64", "float32"]).columns:
         col_upper = col.upper()
-        if any(term in col_upper for term in ["ROI", "RATE", "PERCENTAGE", "PERFORMANCE", "IRR"]):
+        # MOIC and Factor Rate should be displayed as decimals (e.g., 1.35x), not percentages
+        if any(term in col_upper for term in ["MOIC", "FACTOR"]):
+            display_df[col] = display_df[col].map(lambda x: f"{x:.3f}" if pd.notnull(x) else "")
+        elif any(term in col_upper for term in ["ROI", "RATE", "PERCENTAGE", "PERFORMANCE", "IRR"]):
             display_df[col] = display_df[col].map(lambda x: f"{x:.1%}" if pd.notnull(x) else "")
         elif any(term in col_upper for term in ["MATURITY", "MONTHS"]):
             display_df[col] = display_df[col].map(lambda x: f"{x:.1f}" if pd.notnull(x) else "")
