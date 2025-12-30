@@ -1576,15 +1576,11 @@ def render_portfolio_insights_tab(df: pd.DataFrame):
         partner_chart = alt.Chart(partner_exposure.head(10)).mark_bar().encode(
             x=alt.X("partner_source:N", title="Partner", sort="-y"),
             y=alt.Y("pct_of_total:Q", title="% of Total Exposure", axis=alt.Axis(format=".0%")),
-            color=alt.condition(
-                alt.datum.pct_of_total >= PARTNER_HIGH_CONCENTRATION,
-                alt.value("#d62728"),
-                alt.condition(
-                    alt.datum.pct_of_total >= PARTNER_MEDIUM_CONCENTRATION,
-                    alt.value("#ff7f0e"),
-                    alt.value(PRIMARY_COLOR)
-                )
-            ),
+            color=alt.when(
+                alt.datum.pct_of_total >= PARTNER_HIGH_CONCENTRATION
+            ).then(alt.value("#d62728")).when(
+                alt.datum.pct_of_total >= PARTNER_MEDIUM_CONCENTRATION
+            ).then(alt.value("#ff7f0e")).otherwise(alt.value(PRIMARY_COLOR)),
             tooltip=[
                 alt.Tooltip("partner_source:N", title="Partner"),
                 alt.Tooltip("pct_of_total:Q", title="% of Exposure", format=".1%"),
