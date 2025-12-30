@@ -12,6 +12,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import altair as alt
+from datetime import date, timedelta
+from dateutil.relativedelta import relativedelta
 
 from utils.config import setup_page, PRIMARY_COLOR
 from utils.data_loader import DataLoader, load_deals, load_qbo_data, load_loan_schedules
@@ -32,10 +34,11 @@ st.markdown("Analytical and forecasting tools for portfolio management and deal 
 # =============================================================================
 # MAIN TAB NAVIGATION
 # =============================================================================
-tab_bad_debt, tab_forecast, tab_scorer = st.tabs([
+tab_bad_debt, tab_forecast, tab_scorer, tab_maturity = st.tabs([
     "Bad Debt Estimator",
     "Capital Forecast",
-    "Deal Scorer"
+    "Deal Scorer",
+    "Loan Maturity Calculator"
 ])
 
 # =============================================================================
@@ -1436,3 +1439,489 @@ with tab_scorer:
 
                 if classification_metrics and regression_metrics:
                     render_model_summary(classification_metrics, regression_metrics)
+
+
+# =============================================================================
+# TAB 4: LOAN MATURITY CALCULATOR
+# =============================================================================
+with tab_maturity:
+    st.header("Loan Maturity Calculator")
+    st.markdown("""
+    Calculate the expected maturity date of a loan based on funding date, payment schedule,
+    and payment frequency. This tool accounts for business days, weekends, and federal holidays
+    for accurate maturity projections.
+    """)
+
+    # US Federal Holidays for business day calculations
+    def get_us_federal_holidays(year: int) -> set:
+        """
+        Returns a set of US federal holiday dates for a given year.
+        Includes: New Year's, MLK Day, Presidents Day, Memorial Day, Juneteenth,
+        Independence Day, Labor Day, Columbus Day, Veterans Day, Thanksgiving, Christmas.
+        """
+        holidays = set()
+
+        # New Year's Day - January 1
+        holidays.add(date(year, 1, 1))
+
+        # MLK Day - Third Monday of January
+        jan_first = date(year, 1, 1)
+        days_until_monday = (7 - jan_first.weekday()) % 7
+        first_monday = jan_first + timedelta(days=days_until_monday)
+        mlk_day = first_monday + timedelta(weeks=2)
+        holidays.add(mlk_day)
+
+        # Presidents Day - Third Monday of February
+        feb_first = date(year, 2, 1)
+        days_until_monday = (7 - feb_first.weekday()) % 7
+        first_monday = feb_first + timedelta(days=days_until_monday)
+        presidents_day = first_monday + timedelta(weeks=2)
+        holidays.add(presidents_day)
+
+        # Memorial Day - Last Monday of May
+        may_last = date(year, 5, 31)
+        days_since_monday = may_last.weekday()
+        memorial_day = may_last - timedelta(days=days_since_monday)
+        holidays.add(memorial_day)
+
+        # Juneteenth - June 19
+        holidays.add(date(year, 6, 19))
+
+        # Independence Day - July 4
+        holidays.add(date(year, 7, 4))
+
+        # Labor Day - First Monday of September
+        sep_first = date(year, 9, 1)
+        days_until_monday = (7 - sep_first.weekday()) % 7
+        labor_day = sep_first + timedelta(days=days_until_monday)
+        holidays.add(labor_day)
+
+        # Columbus Day - Second Monday of October
+        oct_first = date(year, 10, 1)
+        days_until_monday = (7 - oct_first.weekday()) % 7
+        first_monday = oct_first + timedelta(days=days_until_monday)
+        columbus_day = first_monday + timedelta(weeks=1)
+        holidays.add(columbus_day)
+
+        # Veterans Day - November 11
+        holidays.add(date(year, 11, 11))
+
+        # Thanksgiving - Fourth Thursday of November
+        nov_first = date(year, 11, 1)
+        days_until_thursday = (3 - nov_first.weekday()) % 7
+        first_thursday = nov_first + timedelta(days=days_until_thursday)
+        thanksgiving = first_thursday + timedelta(weeks=3)
+        holidays.add(thanksgiving)
+
+        # Christmas Day - December 25
+        holidays.add(date(year, 12, 25))
+
+        return holidays
+
+    def get_holidays_in_range(start_date: date, end_date: date) -> set:
+        """Get all US federal holidays between two dates."""
+        holidays = set()
+        for year in range(start_date.year, end_date.year + 2):
+            holidays.update(get_us_federal_holidays(year))
+        return holidays
+
+    def is_business_day(check_date: date, holidays: set, skip_holidays: bool) -> bool:
+        """Check if a date is a business day (not weekend, optionally not holiday)."""
+        if check_date.weekday() >= 5:  # Saturday = 5, Sunday = 6
+            return False
+        if skip_holidays and check_date in holidays:
+            return False
+        return True
+
+    def add_business_days(start_date: date, num_days: int, holidays: set, skip_holidays: bool) -> date:
+        """Add a number of business days to a start date."""
+        current_date = start_date
+        days_added = 0
+
+        while days_added < num_days:
+            current_date += timedelta(days=1)
+            if is_business_day(current_date, holidays, skip_holidays):
+                days_added += 1
+
+        return current_date
+
+    def calculate_maturity_date(
+        funding_date: date,
+        num_payments: int,
+        payment_interval: str,
+        first_payment_delay: int = 0,
+        business_days_only: bool = True,
+        skip_holidays: bool = True
+    ) -> dict:
+        """
+        Calculate the loan maturity date and payment schedule details.
+
+        Args:
+            funding_date: The date the loan is funded
+            num_payments: Total number of payments
+            payment_interval: 'daily', 'weekly', 'bi-weekly', or 'monthly'
+            first_payment_delay: Days between funding and first payment
+            business_days_only: For daily payments, skip weekends
+            skip_holidays: For business day calculations, skip US holidays
+
+        Returns:
+            Dictionary with maturity date and schedule details
+        """
+        # Get holidays for the range we might need
+        estimated_end = funding_date + timedelta(days=num_payments * 35)  # Conservative estimate
+        holidays = get_holidays_in_range(funding_date, estimated_end) if skip_holidays else set()
+
+        # Calculate first payment date
+        if first_payment_delay > 0:
+            if business_days_only and payment_interval == "daily":
+                first_payment_date = add_business_days(funding_date, first_payment_delay, holidays, skip_holidays)
+            else:
+                first_payment_date = funding_date + timedelta(days=first_payment_delay)
+        else:
+            first_payment_date = funding_date
+
+        # Calculate all payment dates based on interval
+        payment_dates = []
+        current_date = first_payment_date
+
+        if payment_interval == "daily":
+            if business_days_only:
+                # First payment
+                if not is_business_day(current_date, holidays, skip_holidays):
+                    current_date = add_business_days(current_date, 0, holidays, skip_holidays)
+                payment_dates.append(current_date)
+
+                # Subsequent payments
+                for _ in range(1, num_payments):
+                    current_date = add_business_days(current_date, 1, holidays, skip_holidays)
+                    payment_dates.append(current_date)
+            else:
+                for i in range(num_payments):
+                    payment_dates.append(current_date + timedelta(days=i))
+
+        elif payment_interval == "weekly":
+            for i in range(num_payments):
+                payment_dates.append(current_date + timedelta(weeks=i))
+
+        elif payment_interval == "bi-weekly":
+            for i in range(num_payments):
+                payment_dates.append(current_date + timedelta(weeks=i * 2))
+
+        elif payment_interval == "monthly":
+            for i in range(num_payments):
+                payment_dates.append(current_date + relativedelta(months=i))
+
+        maturity_date = payment_dates[-1] if payment_dates else funding_date
+
+        # Calculate duration
+        total_days = (maturity_date - funding_date).days
+        total_weeks = total_days / 7
+        total_months = total_days / 30.44  # Average days per month
+
+        # Count business days and holidays in the range
+        business_days_count = 0
+        holidays_in_range = 0
+        weekends_in_range = 0
+
+        check_date = funding_date
+        while check_date <= maturity_date:
+            if check_date.weekday() >= 5:
+                weekends_in_range += 1
+            elif check_date in holidays:
+                holidays_in_range += 1
+            else:
+                business_days_count += 1
+            check_date += timedelta(days=1)
+
+        return {
+            "funding_date": funding_date,
+            "first_payment_date": first_payment_date,
+            "maturity_date": maturity_date,
+            "payment_dates": payment_dates,
+            "num_payments": num_payments,
+            "payment_interval": payment_interval,
+            "total_calendar_days": total_days,
+            "total_weeks": total_weeks,
+            "total_months": total_months,
+            "business_days_count": business_days_count,
+            "weekends_in_range": weekends_in_range,
+            "holidays_in_range": holidays_in_range,
+            "business_days_only": business_days_only,
+            "skip_holidays": skip_holidays,
+        }
+
+    # Input section
+    st.markdown("---")
+    st.markdown("### Loan Parameters")
+
+    col_input, col_output = st.columns([1, 1])
+
+    with col_input:
+        # Funding Date
+        funding_date_input = st.date_input(
+            "Funding Date",
+            value=date.today(),
+            help="The date the loan funds are disbursed",
+            key="maturity_funding_date"
+        )
+
+        # Number of Payments
+        num_payments_input = st.number_input(
+            "Number of Payments",
+            min_value=1,
+            max_value=1000,
+            value=60,
+            step=1,
+            help="Total number of scheduled payments",
+            key="maturity_num_payments"
+        )
+
+        # Payment Interval
+        interval_options = {
+            "Daily": "daily",
+            "Weekly": "weekly",
+            "Bi-Weekly (Every 2 Weeks)": "bi-weekly",
+            "Monthly": "monthly"
+        }
+        selected_interval = st.selectbox(
+            "Payment Interval",
+            options=list(interval_options.keys()),
+            index=0,
+            help="How often payments are made",
+            key="maturity_interval"
+        )
+        payment_interval = interval_options[selected_interval]
+
+        st.markdown("---")
+        st.markdown("### Advanced Options")
+
+        # First Payment Delay
+        first_payment_delay = st.number_input(
+            "First Payment Delay (Days)",
+            min_value=0,
+            max_value=90,
+            value=0,
+            step=1,
+            help="Number of days between funding and the first payment (grace period)",
+            key="maturity_delay"
+        )
+
+        # Business days only (for daily payments)
+        if payment_interval == "daily":
+            business_days_only = st.checkbox(
+                "Business Days Only (Skip Weekends)",
+                value=True,
+                help="For daily payments, only count Monday-Friday",
+                key="maturity_business_days"
+            )
+
+            skip_holidays = st.checkbox(
+                "Skip Federal Holidays",
+                value=True,
+                help="Exclude US federal holidays from payment schedule",
+                key="maturity_skip_holidays"
+            )
+        else:
+            business_days_only = False
+            skip_holidays = False
+            st.info("Business day options apply only to daily payment schedules.")
+
+    # Calculate and display results
+    with col_output:
+        st.markdown("### Maturity Analysis")
+
+        # Calculate maturity
+        result = calculate_maturity_date(
+            funding_date=funding_date_input,
+            num_payments=num_payments_input,
+            payment_interval=payment_interval,
+            first_payment_delay=first_payment_delay,
+            business_days_only=business_days_only,
+            skip_holidays=skip_holidays
+        )
+
+        # Key metrics
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.metric(
+                label="Maturity Date",
+                value=result["maturity_date"].strftime("%B %d, %Y"),
+                help="The date of the final payment"
+            )
+
+        with col2:
+            st.metric(
+                label="First Payment Date",
+                value=result["first_payment_date"].strftime("%B %d, %Y"),
+                help="The date of the first payment"
+            )
+
+        st.divider()
+
+        # Duration breakdown
+        st.markdown("#### Loan Duration")
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.metric(
+                label="Calendar Days",
+                value=f"{result['total_calendar_days']:,}",
+                help="Total days from funding to maturity"
+            )
+
+        with col2:
+            st.metric(
+                label="Weeks",
+                value=f"{result['total_weeks']:.1f}",
+                help="Duration in weeks"
+            )
+
+        with col3:
+            st.metric(
+                label="Months",
+                value=f"{result['total_months']:.1f}",
+                help="Duration in months (approximate)"
+            )
+
+        st.divider()
+
+        # Business day breakdown
+        st.markdown("#### Calendar Breakdown")
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.metric(
+                label="Business Days",
+                value=f"{result['business_days_count']:,}",
+                help="Monday-Friday, excluding holidays"
+            )
+
+        with col2:
+            st.metric(
+                label="Weekend Days",
+                value=f"{result['weekends_in_range']:,}",
+                help="Saturdays and Sundays"
+            )
+
+        with col3:
+            st.metric(
+                label="Federal Holidays",
+                value=f"{result['holidays_in_range']}",
+                help="US federal holidays in the period"
+            )
+
+        # Payment schedule summary
+        st.divider()
+        st.markdown("#### Payment Schedule Summary")
+
+        schedule_info = f"""
+        | Parameter | Value |
+        |-----------|-------|
+        | Funding Date | {result['funding_date'].strftime('%Y-%m-%d')} |
+        | First Payment | {result['first_payment_date'].strftime('%Y-%m-%d')} |
+        | Last Payment (Maturity) | {result['maturity_date'].strftime('%Y-%m-%d')} |
+        | Total Payments | {result['num_payments']} |
+        | Payment Frequency | {selected_interval} |
+        | Business Days Only | {'Yes' if result['business_days_only'] else 'No'} |
+        | Skip Holidays | {'Yes' if result['skip_holidays'] else 'No'} |
+        """
+        st.markdown(schedule_info)
+
+    # Payment Schedule Table (expandable)
+    st.markdown("---")
+    with st.expander("View Full Payment Schedule", expanded=False):
+        payment_dates = result["payment_dates"]
+
+        # Create schedule dataframe
+        schedule_df = pd.DataFrame({
+            "Payment #": range(1, len(payment_dates) + 1),
+            "Payment Date": payment_dates,
+            "Day of Week": [d.strftime("%A") for d in payment_dates],
+        })
+
+        # Format date column
+        schedule_df["Payment Date"] = schedule_df["Payment Date"].apply(
+            lambda x: x.strftime("%Y-%m-%d")
+        )
+
+        # Show first and last payments with option to see all
+        st.markdown("**First 10 Payments:**")
+        st.dataframe(schedule_df.head(10), use_container_width=True, hide_index=True)
+
+        if len(payment_dates) > 20:
+            st.markdown("**Last 10 Payments:**")
+            st.dataframe(schedule_df.tail(10), use_container_width=True, hide_index=True)
+
+        # Download full schedule
+        csv_data = schedule_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="Download Full Schedule (CSV)",
+            data=csv_data,
+            file_name=f"payment_schedule_{result['funding_date'].strftime('%Y%m%d')}.csv",
+            mime="text/csv",
+            key="maturity_download"
+        )
+
+    # Methodology explanation
+    st.markdown("---")
+    with st.expander("Calculation Methodology", expanded=False):
+        st.markdown("""
+        ### How the Maturity Date is Calculated
+
+        #### Payment Interval Logic
+
+        | Interval | Calculation Method |
+        |----------|-------------------|
+        | **Daily** | Adds 1 day per payment. If "Business Days Only" is enabled, skips Saturdays, Sundays, and optionally federal holidays. |
+        | **Weekly** | Adds 7 calendar days per payment from the first payment date. |
+        | **Bi-Weekly** | Adds 14 calendar days per payment from the first payment date. |
+        | **Monthly** | Adds 1 calendar month per payment, handling month-end dates appropriately (e.g., Jan 31 → Feb 28). |
+
+        #### Business Day Handling (Daily Payments)
+
+        When "Business Days Only" is enabled:
+        - **Weekends**: Saturdays and Sundays are skipped
+        - **Holidays**: If "Skip Federal Holidays" is enabled, the following US federal holidays are excluded:
+          - New Year's Day (Jan 1)
+          - Martin Luther King Jr. Day (3rd Monday of January)
+          - Presidents Day (3rd Monday of February)
+          - Memorial Day (Last Monday of May)
+          - Juneteenth (June 19)
+          - Independence Day (July 4)
+          - Labor Day (1st Monday of September)
+          - Columbus Day (2nd Monday of October)
+          - Veterans Day (November 11)
+          - Thanksgiving (4th Thursday of November)
+          - Christmas Day (December 25)
+
+        #### First Payment Delay
+
+        The "First Payment Delay" adds a grace period between the funding date and the first payment.
+        This is common in MCA (Merchant Cash Advance) loans where there's a waiting period before
+        payments begin.
+
+        #### Important Notes
+
+        - This calculator provides an **estimated** maturity date based on a regular payment schedule
+        - Actual maturity may vary due to payment holidays, ACH processing delays, or payment failures
+        - For loans with irregular payment schedules, the actual maturity may differ
+        - Holiday calculations use US federal holidays and may not include state-specific holidays
+        """)
+
+    # Quick reference
+    st.markdown("---")
+    st.markdown("### Quick Reference: Common Loan Terms")
+
+    reference_data = {
+        "Term": ["3 months", "6 months", "9 months", "12 months", "18 months", "24 months"],
+        "Daily (Bus. Days)": ["~63 payments", "~126 payments", "~189 payments", "~252 payments", "~378 payments", "~504 payments"],
+        "Weekly": ["13 payments", "26 payments", "39 payments", "52 payments", "78 payments", "104 payments"],
+        "Bi-Weekly": ["6-7 payments", "13 payments", "19-20 payments", "26 payments", "39 payments", "52 payments"],
+        "Monthly": ["3 payments", "6 payments", "9 payments", "12 payments", "18 payments", "24 payments"],
+    }
+
+    st.dataframe(pd.DataFrame(reference_data), use_container_width=True, hide_index=True)
+    st.caption("Note: Daily business day counts assume approximately 21 business days per month.")
