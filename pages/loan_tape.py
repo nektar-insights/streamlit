@@ -8,12 +8,15 @@ This page provides comprehensive loan portfolio analytics including:
 - Risk scoring
 - IRR calculations
 - ML-based predictions
+- Watchlist monitoring
+- Portfolio insights
 """
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 import altair as alt
+from datetime import datetime, timedelta
 
 # Core utilities
 from utils.config import (
@@ -49,6 +52,7 @@ from utils.status_constants import (
     STATUS_GROUPS,
     STATUS_GROUP_COLORS,
     ALL_VALID_STATUSES,
+    PROBLEM_STATUSES as STATUS_PROBLEM_STATUSES,
 )
 from utils.display_components import (
     create_date_range_filter,
@@ -89,6 +93,28 @@ STATUS_RISK_MULTIPLIERS = {
     "Charged Off": 5.0,
     "Bankruptcy": 5.0,
 }
+
+# ---------------------------
+# Watchlist Constants
+# ---------------------------
+HIGH_SEVERITY_PERFORMANCE = 0.70  # Below 70% is high severity
+MEDIUM_SEVERITY_PERFORMANCE = 0.80  # Below 80% is medium severity
+APPROACHING_MATURITY_DAYS = 60  # Days to maturity threshold
+
+SEVERITY_COLORS = {
+    "High": "#dc3545",  # Red
+    "Medium": "#fd7e14",  # Orange
+    "Low": "#ffc107",  # Yellow
+}
+
+# ---------------------------
+# Portfolio Insights Constants
+# ---------------------------
+TARGET_MOIC = 1.20
+TARGET_PROBLEM_RATE = 0.10  # 10%
+PARTNER_HIGH_CONCENTRATION = 0.50  # 50% = red alert
+PARTNER_MEDIUM_CONCENTRATION = 0.30  # 30% = yellow alert
+INDUSTRY_HIGH_CONCENTRATION = 0.20  # 20% = red alert
 
 
 # -------------------
@@ -1065,6 +1091,601 @@ def plot_irr_by_partner(df: pd.DataFrame):
     st.altair_chart(chart, width='stretch')
 
 
+# -------------------
+# Watchlist Helper Functions
+# -------------------
+def calculate_severity(row: pd.Series) -> str:
+    """
+    Calculate severity level for a watchlist item.
+
+    High: Past maturity + performance < 70%
+    Medium: Past maturity OR approaching with low performance
+    Low: Minor concerns
+    """
+    is_past_maturity = row.get("is_past_maturity", False)
+    payment_performance = row.get("payment_performance", 1.0)
+    days_to_maturity = row.get("days_to_maturity", 999)
+
+    if pd.isna(payment_performance):
+        payment_performance = 0.0
+
+    if is_past_maturity and payment_performance < HIGH_SEVERITY_PERFORMANCE:
+        return "High"
+
+    if is_past_maturity:
+        return "Medium"
+
+    if 0 < days_to_maturity <= APPROACHING_MATURITY_DAYS and payment_performance < MEDIUM_SEVERITY_PERFORMANCE:
+        return "Medium"
+
+    return "Low"
+
+
+def format_currency(value) -> str:
+    """Format value as currency."""
+    if pd.isna(value):
+        return "$0"
+    return f"${value:,.0f}"
+
+
+def format_percentage(value) -> str:
+    """Format value as percentage."""
+    if pd.isna(value):
+        return "N/A"
+    return f"{value:.1%}"
+
+
+def prepare_watchlist_data(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Prepare loan data for watchlist analysis.
+    Adds calculated fields for maturity analysis.
+    """
+    if df.empty:
+        return df
+
+    result = df.copy()
+    today = pd.Timestamp.today().normalize()
+
+    if "maturity_date" in result.columns:
+        result["maturity_date"] = pd.to_datetime(result["maturity_date"], errors="coerce")
+
+    result["days_past_maturity"] = 0
+    result["days_to_maturity"] = 999
+
+    if "maturity_date" in result.columns:
+        mask_valid_maturity = result["maturity_date"].notna()
+
+        result.loc[mask_valid_maturity, "days_past_maturity"] = result.loc[mask_valid_maturity, "maturity_date"].apply(
+            lambda x: max(0, (today - x).days)
+        )
+
+        result.loc[mask_valid_maturity, "days_to_maturity"] = result.loc[mask_valid_maturity, "maturity_date"].apply(
+            lambda x: (x - today).days
+        )
+
+    result["is_past_maturity"] = (
+        (result.get("loan_status", "") != "Paid Off") &
+        (result["maturity_date"].notna()) &
+        (result["maturity_date"] < today)
+    )
+
+    return result
+
+
+def display_watchlist_table(
+    df: pd.DataFrame,
+    title: str,
+    severity_filter: str = None,
+    show_severity: bool = True
+):
+    """Display a watchlist table with consistent formatting."""
+    if df.empty:
+        st.info(f"No loans found for: {title}")
+        return
+
+    if "severity" not in df.columns:
+        df = df.copy()
+        df["severity"] = df.apply(calculate_severity, axis=1)
+
+    if severity_filter:
+        df = df[df["severity"] == severity_filter]
+        if df.empty:
+            st.info(f"No {severity_filter.lower()} severity loans found.")
+            return
+
+    df = df.sort_values("net_balance", ascending=False)
+
+    display_df = pd.DataFrame()
+
+    if show_severity:
+        display_df["Severity"] = df["severity"]
+
+    display_df["Loan ID"] = df["loan_id"]
+    display_df["Deal Name"] = df["deal_name"]
+    display_df["Status"] = df["loan_status"]
+
+    if "days_past_maturity" in df.columns:
+        display_df["Days Past Maturity"] = df["days_past_maturity"].astype(int)
+
+    if "days_to_maturity" in df.columns and "days_past_maturity" not in df.columns:
+        display_df["Days to Maturity"] = df["days_to_maturity"].astype(int)
+
+    display_df["Payment Perf"] = df["payment_performance"].apply(format_percentage)
+    display_df["Net Balance"] = df["net_balance"].apply(format_currency)
+
+    if "partner_source" in df.columns:
+        display_df["Partner"] = df["partner_source"]
+
+    def highlight_severity(row):
+        severity = row.get("Severity", "Low")
+        if severity == "High":
+            return ["background-color: rgba(220, 53, 69, 0.2)"] * len(row)
+        elif severity == "Medium":
+            return ["background-color: rgba(253, 126, 20, 0.2)"] * len(row)
+        else:
+            return [""] * len(row)
+
+    if show_severity:
+        styled_df = display_df.style.apply(highlight_severity, axis=1)
+        st.dataframe(styled_df, hide_index=True, use_container_width=True)
+    else:
+        st.dataframe(display_df, hide_index=True, use_container_width=True)
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total Loans", len(df))
+    with col2:
+        st.metric("Total Exposure", format_currency(df["net_balance"].sum()))
+    with col3:
+        avg_perf = df["payment_performance"].mean()
+        st.metric("Avg Payment Perf", format_percentage(avg_perf))
+
+
+def render_watchlist_tab(df: pd.DataFrame):
+    """Render the Watchlist tab content."""
+    st.header("Loan Watchlist")
+    st.markdown("*Proactive monitoring for loans needing attention*")
+
+    # Prepare watchlist data
+    watchlist_df = prepare_watchlist_data(df)
+
+    # Filter to only active loans
+    active_loans = watchlist_df[watchlist_df["loan_status"] != "Paid Off"].copy()
+
+    if active_loans.empty:
+        st.info("No active loans found in the portfolio.")
+        return
+
+    # Calculate severity for all loans
+    active_loans["severity"] = active_loans.apply(calculate_severity, axis=1)
+
+    # Summary Metrics
+    severity_counts = active_loans["severity"].value_counts()
+    high_count = severity_counts.get("High", 0)
+    medium_count = severity_counts.get("Medium", 0)
+    low_count = severity_counts.get("Low", 0)
+
+    high_exposure = active_loans[active_loans["severity"] == "High"]["net_balance"].sum()
+    medium_exposure = active_loans[active_loans["severity"] == "Medium"]["net_balance"].sum()
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.metric(
+            "High Severity",
+            f"{high_count} loans",
+            delta=format_currency(high_exposure),
+            delta_color="inverse"
+        )
+
+    with col2:
+        st.metric(
+            "Medium Severity",
+            f"{medium_count} loans",
+            delta=format_currency(medium_exposure),
+            delta_color="inverse"
+        )
+
+    with col3:
+        st.metric("Low Severity", f"{low_count} loans")
+
+    with col4:
+        total_watchlist = high_count + medium_count
+        st.metric(
+            "Total Watchlist",
+            f"{total_watchlist} loans",
+            delta=f"{total_watchlist / len(active_loans) * 100:.1f}% of portfolio"
+        )
+
+    st.markdown("---")
+
+    # Past Maturity Section
+    st.subheader("Past Maturity Loans")
+
+    past_maturity = active_loans[
+        (active_loans["is_past_maturity"] == True) &
+        (active_loans["loan_status"].isin(["Active", "Active - Frequently Late", "Minor Delinquency", "Moderate Delinquency", "Severe Delinquency"]))
+    ].copy()
+
+    if not past_maturity.empty:
+        severity_options = ["All", "High", "Medium", "Low"]
+        selected_severity = st.selectbox(
+            "Filter by Severity",
+            severity_options,
+            key="past_maturity_severity_tab"
+        )
+
+        filter_severity = None if selected_severity == "All" else selected_severity
+        display_watchlist_table(past_maturity, "Past Maturity Loans", severity_filter=filter_severity)
+
+        csv = past_maturity.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="Download Past Maturity Report",
+            data=csv,
+            file_name=f"past_maturity_loans_{pd.Timestamp.today().strftime('%Y%m%d')}.csv",
+            mime="text/csv",
+            key="past_maturity_download_tab"
+        )
+    else:
+        st.success("No past maturity loans found!")
+
+    st.markdown("---")
+
+    # Approaching Maturity Section
+    st.subheader("Approaching Maturity - At Risk")
+    st.caption(f"Loans due within {APPROACHING_MATURITY_DAYS} days with payment performance < {MEDIUM_SEVERITY_PERFORMANCE:.0%}")
+
+    approaching_maturity = active_loans[
+        (active_loans["is_past_maturity"] == False) &
+        (active_loans["days_to_maturity"] <= APPROACHING_MATURITY_DAYS) &
+        (active_loans["days_to_maturity"] > 0) &
+        (active_loans["payment_performance"] < MEDIUM_SEVERITY_PERFORMANCE)
+    ].copy()
+
+    if not approaching_maturity.empty:
+        approaching_maturity = approaching_maturity.sort_values("days_to_maturity")
+
+        display_df = pd.DataFrame()
+        display_df["Loan ID"] = approaching_maturity["loan_id"]
+        display_df["Deal Name"] = approaching_maturity["deal_name"]
+        display_df["Status"] = approaching_maturity["loan_status"]
+        display_df["Days to Maturity"] = approaching_maturity["days_to_maturity"].astype(int)
+        display_df["Maturity Date"] = approaching_maturity["maturity_date"].dt.strftime("%Y-%m-%d")
+        display_df["Payment Perf"] = approaching_maturity["payment_performance"].apply(format_percentage)
+        display_df["Net Balance"] = approaching_maturity["net_balance"].apply(format_currency)
+        display_df["Partner"] = approaching_maturity.get("partner_source", "")
+
+        st.dataframe(display_df, hide_index=True, use_container_width=True)
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("At-Risk Loans", len(approaching_maturity))
+        with col2:
+            st.metric("At-Risk Exposure", format_currency(approaching_maturity["net_balance"].sum()))
+        with col3:
+            st.metric("Avg Days to Maturity", f"{approaching_maturity['days_to_maturity'].mean():.0f}")
+    else:
+        st.success("No at-risk approaching maturity loans found!")
+
+    st.markdown("---")
+
+    # Payment Performance Concerns
+    st.subheader("Payment Performance Concerns")
+
+    has_payment_behavior = "consecutive_missed" in active_loans.columns
+
+    if has_payment_behavior:
+        consecutive_missed = active_loans[
+            (active_loans["consecutive_missed"] >= 2) &
+            (~active_loans["is_past_maturity"])
+        ].copy()
+
+        if not consecutive_missed.empty:
+            st.markdown("**Consecutive Missed Payments** (2+ consecutive missed)")
+
+            consecutive_missed = consecutive_missed.sort_values("consecutive_missed", ascending=False)
+
+            display_df = pd.DataFrame()
+            display_df["Loan ID"] = consecutive_missed["loan_id"]
+            display_df["Deal Name"] = consecutive_missed["deal_name"]
+            display_df["Status"] = consecutive_missed["loan_status"]
+            display_df["Consecutive Missed"] = consecutive_missed["consecutive_missed"].astype(int)
+            display_df["% On-Time"] = consecutive_missed["pct_on_time"].apply(format_percentage)
+            display_df["% Missed"] = consecutive_missed["pct_missed"].apply(format_percentage)
+            display_df["Payment Perf"] = consecutive_missed["payment_performance"].apply(format_percentage)
+            display_df["Net Balance"] = consecutive_missed["net_balance"].apply(format_currency)
+
+            st.dataframe(display_df, hide_index=True, use_container_width=True)
+
+            st.metric("Loans with Missed Payments", len(consecutive_missed))
+        else:
+            st.success("No loans with consecutive missed payments!")
+
+    # Low performing loans
+    low_performing = active_loans[
+        (active_loans["payment_performance"] < HIGH_SEVERITY_PERFORMANCE) &
+        (~active_loans["is_past_maturity"]) &
+        (active_loans["days_to_maturity"] > APPROACHING_MATURITY_DAYS)
+    ].copy()
+
+    if not low_performing.empty:
+        st.markdown(f"**Low Payment Performance** (below {HIGH_SEVERITY_PERFORMANCE:.0%})")
+
+        low_performing = low_performing.sort_values("payment_performance")
+
+        display_df = pd.DataFrame()
+        display_df["Loan ID"] = low_performing["loan_id"]
+        display_df["Deal Name"] = low_performing["deal_name"]
+        display_df["Status"] = low_performing["loan_status"]
+        display_df["Payment Perf"] = low_performing["payment_performance"].apply(format_percentage)
+        display_df["Days to Maturity"] = low_performing["days_to_maturity"].astype(int)
+        display_df["Net Balance"] = low_performing["net_balance"].apply(format_currency)
+        display_df["Partner"] = low_performing.get("partner_source", "")
+
+        st.dataframe(display_df, hide_index=True, use_container_width=True)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Low Performing Loans", len(low_performing))
+        with col2:
+            st.metric("Exposure", format_currency(low_performing["net_balance"].sum()))
+
+
+# -------------------
+# Portfolio Insights Helper Functions
+# -------------------
+def get_problem_loans(df: pd.DataFrame) -> pd.DataFrame:
+    """Filter to loans with problem status."""
+    return df[df["loan_status"].isin(PROBLEM_STATUSES)].copy()
+
+
+def get_paid_off_loans(df: pd.DataFrame) -> pd.DataFrame:
+    """Filter to paid off loans."""
+    return df[df["loan_status"] == "Paid Off"].copy()
+
+
+def calculate_moic(df: pd.DataFrame) -> float:
+    """Calculate Multiple on Invested Capital (total_paid / total_invested)."""
+    total_invested = df["total_invested"].sum()
+    total_paid = df["total_paid"].sum()
+    if total_invested > 0:
+        return total_paid / total_invested
+    return 0.0
+
+
+def render_portfolio_insights_tab(df: pd.DataFrame):
+    """Render the Portfolio Insights tab content."""
+    st.header("Portfolio Insights")
+    st.caption("Executive-level view of portfolio health and performance")
+
+    # Executive Summary
+    st.subheader("Executive Summary")
+
+    realized_moic = calculate_moic(df)
+    problem_df = get_problem_loans(df)
+    problem_count = len(problem_df)
+    total_count = len(df)
+    problem_rate = problem_count / total_count if total_count > 0 else 0
+    capital_at_risk = problem_df["net_balance"].sum() if not problem_df.empty else 0
+    total_invested = df["total_invested"].sum()
+    total_returned = df["total_paid"].sum()
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        moic_delta = realized_moic - TARGET_MOIC
+        st.metric(
+            label="Realized MOIC",
+            value=f"{realized_moic:.2f}x",
+            delta=f"{moic_delta:+.2f}x vs {TARGET_MOIC:.2f}x target",
+            delta_color="normal" if realized_moic >= TARGET_MOIC else "inverse"
+        )
+
+    with col2:
+        rate_delta = problem_rate - TARGET_PROBLEM_RATE
+        st.metric(
+            label="Problem Rate",
+            value=f"{problem_rate:.1%}",
+            delta=f"{rate_delta:+.1%} vs {TARGET_PROBLEM_RATE:.0%} target",
+            delta_color="normal" if problem_rate <= TARGET_PROBLEM_RATE else "inverse"
+        )
+
+    with col3:
+        st.metric(
+            label="Capital at Risk",
+            value=f"${capital_at_risk:,.0f}",
+            delta=f"{problem_count} problem loans"
+        )
+
+    with col4:
+        net_position = total_returned - total_invested
+        st.metric(
+            label="Net Position",
+            value=f"${net_position:,.0f}",
+            delta=f"${total_returned:,.0f} returned on ${total_invested:,.0f} invested",
+            delta_color="normal" if net_position >= 0 else "inverse"
+        )
+
+    # Health assessment
+    if realized_moic >= TARGET_MOIC and problem_rate <= TARGET_PROBLEM_RATE:
+        st.success("Portfolio is performing above targets on both MOIC and problem rate.")
+    elif realized_moic >= TARGET_MOIC:
+        st.warning(f"MOIC is on target, but problem rate ({problem_rate:.1%}) exceeds {TARGET_PROBLEM_RATE:.0%} threshold.")
+    elif problem_rate <= TARGET_PROBLEM_RATE:
+        st.warning(f"Problem rate is acceptable, but MOIC ({realized_moic:.2f}x) is below {TARGET_MOIC:.2f}x target.")
+    else:
+        st.error(f"Both MOIC ({realized_moic:.2f}x) and problem rate ({problem_rate:.1%}) are below targets.")
+
+    st.markdown("---")
+
+    # Winners vs Losers Analysis
+    st.subheader("Winners vs Losers Analysis")
+    st.caption("Comparing characteristics of Paid Off loans (Winners) vs Problem loans (Losers)")
+
+    paid_off = get_paid_off_loans(df)
+    problem = get_problem_loans(df)
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown(f"**Winners (Paid Off): {len(paid_off)}**")
+        if not paid_off.empty:
+            metric_col1, metric_col2 = st.columns(2)
+            with metric_col1:
+                avg_fico = paid_off["fico"].mean() if "fico" in paid_off.columns and paid_off["fico"].notna().any() else None
+                st.metric("Avg FICO", f"{avg_fico:.0f}" if avg_fico else "N/A")
+                avg_size = paid_off["csl_participation_amount"].mean() if "csl_participation_amount" in paid_off.columns else None
+                st.metric("Avg Deal Size", f"${avg_size:,.0f}" if avg_size else "N/A")
+            with metric_col2:
+                avg_tib = paid_off["tib"].mean() if "tib" in paid_off.columns and paid_off["tib"].notna().any() else None
+                st.metric("Avg TIB (Years)", f"{avg_tib:.1f}" if avg_tib else "N/A")
+                avg_pos = paid_off["ahead_positions"].mean() if "ahead_positions" in paid_off.columns and paid_off["ahead_positions"].notna().any() else None
+                st.metric("Avg Position", f"{avg_pos:.1f}" if avg_pos is not None else "N/A")
+
+    with col2:
+        st.markdown(f"**Losers (Problem): {len(problem)}**")
+        if not problem.empty:
+            metric_col1, metric_col2 = st.columns(2)
+            with metric_col1:
+                avg_fico = problem["fico"].mean() if "fico" in problem.columns and problem["fico"].notna().any() else None
+                st.metric("Avg FICO", f"{avg_fico:.0f}" if avg_fico else "N/A")
+                avg_size = problem["csl_participation_amount"].mean() if "csl_participation_amount" in problem.columns else None
+                st.metric("Avg Deal Size", f"${avg_size:,.0f}" if avg_size else "N/A")
+            with metric_col2:
+                avg_tib = problem["tib"].mean() if "tib" in problem.columns and problem["tib"].notna().any() else None
+                st.metric("Avg TIB (Years)", f"{avg_tib:.1f}" if avg_tib else "N/A")
+                avg_pos = problem["ahead_positions"].mean() if "ahead_positions" in problem.columns and problem["ahead_positions"].notna().any() else None
+                st.metric("Avg Position", f"{avg_pos:.1f}" if avg_pos is not None else "N/A")
+
+    st.markdown("---")
+
+    # Concentration Alerts
+    st.subheader("Concentration Alerts")
+
+    active_df = df[df["loan_status"] != "Paid Off"].copy()
+    total_exposure = active_df["net_balance"].sum()
+
+    if total_exposure > 0 and "partner_source" in active_df.columns:
+        partner_exposure = active_df.groupby("partner_source").agg(
+            exposure=("net_balance", "sum"),
+            deal_count=("loan_id", "count")
+        ).reset_index()
+        partner_exposure["pct_of_total"] = partner_exposure["exposure"] / total_exposure
+        partner_exposure = partner_exposure.sort_values("exposure", ascending=False)
+
+        partner_chart = alt.Chart(partner_exposure.head(10)).mark_bar().encode(
+            x=alt.X("partner_source:N", title="Partner", sort="-y"),
+            y=alt.Y("pct_of_total:Q", title="% of Total Exposure", axis=alt.Axis(format=".0%")),
+            color=alt.condition(
+                alt.datum.pct_of_total >= PARTNER_HIGH_CONCENTRATION,
+                alt.value("#d62728"),
+                alt.condition(
+                    alt.datum.pct_of_total >= PARTNER_MEDIUM_CONCENTRATION,
+                    alt.value("#ff7f0e"),
+                    alt.value(PRIMARY_COLOR)
+                )
+            ),
+            tooltip=[
+                alt.Tooltip("partner_source:N", title="Partner"),
+                alt.Tooltip("pct_of_total:Q", title="% of Exposure", format=".1%"),
+                alt.Tooltip("exposure:Q", title="Exposure", format="$,.0f"),
+                alt.Tooltip("deal_count:Q", title="Deals"),
+            ]
+        ).properties(width=600, height=300, title="Partner Exposure (Top 10)")
+
+        st.altair_chart(partner_chart, use_container_width=True)
+
+        # Show alerts
+        alerts = []
+        for _, row in partner_exposure.iterrows():
+            if row["pct_of_total"] >= PARTNER_HIGH_CONCENTRATION:
+                st.error(f"**Partner**: {row['partner_source']} has {row['pct_of_total']:.1%} of exposure (${row['exposure']:,.0f})")
+            elif row["pct_of_total"] >= PARTNER_MEDIUM_CONCENTRATION:
+                st.warning(f"**Partner**: {row['partner_source']} has {row['pct_of_total']:.1%} of exposure (${row['exposure']:,.0f})")
+
+    st.markdown("---")
+
+    # Vintage Analysis
+    st.subheader("Vintage Analysis")
+    st.caption("Problem rate by funding month")
+
+    if "funding_date" in df.columns:
+        df_vintage = df.copy()
+        df_vintage["funding_date"] = pd.to_datetime(df_vintage["funding_date"], errors="coerce")
+        df_vintage = df_vintage[df_vintage["funding_date"].notna()]
+
+        if not df_vintage.empty:
+            df_vintage["funding_month"] = df_vintage["funding_date"].dt.to_period("M").astype(str)
+            df_vintage["is_problem"] = df_vintage["loan_status"].isin(PROBLEM_STATUSES).astype(int)
+
+            vintage_metrics = df_vintage.groupby("funding_month").agg(
+                total_loans=("loan_id", "count"),
+                problem_loans=("is_problem", "sum"),
+                total_invested=("csl_participation_amount", "sum"),
+                total_returned=("total_paid", "sum"),
+            ).reset_index()
+
+            vintage_metrics["problem_rate"] = vintage_metrics["problem_loans"] / vintage_metrics["total_loans"]
+            vintage_metrics = vintage_metrics.sort_values("funding_month").tail(24)
+
+            problem_rate_chart = alt.Chart(vintage_metrics).mark_bar().encode(
+                x=alt.X("funding_month:N", title="Funding Month", sort=None,
+                       axis=alt.Axis(labelAngle=-45)),
+                y=alt.Y("problem_rate:Q", title="Problem Rate", axis=alt.Axis(format=".0%")),
+                color=alt.condition(
+                    alt.datum.problem_rate >= 0.20,
+                    alt.value("#d62728"),
+                    alt.value(PRIMARY_COLOR)
+                ),
+                tooltip=[
+                    alt.Tooltip("funding_month:N", title="Month"),
+                    alt.Tooltip("problem_rate:Q", title="Problem Rate", format=".1%"),
+                    alt.Tooltip("total_loans:Q", title="Total Loans"),
+                    alt.Tooltip("problem_loans:Q", title="Problem Loans"),
+                ]
+            ).properties(width=800, height=350, title="Problem Rate by Vintage (Last 24 Months)")
+
+            threshold_line = alt.Chart(pd.DataFrame([{"threshold": 0.20}])).mark_rule(
+                strokeDash=[4, 4], color="#d62728", strokeWidth=2
+            ).encode(y="threshold:Q")
+
+            target_line = alt.Chart(pd.DataFrame([{"threshold": 0.10}])).mark_rule(
+                strokeDash=[2, 2], color="#ff7f0e", strokeWidth=1
+            ).encode(y="threshold:Q")
+
+            st.altair_chart(problem_rate_chart + threshold_line + target_line, use_container_width=True)
+
+            # Highlight problematic vintages
+            high_problem_months = vintage_metrics[vintage_metrics["problem_rate"] >= 0.20]
+            if not high_problem_months.empty:
+                st.warning(f"**{len(high_problem_months)} vintage(s) with >20% problem rate:**")
+                for _, row in high_problem_months.iterrows():
+                    st.markdown(f"- **{row['funding_month']}**: {row['problem_rate']:.1%} problem rate ({row['problem_loans']:.0f} of {row['total_loans']:.0f} loans)")
+
+    st.markdown("---")
+
+    # Top 5 Problem Loans
+    st.subheader("Top 5 Problem Loans")
+
+    problem_active = get_problem_loans(active_df)
+    if not problem_active.empty:
+        total_problem_exposure = problem_active["net_balance"].sum()
+        top_problems = problem_active.nlargest(5, "net_balance")[
+            ["loan_id", "deal_name", "partner_source", "loan_status", "net_balance"]
+        ].copy()
+        top_problems["pct_of_problem"] = top_problems["net_balance"] / total_problem_exposure if total_problem_exposure > 0 else 0
+
+        display_df = top_problems.copy()
+        display_df["net_balance"] = display_df["net_balance"].map(lambda x: f"${x:,.0f}")
+        display_df["pct_of_problem"] = display_df["pct_of_problem"].map(lambda x: f"{x:.1%}")
+        display_df.columns = ["Loan ID", "Deal Name", "Partner", "Status", "Net Balance", "% of Problem Exposure"]
+
+        st.dataframe(display_df, hide_index=True, use_container_width=True)
+        st.caption(f"Total problem exposure: ${total_problem_exposure:,.0f}")
+    else:
+        st.info("No problem loans in the active portfolio.")
+
+
 # -----------
 # Main Page
 # -----------
@@ -1149,7 +1770,7 @@ def main():
     filtered_df = add_performance_grades(filtered_df)
 
     # Tabs with persistence support
-    tab_names = ["Summary", "Loan Tape", "Capital Flow", "Performance Analysis", "Risk Analytics"]
+    tab_names = ["Summary", "Loan Tape", "Capital Flow", "Performance Analysis", "Risk Analytics", "Watchlist", "Portfolio Insights"]
     tabs = st.tabs(tab_names)
 
     # Inject JavaScript to click the correct tab if we need to stay on Loan Tape
@@ -1462,6 +2083,11 @@ def main():
                     is_manual=loan_row.get("manual_status", False)
                 )
 
+    with tabs[5]:
+        render_watchlist_tab(filtered_df)
+
+    with tabs[6]:
+        render_portfolio_insights_tab(filtered_df)
 
 
 if __name__ == "__main__":
