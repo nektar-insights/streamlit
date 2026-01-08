@@ -171,11 +171,24 @@ def prepare_loan_data(loans_df: pd.DataFrame, deals_df: pd.DataFrame) -> pd.Data
         loans_df["loan_id"] = _normalize_loan_id(loans_df["loan_id"])
         deals_df["loan_id"] = _normalize_loan_id(deals_df["loan_id"])
 
+        # Preserve factor_rate from loans_df if it exists (for fallback after merge)
+        loans_factor_rate = None
+        if "factor_rate" in loans_df.columns:
+            loans_factor_rate = loans_df[["loan_id", "factor_rate"]].copy()
+            loans_factor_rate["factor_rate"] = pd.to_numeric(loans_factor_rate["factor_rate"], errors="coerce")
+            # Drop factor_rate from loans_df to avoid _x/_y suffix conflicts during merge
+            loans_df = loans_df.drop(columns=["factor_rate"])
+
         # Merge with deals data
         # Note: ahead_positions is the lien position (0=1st, 1=2nd, 2+=junior) - needed for recovery scoring
         # Collateral and communication fields from HubSpot (recovery scoring checks multiple field names)
         # Possible HubSpot field names: collateral_type, collateral, collateral_score, collateral_category
         # Possible HubSpot field names: communication_status, communication, communication_score, borrower_communication
+
+        # Handle column name mapping: deals table may have 'commission' instead of 'commission_fee'
+        if "commission" in deals_df.columns and "commission_fee" not in deals_df.columns:
+            deals_df = deals_df.rename(columns={"commission": "commission_fee"})
+
         merge_cols = [
             "loan_id", "deal_name", "partner_source", "industry", "commission_fee", "fico", "tib",
             "factor_rate", "loan_term", "ahead_positions",
@@ -186,6 +199,21 @@ def prepare_loan_data(loans_df: pd.DataFrame, deals_df: pd.DataFrame) -> pd.Data
         ]
         merge_cols = [c for c in merge_cols if c in deals_df.columns]
         df = loans_df.merge(deals_df[merge_cols], on="loan_id", how="left")
+
+        # Handle factor_rate - prefer deals data, fall back to loan_summaries
+        if loans_factor_rate is not None:
+            if "factor_rate" not in df.columns:
+                # factor_rate not in deals, use from loan_summaries
+                df = df.merge(loans_factor_rate, on="loan_id", how="left")
+            elif df["factor_rate"].isna().any():
+                # Fill missing factor_rate values from loan_summaries
+                df = df.merge(
+                    loans_factor_rate.rename(columns={"factor_rate": "factor_rate_backup"}),
+                    on="loan_id",
+                    how="left"
+                )
+                df["factor_rate"] = df["factor_rate"].fillna(df["factor_rate_backup"])
+                df = df.drop(columns=["factor_rate_backup"], errors="ignore")
     else:
         df = loans_df.copy()
 
