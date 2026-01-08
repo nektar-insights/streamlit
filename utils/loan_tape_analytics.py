@@ -33,9 +33,10 @@ FEATURE_DISPLAY_NAMES = {
     "risk_score": "Calculated Risk Score",
     # Return metrics
     "expected_rtr": "Expected Return Amount (RTR)",
+    "expected_moic": "Expected MOIC",
     "expected_roi": "Expected ROI",
-    "current_roi": "Current ROI",
-    "net_moic": "Net MOIC",
+    "current_roi": "Realized ROI",
+    "net_moic": "Realized MOIC",
     "realized_irr": "Realized IRR",
     "expected_irr": "Expected IRR",
     # New features for Current Risk Model

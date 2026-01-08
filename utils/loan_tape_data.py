@@ -212,25 +212,36 @@ def prepare_loan_data(loans_df: pd.DataFrame, deals_df: pd.DataFrame) -> pd.Data
     # This is what we expect to receive back from the deal
     df["expected_rtr"] = df["csl_participation_amount"] * df["factor_rate"]
 
-    # Calculate Net MOIC (Multiple on Invested Capital) - CORRECTED FORMULA
-    # Net MOIC = Expected RTR / Total Cost Basis
-    # This represents the expected return multiple on our actual cost basis (including fees)
-    # Example: $100k principal × 1.35 factor = $135k RTR / $113k cost basis = 1.19x MOIC
-    df["net_moic"] = np.where(
+    # Calculate Expected MOIC (Multiple on Invested Capital) - based on expected RTR
+    # Expected MOIC = Expected RTR / Total Cost Basis
+    # This is what we expect to earn if the loan pays off in full
+    df["expected_moic"] = np.where(
         df["total_invested"] > 0,
         df["expected_rtr"] / df["total_invested"],
         np.nan
     )
 
     # Calculate Expected ROI (based on expected RTR vs cost basis)
-    # This is what we expect to earn if the loan pays off in full
+    # Expected ROI = Expected MOIC - 1
     df["expected_roi"] = np.where(
         df["total_invested"] > 0,
         (df["expected_rtr"] / df["total_invested"]) - 1,
         np.nan
     )
 
+    # Calculate Realized MOIC (based on actual total_paid)
+    # Net MOIC = Total Paid / Total Cost Basis
+    # This is the actual return multiple we've received so far
+    # For paid-off loans: this is the final realized MOIC
+    # For active loans: this shows current progress
+    df["net_moic"] = np.where(
+        df["total_invested"] > 0,
+        df["total_paid"] / df["total_invested"],
+        np.nan
+    )
+
     # Calculate Current ROI (realized return based on actual payments)
+    # Current ROI = Net MOIC - 1
     # For paid-off loans: this is the final realized ROI
     # For active loans: this shows current progress toward expected ROI
     df["current_roi"] = np.where(
