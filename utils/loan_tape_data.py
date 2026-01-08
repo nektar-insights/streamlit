@@ -437,10 +437,18 @@ def calculate_irr(df: pd.DataFrame, schedules_df: Optional[pd.DataFrame] = None)
                         return irr
 
             # Fallback: Use CAGR with total_paid from summaries (more reliable than schedules)
-            if pd.isna(row.get("payoff_date")) or total_paid <= 0:
+            if total_paid <= 0:
                 return None
 
-            payoff_date = pd.to_datetime(row["payoff_date"]).tz_localize(None)
+            # Get payoff_date - first try from row, then fall back to maturity_date
+            payoff_date = None
+            if pd.notna(row.get("payoff_date")):
+                payoff_date = pd.to_datetime(row["payoff_date"]).tz_localize(None)
+            elif pd.notna(row.get("maturity_date")):
+                payoff_date = pd.to_datetime(row["maturity_date"]).tz_localize(None)
+
+            if payoff_date is None:
+                return None
             if payoff_date <= funding_date:
                 return None
 
