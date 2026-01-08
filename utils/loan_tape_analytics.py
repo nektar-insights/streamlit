@@ -31,6 +31,13 @@ FEATURE_DISPLAY_NAMES = {
     "remaining_maturity_months": "Months Until Maturity",
     "days_since_funding": "Days Since Funding",
     "risk_score": "Calculated Risk Score",
+    # Return metrics
+    "expected_rtr": "Expected Return Amount (RTR)",
+    "expected_roi": "Expected ROI",
+    "current_roi": "Current ROI",
+    "net_moic": "Net MOIC",
+    "realized_irr": "Realized IRR",
+    "expected_irr": "Expected IRR",
     # New features for Current Risk Model
     "ahead_positions": "Positions Ahead (0=1st Lien)",
     "position": "Lien Position",
