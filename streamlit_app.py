@@ -373,13 +373,13 @@ col_cw1, col_cw2, col_cw3 = st.columns(3)
 col_cw1.metric(
     "Current Week Participation",
     f"${current_week_participation:,.0f}",
-    delta=f"${week_delta:,.0f} vs avg" if historical_week_avg > 0 else None,
+    delta=f"{week_delta:+,.0f} vs avg" if historical_week_avg > 0 else None,
     delta_color="normal"
 )
 col_cw2.metric(
     "Current Month Participation",
     f"${current_month_participation:,.0f}",
-    delta=f"${month_delta:,.0f} vs avg" if historical_month_avg > 0 else None,
+    delta=f"{month_delta:+,.0f} vs avg" if historical_month_avg > 0 else None,
     delta_color="normal"
 )
 col_cw3.metric(
