@@ -236,12 +236,42 @@ def prepare_loan_data(loans_df: pd.DataFrame, deals_df: pd.DataFrame) -> pd.Data
     df["total_invested"] = df["csl_participation_amount"] + df["platform_fees"] + df["commission_fees"]
     df["net_balance"] = df["total_invested"] - df["total_paid"]
 
-    # Calculate Net MOIC (Multiple on Invested Capital)
-    # Net MOIC = factor_rate - commission_fee - platform_fee
-    # This represents the net return multiple after all fees
-    df["net_moic"] = df["factor_rate"] - df["commission_fee"] - PLATFORM_FEE
+    # Calculate our expected RTR (Return to Raise) amount
+    # This is what we expect to receive back from the deal
+    df["expected_rtr"] = df["csl_participation_amount"] * df["factor_rate"]
 
-    # Calculate ROI
+    # Calculate Expected MOIC (Multiple on Invested Capital) - based on expected RTR
+    # Expected MOIC = Expected RTR / Total Cost Basis
+    # This is what we expect to earn if the loan pays off in full
+    df["expected_moic"] = np.where(
+        df["total_invested"] > 0,
+        df["expected_rtr"] / df["total_invested"],
+        np.nan
+    )
+
+    # Calculate Expected ROI (based on expected RTR vs cost basis)
+    # Expected ROI = Expected MOIC - 1
+    df["expected_roi"] = np.where(
+        df["total_invested"] > 0,
+        (df["expected_rtr"] / df["total_invested"]) - 1,
+        np.nan
+    )
+
+    # Calculate Realized MOIC (based on actual total_paid)
+    # Net MOIC = Total Paid / Total Cost Basis
+    # This is the actual return multiple we've received so far
+    # For paid-off loans: this is the final realized MOIC
+    # For active loans: this shows current progress
+    df["net_moic"] = np.where(
+        df["total_invested"] > 0,
+        df["total_paid"] / df["total_invested"],
+        np.nan
+    )
+
+    # Calculate Current ROI (realized return based on actual payments)
+    # Current ROI = Net MOIC - 1
+    # For paid-off loans: this is the final realized ROI
+    # For active loans: this shows current progress toward expected ROI
     df["current_roi"] = np.where(
         df["total_invested"] > 0,
         (df["total_paid"] / df["total_invested"]) - 1,
@@ -462,7 +492,8 @@ def calculate_irr(df: pd.DataFrame, schedules_df: Optional[pd.DataFrame] = None)
                     # Calculate using Newton's method for XIRR
                     irr = calculate_xirr(cash_flows, dates)
                     if irr is not None and -0.99 <= irr <= 10:
-                        return irr
+                        # Cap at 500% annualized for display purposes
+                        return min(irr, 5.0)
 
             # Fallback: Use CAGR with total_paid from summaries (more reliable than schedules)
             if total_paid <= 0:
@@ -485,8 +516,15 @@ def calculate_irr(df: pd.DataFrame, schedules_df: Optional[pd.DataFrame] = None)
                 return None
 
             # CAGR fallback (annualized return)
+            # Note: For very short-term loans (<90 days), annualized IRR can be misleadingly high
+            # A 20% return in 30 days annualizes to ~1200%, which is mathematically correct
+            # but not meaningful for business comparison
             simple = (total_paid / total_invested) - 1
-            return (1 + simple) ** (1 / years) - 1
+            cagr_irr = (1 + simple) ** (1 / years) - 1
+
+            # Cap at 500% annualized to prevent misleading extreme values
+            # This affects very short-term loans that had high simple returns
+            return min(cagr_irr, 5.0)  # 500% cap
 
         except Exception as e:
             return None
@@ -504,8 +542,10 @@ def calculate_irr(df: pd.DataFrame, schedules_df: Optional[pd.DataFrame] = None)
             if maturity_date <= funding_date:
                 return None
 
-            # Determine expected total payment
-            if "our_rtr" in row and pd.notnull(row["our_rtr"]):
+            # Determine expected total payment (prioritize our calculated expected_rtr)
+            if "expected_rtr" in row and pd.notnull(row["expected_rtr"]) and row["expected_rtr"] > 0:
+                expected_total_payment = row["expected_rtr"]
+            elif "our_rtr" in row and pd.notnull(row["our_rtr"]):
                 expected_total_payment = row["our_rtr"]
             elif "roi" in row and pd.notnull(row["roi"]):
                 expected_total_payment = row["total_invested"] * (1 + row["roi"])
@@ -546,14 +586,17 @@ def calculate_irr(df: pd.DataFrame, schedules_df: Optional[pd.DataFrame] = None)
             if len(set(dates)) == len(dates):
                 irr = calculate_xirr(cash_flows, dates)
                 if irr is not None and -0.99 <= irr <= 10:
-                    return irr
+                    # Cap at 500% for display purposes
+                    return min(irr, 5.0)
 
             # Fallback to simple CAGR
             years = (maturity_date - funding_date).days / 365.0
             if years < 0.01:
                 return None
             simple = (expected_total_payment / row["total_invested"]) - 1
-            return (1 + simple) ** (1 / years) - 1
+            cagr_irr = (1 + simple) ** (1 / years) - 1
+            # Cap at 500% for display purposes
+            return min(cagr_irr, 5.0)
 
         except Exception as e:
             return None
@@ -838,7 +881,7 @@ def format_dataframe_for_display(
             display_df[col] = display_df[col].map(lambda x: f"{x:.1%}" if pd.notnull(x) else "")
         elif any(term in col_upper for term in ["MATURITY", "MONTHS"]):
             display_df[col] = display_df[col].map(lambda x: f"{x:.1f}" if pd.notnull(x) else "")
-        elif any(term in col_upper for term in ["CAPITAL", "INVESTED", "PAID", "BALANCE", "FEES"]):
+        elif any(term in col_upper for term in ["CAPITAL", "INVESTED", "PAID", "BALANCE", "FEES", "RTR"]):
             display_df[col] = display_df[col].map(lambda x: f"${x:,.2f}" if pd.notnull(x) else "")
 
     # Format date columns
