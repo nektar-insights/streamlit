@@ -222,13 +222,13 @@ def prepare_loan_data(loans_df: pd.DataFrame, deals_df: pd.DataFrame) -> pd.Data
         if date_col in df.columns:
             df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
 
-    # Convert numeric fields
-    df["commission_fee"] = pd.to_numeric(df.get("commission_fee", 0), errors="coerce").fillna(0.0)
-    df["csl_participation_amount"] = pd.to_numeric(df.get("csl_participation_amount", 0), errors="coerce").fillna(0.0)
-    df["total_paid"] = pd.to_numeric(df.get("total_paid", 0), errors="coerce").fillna(0.0)
-    df["factor_rate"] = pd.to_numeric(df.get("factor_rate"), errors="coerce")
-    df["loan_term"] = pd.to_numeric(df.get("loan_term"), errors="coerce")
-    df["ahead_positions"] = pd.to_numeric(df.get("ahead_positions"), errors="coerce")
+    # Convert numeric fields - handle missing columns gracefully
+    df["commission_fee"] = pd.to_numeric(df["commission_fee"], errors="coerce").fillna(0.0) if "commission_fee" in df.columns else 0.0
+    df["csl_participation_amount"] = pd.to_numeric(df["csl_participation_amount"], errors="coerce").fillna(0.0) if "csl_participation_amount" in df.columns else 0.0
+    df["total_paid"] = pd.to_numeric(df["total_paid"], errors="coerce").fillna(0.0) if "total_paid" in df.columns else 0.0
+    df["factor_rate"] = pd.to_numeric(df["factor_rate"], errors="coerce") if "factor_rate" in df.columns else np.nan
+    df["loan_term"] = pd.to_numeric(df["loan_term"], errors="coerce") if "loan_term" in df.columns else np.nan
+    df["ahead_positions"] = pd.to_numeric(df["ahead_positions"], errors="coerce") if "ahead_positions" in df.columns else np.nan
 
     # Calculate fees and totals
     df["commission_fees"] = df["csl_participation_amount"] * df["commission_fee"]
