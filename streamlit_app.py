@@ -7,7 +7,7 @@ from utils.config import (
     PLATFORM_FEE_RATE,
 )
 from utils.data_loader import load_deals, load_loan_summaries
-from utils.loan_tape_data import prepare_loan_data
+from utils.loan_tape_data import prepare_loan_data, calculate_irr
 from utils.status_constants import PROBLEM_STATUSES
 
 # ----------------------------
@@ -25,6 +25,8 @@ today = pd.to_datetime("today").normalize()
 loan_summaries_df = load_loan_summaries()
 if not loan_summaries_df.empty and not df.empty:
     loan_data = prepare_loan_data(loan_summaries_df, df)
+    # Calculate IRR (adds realized_irr column for paid-off loans)
+    loan_data = calculate_irr(loan_data)
 else:
     loan_data = pd.DataFrame()
 
