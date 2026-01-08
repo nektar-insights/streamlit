@@ -21,8 +21,10 @@ from utils.preprocessing import preprocess_dataframe
 from utils.cash_flow_forecast import create_cash_flow_forecast
 from utils.display_components import (
     create_status_filter,
+    create_multi_status_filter,
     create_partner_source_filter,
     create_date_range_filter,
+    create_loan_id_filter,
 )
 
 # Page setup
@@ -338,11 +340,11 @@ with tab_bad_debt:
             col_filter1, col_filter2 = st.columns(2)
 
             with col_filter1:
-                filtered_df, selected_status = create_status_filter(
+                filtered_df, selected_statuses = create_multi_status_filter(
                     df,
                     status_col="loan_status",
-                    label="Filter by Status",
-                    include_all_option=True,
+                    label="Filter by Status (multi-select)",
+                    default_all=True,
                     key_prefix="bde_port_status"
                 )
 
@@ -354,6 +356,15 @@ with tab_bad_debt:
                     default_all=True,
                     key_prefix="bde_port_partner"
                 )
+
+            # Loan ID filter
+            st.markdown("##### Select Specific Loans")
+            filtered_df, selected_loan_ids = create_loan_id_filter(
+                filtered_df,
+                loan_id_col="loan_id",
+                label="Filter by Loan ID (leave empty for all)",
+                key_prefix="bde_port_loan_id"
+            )
 
             st.markdown("##### Vintage Filter")
             filtered_df, date_filter_active = create_date_range_filter(
@@ -367,7 +378,7 @@ with tab_bad_debt:
 
             include_paid_off = st.checkbox("Include Paid Off Loans", value=False, key="bde_port_paid_off")
 
-            if not include_paid_off:
+            if not include_paid_off and "Paid Off" in selected_statuses:
                 filtered_df = filtered_df[filtered_df["loan_status"] != "Paid Off"]
 
             st.info(f"Analyzing {len(filtered_df)} loans after filters.")
