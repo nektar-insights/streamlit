@@ -671,6 +671,124 @@ def create_status_filter(
         return filtered_df, selected_status
 
 
+def create_multi_status_filter(
+    df: pd.DataFrame,
+    status_col: str,
+    label: str = "Filter by Status",
+    default_all: bool = True,
+    key_prefix: str = "multi_status_filter"
+) -> Tuple[pd.DataFrame, List[str]]:
+    """
+    Multi-select status filter allowing selection of multiple statuses.
+
+    Args:
+        df: DataFrame to filter
+        status_col: Name of the status column
+        label: Label for the multiselect widget
+        default_all: Whether to select all statuses by default
+        key_prefix: Prefix for widget keys (for multiple filters on same page)
+
+    Returns:
+        Tuple of (filtered_df, selected_statuses)
+
+    Example:
+        filtered_df, statuses = create_multi_status_filter(
+            df,
+            status_col="loan_status",
+            label="Filter by Loan Status"
+        )
+    """
+    if status_col not in df.columns:
+        st.warning(f"Column '{status_col}' not found in data")
+        return df.copy(), []
+
+    # Get unique statuses
+    statuses = sorted(df[status_col].dropna().unique().tolist())
+
+    if not statuses:
+        st.info(f"No status data available")
+        return df.copy(), []
+
+    # Multiselect widget
+    selected_statuses = st.multiselect(
+        label,
+        options=statuses,
+        default=statuses if default_all else [],
+        key=f"{key_prefix}_multiselect"
+    )
+
+    # Apply filter if selections made
+    if selected_statuses:
+        filtered_df = df[df[status_col].isin(selected_statuses)].copy()
+        return filtered_df, selected_statuses
+    else:
+        # If nothing selected, return empty or all (based on default_all)
+        if default_all:
+            return df.copy(), statuses
+        else:
+            return df[df[status_col].isin([])].copy(), []
+
+
+def create_loan_id_filter(
+    df: pd.DataFrame,
+    loan_id_col: str = "loan_id",
+    label: str = "Filter by Loan ID",
+    key_prefix: str = "loan_id_filter"
+) -> Tuple[pd.DataFrame, List[str]]:
+    """
+    Multi-select loan ID filter for selecting specific loans.
+
+    Args:
+        df: DataFrame to filter
+        loan_id_col: Name of the loan ID column
+        label: Label for the multiselect widget
+        key_prefix: Prefix for widget keys (for multiple filters on same page)
+
+    Returns:
+        Tuple of (filtered_df, selected_loan_ids)
+
+    Example:
+        filtered_df, loan_ids = create_loan_id_filter(
+            df,
+            loan_id_col="loan_id",
+            label="Select Specific Loans"
+        )
+    """
+    if loan_id_col not in df.columns:
+        st.warning(f"Column '{loan_id_col}' not found in data")
+        return df.copy(), []
+
+    # Get unique loan IDs and sort them
+    loan_ids = df[loan_id_col].dropna().unique().tolist()
+    # Convert to strings for consistent display
+    loan_ids = [str(lid) for lid in loan_ids]
+    loan_ids = sorted(loan_ids)
+
+    if not loan_ids:
+        st.info(f"No loan ID data available")
+        return df.copy(), []
+
+    # Multiselect widget - default to empty (all loans shown)
+    selected_ids = st.multiselect(
+        label,
+        options=loan_ids,
+        default=[],
+        key=f"{key_prefix}_multiselect",
+        placeholder="Select specific loans (leave empty for all)"
+    )
+
+    # Apply filter only if selections made
+    if selected_ids:
+        # Normalize loan_id column for comparison
+        df_copy = df.copy()
+        df_copy["_loan_id_str"] = df_copy[loan_id_col].astype(str)
+        filtered_df = df_copy[df_copy["_loan_id_str"].isin(selected_ids)].drop(columns=["_loan_id_str"])
+        return filtered_df, selected_ids
+    else:
+        # No selection = show all loans
+        return df.copy(), loan_ids
+
+
 def create_categorized_status_filter(
     df: pd.DataFrame,
     status_col: str = "loan_status",
