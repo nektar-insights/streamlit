@@ -282,16 +282,17 @@ COMMUNICATION_FIELD_NAMES = ["communication_status", "communication", "communica
 
 RECOVERY_BANDS: List[Tuple[Tuple[float, float], str, float, float, float]] = [
     # (score_range, label, midpoint, low, high)
-    # More granular bands at the top to avoid cliff effects
-    ((9.5, 10.01), "95-100%", 0.975, 0.95, 1.00),   # Excellent - minimal loss
-    ((9.0, 9.5), "90-94%", 0.92, 0.90, 0.94),       # Very good
-    ((8.5, 9.0), "85-89%", 0.87, 0.85, 0.89),       # Good
-    ((8.0, 8.5), "80-84%", 0.82, 0.80, 0.84),       # Above average
-    ((7.0, 8.0), "70-79%", 0.745, 0.70, 0.79),      # Average
-    ((5.0, 7.0), "50-69%", 0.595, 0.50, 0.69),
-    ((3.0, 5.0), "30-49%", 0.395, 0.30, 0.49),
-    ((1.0, 3.0), "10-29%", 0.195, 0.10, 0.29),
-    ((0.0, 1.0), "0-9%", 0.045, 0.00, 0.09),
+    # Calibrated for MCA space with 8% portfolio target loss
+    # A "good" deal (score 8.5-9.0) should hit the 8% target
+    ((9.5, 10.01), "97%", 0.97, 0.95, 0.99),       # Excellent: 3% loss
+    ((9.0, 9.5), "94%", 0.94, 0.92, 0.96),         # Very good: 6% loss
+    ((8.5, 9.0), "92%", 0.92, 0.90, 0.94),         # Good: 8% loss (TARGET)
+    ((8.0, 8.5), "88%", 0.88, 0.85, 0.91),         # Above average: 12% loss
+    ((7.0, 8.0), "82%", 0.82, 0.78, 0.86),         # Average: 18% loss
+    ((5.0, 7.0), "70%", 0.70, 0.60, 0.80),         # Below average: 30% loss
+    ((3.0, 5.0), "50%", 0.50, 0.40, 0.60),         # Poor: 50% loss
+    ((1.0, 3.0), "25%", 0.25, 0.15, 0.35),         # Distressed: 75% loss
+    ((0.0, 1.0), "10%", 0.10, 0.05, 0.15),         # Terminal: 90% loss
 ]
 
 
