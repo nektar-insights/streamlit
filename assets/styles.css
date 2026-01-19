@@ -24,7 +24,7 @@
 /* ---------- Hide Streamlit Branding ---------- */
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
-header {visibility: hidden;}
+/* Note: Don't hide header - it contains the sidebar toggle button */
 
 /* ---------- Main App Container ---------- */
 .stApp {
