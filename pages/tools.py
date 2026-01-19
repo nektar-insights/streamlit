@@ -669,6 +669,8 @@ with tab_scorer:
         render_executive_summary,
         render_factor_impact_examples,
         render_batch_scorer,
+        store_model_metrics,
+        render_model_drift_tracking,
         NAICS_SECTOR_NAMES,
         RISK_LEVELS,
     )
@@ -1146,12 +1148,16 @@ with tab_scorer:
                 try:
                     model, metrics, top_pos, top_neg = train_classification_small(scorer_df)
                     classification_metrics = metrics
+                    # Store metrics for drift tracking
+                    store_model_metrics("classification", metrics, scorer_df)
                 except Exception:
                     pass
 
                 try:
                     r_model, r_metrics = train_regression_small(scorer_df)
                     regression_metrics = r_metrics
+                    # Store metrics for drift tracking
+                    store_model_metrics("regression", r_metrics, scorer_df)
                 except Exception:
                     pass
 
@@ -1312,6 +1318,8 @@ with tab_scorer:
                     risk_model, risk_metrics, partner_rankings, industry_rankings, loan_predictions = train_current_risk_model(
                         scorer_df, schedules_df
                     )
+                    # Store metrics for drift tracking
+                    store_model_metrics("current_risk", risk_metrics, scorer_df)
 
                     col1, col2, col3, col4, col5 = st.columns([1.2, 1, 1, 1, 1.5])
                     with col1:
@@ -1477,6 +1485,9 @@ with tab_scorer:
 
                 if classification_metrics and regression_metrics:
                     render_model_summary(classification_metrics, regression_metrics)
+
+                # Model Drift Tracking
+                render_model_drift_tracking(scorer_df)
 
 
 # =============================================================================

@@ -1647,3 +1647,305 @@ def render_batch_scorer(
 
         except Exception as e:
             st.error(f"Error processing file: {e}")
+
+
+# =============================================================================
+# MODEL DRIFT TRACKING
+# =============================================================================
+
+def store_model_metrics(
+    model_type: str,
+    metrics: Dict,
+    df: pd.DataFrame = None
+) -> bool:
+    """
+    Store model metrics to Supabase for drift tracking over time.
+
+    Args:
+        model_type: Type of model ('classification', 'regression', 'current_risk')
+        metrics: Dictionary of metrics from model training
+        df: Optional DataFrame to calculate additional stats
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        from utils.config import get_supabase_client
+        supabase = get_supabase_client()
+
+        # Build record based on model type
+        record = {
+            "model_type": model_type,
+            "n_samples": metrics.get("n_samples"),
+            "n_cv_folds": metrics.get("n_splits"),
+        }
+
+        if model_type == "classification":
+            roc_auc = metrics.get("ROC AUC", (None, None))
+            precision = metrics.get("Precision", (None, None))
+            recall = metrics.get("Recall", (None, None))
+
+            record.update({
+                "roc_auc": float(roc_auc[0]) if roc_auc[0] is not None and not np.isnan(roc_auc[0]) else None,
+                "precision_score": float(precision[0]) if precision[0] is not None and not np.isnan(precision[0]) else None,
+                "recall_score": float(recall[0]) if recall[0] is not None and not np.isnan(recall[0]) else None,
+                "problem_rate": float(metrics.get("pos_rate", 0)),
+                "n_problem_loans": int(metrics.get("n_samples", 0) * metrics.get("pos_rate", 0)),
+            })
+
+        elif model_type == "regression":
+            r2 = metrics.get("R2", (None, None))
+            rmse = metrics.get("RMSE", (None, None))
+
+            record.update({
+                "r2_score": float(r2[0]) if r2[0] is not None and not np.isnan(r2[0]) else None,
+                "rmse": float(rmse[0]) if rmse[0] is not None and not np.isnan(rmse[0]) else None,
+                "avg_payment_performance": float(metrics.get("mean_target", 0)),
+            })
+
+        elif model_type == "current_risk":
+            roc_auc = metrics.get("ROC AUC", (None, None))
+            precision = metrics.get("Precision", (None, None))
+            recall = metrics.get("Recall", (None, None))
+
+            record.update({
+                "roc_auc": float(roc_auc[0]) if roc_auc[0] is not None and not np.isnan(roc_auc[0]) else None,
+                "precision_score": float(precision[0]) if precision[0] is not None and not np.isnan(precision[0]) else None,
+                "recall_score": float(recall[0]) if recall[0] is not None and not np.isnan(recall[0]) else None,
+                "problem_rate": float(metrics.get("pos_rate", 0)),
+                "n_problem_loans": metrics.get("n_problem_loans"),
+            })
+
+        # Add portfolio stats from DataFrame if provided
+        if df is not None and "payment_performance" in df.columns:
+            avg_perf = df["payment_performance"].mean()
+            if not np.isnan(avg_perf):
+                record["avg_payment_performance"] = float(avg_perf)
+
+        # Store metadata
+        record["metadata"] = {
+            "auc_tier": metrics.get("auc_tier"),
+            "r2_tier": metrics.get("r2_tier"),
+            "auc_lift": metrics.get("auc_lift"),
+        }
+
+        supabase.table("model_metrics_history").insert(record).execute()
+        return True
+
+    except Exception as e:
+        # Silently fail - don't disrupt the UI if metrics storage fails
+        print(f"[Model Metrics] Warning: Could not store metrics: {e}")
+        return False
+
+
+def get_model_metrics_history(
+    model_type: str = None,
+    days: int = 90,
+    limit: int = 100
+) -> pd.DataFrame:
+    """
+    Retrieve historical model metrics from Supabase.
+
+    Args:
+        model_type: Filter by model type (None for all)
+        days: Number of days of history to retrieve
+        limit: Maximum number of records
+
+    Returns:
+        DataFrame with historical metrics
+    """
+    try:
+        from utils.config import get_supabase_client
+        from datetime import datetime, timedelta
+
+        supabase = get_supabase_client()
+
+        # Calculate date cutoff
+        cutoff_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
+
+        query = supabase.table("model_metrics_history") \
+            .select("*") \
+            .gte("recorded_at", cutoff_date) \
+            .order("recorded_at", desc=True) \
+            .limit(limit)
+
+        if model_type:
+            query = query.eq("model_type", model_type)
+
+        result = query.execute()
+
+        if result.data:
+            df = pd.DataFrame(result.data)
+            df["recorded_at"] = pd.to_datetime(df["recorded_at"])
+            return df
+
+        return pd.DataFrame()
+
+    except Exception as e:
+        print(f"[Model Metrics] Warning: Could not retrieve metrics history: {e}")
+        return pd.DataFrame()
+
+
+def render_model_drift_tracking(df: pd.DataFrame = None) -> None:
+    """
+    Render model drift tracking visualization showing metric trends over time.
+
+    Args:
+        df: Optional current DataFrame for context
+    """
+    st.markdown("### Model Performance Tracking")
+    st.markdown("""
+    Track how model performance changes over time. Significant drops in metrics may indicate
+    data drift (changing patterns) or concept drift (changing relationships).
+    """)
+
+    # Get historical data
+    history_df = get_model_metrics_history(days=90)
+
+    if history_df.empty:
+        st.info("No historical metrics found. Metrics will be recorded each time you view this page.")
+        return
+
+    # Filter options
+    col1, col2 = st.columns(2)
+    with col1:
+        model_filter = st.selectbox(
+            "Model Type",
+            options=["All", "classification", "regression", "current_risk"],
+            index=0,
+            key="drift_model_filter"
+        )
+
+    with col2:
+        metric_options = ["ROC AUC", "Precision", "Recall", "R² Score", "Problem Rate"]
+        selected_metric = st.selectbox(
+            "Metric to Display",
+            options=metric_options,
+            index=0,
+            key="drift_metric_filter"
+        )
+
+    # Filter data
+    if model_filter != "All":
+        plot_df = history_df[history_df["model_type"] == model_filter].copy()
+    else:
+        plot_df = history_df.copy()
+
+    if plot_df.empty:
+        st.warning(f"No data available for {model_filter} model.")
+        return
+
+    # Map selected metric to column
+    metric_map = {
+        "ROC AUC": "roc_auc",
+        "Precision": "precision_score",
+        "Recall": "recall_score",
+        "R² Score": "r2_score",
+        "Problem Rate": "problem_rate",
+    }
+    metric_col = metric_map.get(selected_metric, "roc_auc")
+
+    # Filter to rows with the selected metric
+    plot_df = plot_df[plot_df[metric_col].notna()].copy()
+
+    if plot_df.empty:
+        st.warning(f"No {selected_metric} data available for the selected model type.")
+        return
+
+    # Create trend chart
+    chart = alt.Chart(plot_df).mark_line(point=True).encode(
+        x=alt.X("recorded_at:T", title="Date", axis=alt.Axis(format="%b %d")),
+        y=alt.Y(f"{metric_col}:Q", title=selected_metric, scale=alt.Scale(zero=False)),
+        color=alt.Color("model_type:N", title="Model") if model_filter == "All" else alt.value("#1f77b4"),
+        tooltip=[
+            alt.Tooltip("recorded_at:T", title="Date", format="%Y-%m-%d %H:%M"),
+            alt.Tooltip(f"{metric_col}:Q", title=selected_metric, format=".4f"),
+            alt.Tooltip("model_type:N", title="Model"),
+            alt.Tooltip("n_samples:Q", title="Samples"),
+        ]
+    ).properties(
+        height=300,
+        title=f"{selected_metric} Over Time"
+    )
+
+    # Add threshold line for good performance
+    threshold_values = {
+        "roc_auc": 0.70,
+        "precision_score": 0.50,
+        "recall_score": 0.50,
+        "r2_score": 0.30,
+        "problem_rate": None,  # No threshold for problem rate
+    }
+
+    threshold = threshold_values.get(metric_col)
+    if threshold is not None:
+        threshold_line = alt.Chart(pd.DataFrame({"y": [threshold]})).mark_rule(
+            color="red",
+            strokeDash=[5, 5],
+            opacity=0.7
+        ).encode(y="y:Q")
+
+        chart = chart + threshold_line
+
+    st.altair_chart(chart, use_container_width=True)
+
+    if threshold is not None:
+        st.caption(f"Red dashed line shows the 'Fair' performance threshold ({threshold})")
+
+    # Summary statistics
+    st.markdown("##### Recent Performance Summary")
+
+    # Get most recent metrics for each model type
+    recent = plot_df.groupby("model_type").first().reset_index()
+
+    summary_cols = st.columns(len(recent))
+    for col, (_, row) in zip(summary_cols, recent.iterrows()):
+        with col:
+            model_name = row["model_type"].replace("_", " ").title()
+            metric_val = row.get(metric_col)
+            n_samples = row.get("n_samples", "N/A")
+
+            if metric_val is not None and not np.isnan(metric_val):
+                st.metric(
+                    model_name,
+                    f"{metric_val:.3f}",
+                    help=f"Most recent {selected_metric} for {model_name} model"
+                )
+                st.caption(f"n={n_samples:,}" if isinstance(n_samples, (int, float)) else f"n={n_samples}")
+            else:
+                st.metric(model_name, "N/A")
+
+    # Drift detection alerts
+    if len(plot_df) >= 3:
+        st.markdown("##### Drift Detection")
+
+        # Calculate recent trend
+        recent_3 = plot_df.head(3)[metric_col].values
+        if len(recent_3) >= 3 and all(pd.notna(recent_3)):
+            trend = recent_3[0] - recent_3[2]  # Most recent minus oldest of last 3
+
+            if metric_col == "problem_rate":
+                # For problem rate, increasing is bad
+                if trend > 0.05:
+                    st.warning(f"Problem rate has increased by {trend:.1%} in recent runs. Monitor closely.")
+                elif trend < -0.03:
+                    st.success(f"Problem rate has decreased by {abs(trend):.1%} in recent runs.")
+                else:
+                    st.info("Problem rate is stable.")
+            else:
+                # For other metrics, decreasing is concerning
+                if trend < -0.05:
+                    st.warning(f"{selected_metric} has dropped by {abs(trend):.3f} in recent runs. This may indicate data drift.")
+                elif trend > 0.03:
+                    st.success(f"{selected_metric} has improved by {trend:.3f} in recent runs.")
+                else:
+                    st.info(f"{selected_metric} is stable (change: {trend:+.3f})")
+
+    # Data table
+    with st.expander("View Raw Metrics History"):
+        display_df = plot_df[["recorded_at", "model_type", metric_col, "n_samples", "problem_rate"]].copy()
+        display_df["recorded_at"] = display_df["recorded_at"].dt.strftime("%Y-%m-%d %H:%M")
+        display_df.columns = ["Date", "Model", selected_metric, "Samples", "Problem Rate"]
+        st.dataframe(display_df.head(20), use_container_width=True, hide_index=True)
+
+    st.markdown("---")
