@@ -382,6 +382,22 @@ with tab_bad_debt:
             if not include_paid_off and "Paid Off" in selected_statuses:
                 filtered_df = filtered_df[filtered_df["loan_status"] != "Paid Off"]
 
+            # Bad debt allowance filter
+            st.markdown("##### Bad Debt Allowance Filter")
+            bad_debt_filter = st.radio(
+                "Filter by existing bad debt allowance",
+                options=["All Loans", "Only loans WITH allowance", "Only loans WITHOUT allowance"],
+                index=0,
+                horizontal=True,
+                key="bde_port_bad_debt_filter"
+            )
+
+            if "bad_debt_allowance" in filtered_df.columns:
+                if bad_debt_filter == "Only loans WITH allowance":
+                    filtered_df = filtered_df[filtered_df["bad_debt_allowance"].fillna(0) > 0]
+                elif bad_debt_filter == "Only loans WITHOUT allowance":
+                    filtered_df = filtered_df[filtered_df["bad_debt_allowance"].fillna(0) == 0]
+
             st.info(f"Analyzing {len(filtered_df)} loans after filters.")
 
             if st.button("Calculate Bad Debt Estimates", type="secondary", key="bde_calc_portfolio"):
