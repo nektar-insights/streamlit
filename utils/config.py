@@ -123,8 +123,6 @@ def inject_global_styles():
         with open(css_path) as f:
             css_content = f.read()
             st.markdown(f"<style>{css_content}</style>", unsafe_allow_html=True)
-            # Debug: shows toast when CSS loads (remove after confirming)
-            st.toast(f"CSL theme loaded: {len(css_content)} bytes")
     else:
         st.warning(f"CSS file not found at: {css_path.absolute()}")
         # Fallback to basic styles if CSS file not found

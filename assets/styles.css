@@ -95,22 +95,11 @@ p, span, label {
     color: var(--csl-text-dark);
 }
 
-/* ---------- Cards / Containers ---------- */
-[data-testid="stVerticalBlock"] > div > div > div > div {
-    background-color: var(--csl-card-bg);
-    border-radius: 12px;
-    padding: 1rem;
-    border: 1px solid var(--csl-border);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-}
-
-/* Metric cards */
+/* ---------- Metric cards ---------- */
+/* Clean metrics without heavy borders */
 [data-testid="stMetric"] {
-    background-color: var(--csl-card-bg);
-    border-radius: 12px;
-    padding: 1.25rem;
-    border: 1px solid var(--csl-border);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    background-color: transparent;
+    padding: 0.5rem 0;
 }
 
 [data-testid="stMetricLabel"] {
