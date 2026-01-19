@@ -241,8 +241,11 @@ def _prepare_deals_data(deals_df):
     # Filter to only closed won deals (participated deals)
     deals_df = deals_df[deals_df["is_closed_won"] == True].copy()
     
-    # Calculate total return (expected profit)
-    deals_df["total_return"] = (deals_df["amount"] * deals_df["factor_rate"]) - deals_df["amount"]
+    # Calculate expected total return (principal + profit = amount * factor_rate)
+    # This is what we expect to receive back in total payments
+    deals_df["total_return"] = deals_df["amount"] * deals_df["factor_rate"]
+    # Also calculate expected profit for reference
+    deals_df["expected_profit"] = deals_df["total_return"] - deals_df["amount"]
     
     return deals_df
 
