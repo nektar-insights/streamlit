@@ -26,6 +26,11 @@ from utils.loan_tape_loader import (
     get_data_diagnostics,
 )
 from utils.status_constants import TERMINAL_STATUSES, PROBLEM_STATUSES
+from utils.cash_flow_forecast import (
+    store_forecast_snapshot,
+    get_forecast_history,
+    render_forecast_history_tracking,
+)
 import numpy as np
 from datetime import datetime, timedelta
 import warnings
@@ -64,7 +69,12 @@ if "txn_date" in df.columns:
 # Helper Functions
 # -------------------------
 def calculate_portfolio_metrics(deals_df, unified_df, qbo_df):
-    """Calculate comprehensive portfolio metrics"""
+    """
+    Calculate comprehensive portfolio metrics using properly aligned data.
+
+    Uses unified_df (which has loan_id joined data) for accurate collection rate
+    to ensure we only count payments attributed to deals we participated in.
+    """
     metrics = {}
 
     # Filter to closed/won deals only
@@ -76,8 +86,12 @@ def calculate_portfolio_metrics(deals_df, unified_df, qbo_df):
     # Total deployed capital
     metrics["total_deployed"] = active_deals["amount"].sum() if "amount" in active_deals.columns else 0
 
-    # Expected return (factor_rate * amount - amount = profit)
-    if "factor_rate" in active_deals.columns and "amount" in active_deals.columns:
+    # Expected return - use unified_df if available for consistency
+    if not unified_df.empty and "Expected Return" in unified_df.columns:
+        # Use pre-calculated expected return from unified data (already filtered to participated deals)
+        metrics["expected_total_return"] = pd.to_numeric(unified_df["Expected Return"], errors="coerce").sum()
+        metrics["expected_profit"] = metrics["expected_total_return"] - metrics["total_deployed"]
+    elif "factor_rate" in active_deals.columns and "amount" in active_deals.columns:
         active_deals["expected_total_return"] = active_deals["amount"] * active_deals["factor_rate"]
         metrics["expected_total_return"] = active_deals["expected_total_return"].sum()
         metrics["expected_profit"] = metrics["expected_total_return"] - metrics["total_deployed"]
@@ -85,17 +99,21 @@ def calculate_portfolio_metrics(deals_df, unified_df, qbo_df):
         metrics["expected_total_return"] = metrics["total_deployed"] * 1.3  # Default 30% return assumption
         metrics["expected_profit"] = metrics["expected_total_return"] - metrics["total_deployed"]
 
-    # Actual cash received (from QBO payments)
-    # Note: Exclude "Deposit" to avoid double-counting - Deposits often contain the same payments
-    payment_types = ["Payment", "Receipt"]
-    if "transaction_type" in qbo_df.columns:
-        payments = qbo_df[qbo_df["transaction_type"].isin(payment_types)].copy()
-        # Exclude internal transfers
-        if "customer_name" in payments.columns:
-            payments = payments[~payments["customer_name"].isin(["CSL", "VEEM", "CSL Capital", "Internal"])]
-        metrics["total_cash_received"] = payments["total_amount"].abs().sum()
+    # Actual cash received - USE UNIFIED DATA for proper alignment
+    # This ensures we only count payments that are attributed to loans we participated in
+    if not unified_df.empty and "RTR Amount" in unified_df.columns:
+        # RTR Amount in unified_df is already properly joined on loan_id
+        metrics["total_cash_received"] = pd.to_numeric(unified_df["RTR Amount"], errors="coerce").sum()
     else:
-        metrics["total_cash_received"] = 0
+        # Fallback to QBO data if unified not available
+        payment_types = ["Payment", "Receipt"]
+        if "transaction_type" in qbo_df.columns:
+            payments = qbo_df[qbo_df["transaction_type"].isin(payment_types)].copy()
+            if "customer_name" in payments.columns:
+                payments = payments[~payments["customer_name"].isin(["CSL", "VEEM", "CSL Capital", "Internal"])]
+            metrics["total_cash_received"] = payments["total_amount"].abs().sum()
+        else:
+            metrics["total_cash_received"] = 0
 
     # Calculate key ratios
     if metrics["expected_total_return"] > 0:
@@ -116,7 +134,7 @@ def calculate_portfolio_metrics(deals_df, unified_df, qbo_df):
 
     # From unified data - loans with payments
     if not unified_df.empty and "RTR Amount" in unified_df.columns:
-        metrics["loans_with_payments"] = (unified_df["RTR Amount"] > 0).sum()
+        metrics["loans_with_payments"] = (pd.to_numeric(unified_df["RTR Amount"], errors="coerce") > 0).sum()
         metrics["loans_without_payments"] = metrics["total_loans"] - metrics["loans_with_payments"]
     else:
         metrics["loans_with_payments"] = 0
@@ -889,6 +907,36 @@ if forecast_result and len(forecast_result) == 3:
         )
 
         st.info(f"**Note:** Forecast is based on historical collection patterns. ${remaining:,.0f} remaining to collect.")
+
+        # Save forecast button
+        st.markdown("---")
+        col1, col2 = st.columns([2, 1])
+
+        with col1:
+            st.markdown("**Save this forecast** to track accuracy over time.")
+
+        with col2:
+            if st.button("💾 Save Forecast", key="save_qbo_forecast"):
+                # Build forecast params
+                forecast_params = {
+                    "forecast_period": "monthly",
+                    "forecast_horizon": 6,
+                    "starting_cash": 0,  # Not tracked in this simple forecast
+                    "deployment_rate": 0,
+                    "inflow_rate": avg_forecast,
+                    "opex_rate": 0,
+                    "growth_rate": 0
+                }
+
+                if store_forecast_snapshot(forecast_df, forecast_params):
+                    st.success("✅ Forecast saved!")
+                else:
+                    st.error("Failed to save forecast.")
+
+        # Forecast History
+        st.markdown("---")
+        render_forecast_history_tracking(df)
+
     else:
         st.warning("Insufficient historical data for forecasting")
 else:

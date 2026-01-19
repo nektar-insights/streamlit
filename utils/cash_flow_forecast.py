@@ -4,6 +4,323 @@ import pandas as pd
 import numpy as np
 import altair as alt
 from datetime import datetime, timedelta
+import json
+from utils.imports import get_supabase_client
+
+
+def store_forecast_snapshot(forecast_df, params):
+    """
+    Store a forecast snapshot to Supabase for historical tracking.
+
+    Args:
+        forecast_df: DataFrame with forecast data (Date, Forecast/Value, etc.)
+        params: dict with forecast parameters:
+            - forecast_period: 'weekly' or 'monthly'
+            - forecast_horizon: int
+            - starting_cash: float
+            - deployment_rate: float
+            - inflow_rate: float
+            - opex_rate: float
+            - growth_rate: float (decimal, e.g., 0.02 for 2%)
+
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        supabase = get_supabase_client()
+
+        # Build period forecasts JSON
+        period_forecasts = []
+        for _, row in forecast_df.iterrows():
+            if "Forecast" in forecast_df.columns:
+                amount = row.get("Forecast", row.get("Value", 0))
+            else:
+                amount = row.get("Value", 0)
+
+            period_date = row.get("Date", row.get("Month"))
+            if pd.notna(period_date):
+                period_forecasts.append({
+                    "period_date": period_date.strftime("%Y-%m-%d") if hasattr(period_date, "strftime") else str(period_date),
+                    "forecast_amount": float(amount) if pd.notna(amount) else 0,
+                    "actual_amount": None  # To be filled when actuals come in
+                })
+
+        # Calculate aggregate metrics
+        total_forecast = sum(p["forecast_amount"] for p in period_forecasts)
+        ending_cash = params.get("starting_cash", 0) + total_forecast - (
+            params.get("deployment_rate", 0) * len(period_forecasts)
+        ) - (params.get("opex_rate", 0) * len(period_forecasts))
+
+        # Insert into Supabase
+        data = {
+            "forecast_date": datetime.now().strftime("%Y-%m-%d"),
+            "forecast_period": params.get("forecast_period", "monthly"),
+            "forecast_horizon": params.get("forecast_horizon", 6),
+            "starting_cash": params.get("starting_cash", 0),
+            "deployment_rate": params.get("deployment_rate", 0),
+            "inflow_rate": params.get("inflow_rate", 0),
+            "opex_rate": params.get("opex_rate", 0),
+            "growth_rate": params.get("growth_rate", 0),
+            "total_forecast_inflows": total_forecast,
+            "total_forecast_deployment": params.get("deployment_rate", 0) * len(period_forecasts),
+            "ending_cash_forecast": ending_cash,
+            "period_forecasts": json.dumps(period_forecasts)
+        }
+
+        response = supabase.table("cash_flow_forecast_history").insert(data).execute()
+
+        if response.data:
+            return True
+        return False
+
+    except Exception as e:
+        print(f"Error storing forecast snapshot: {e}")
+        return False
+
+
+def get_forecast_history(days=90, limit=50):
+    """
+    Retrieve historical forecast snapshots from Supabase.
+
+    Args:
+        days: Number of days of history to retrieve
+        limit: Maximum number of forecasts to return
+
+    Returns:
+        pd.DataFrame: Historical forecasts with their parameters and accuracy
+    """
+    try:
+        supabase = get_supabase_client()
+
+        cutoff_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+
+        response = (
+            supabase.table("cash_flow_forecast_history")
+            .select("*")
+            .gte("forecast_date", cutoff_date)
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+
+        if response.data:
+            df = pd.DataFrame(response.data)
+            df["created_at"] = pd.to_datetime(df["created_at"])
+            df["forecast_date"] = pd.to_datetime(df["forecast_date"])
+            return df
+
+        return pd.DataFrame()
+
+    except Exception as e:
+        print(f"Error retrieving forecast history: {e}")
+        return pd.DataFrame()
+
+
+def update_forecast_with_actuals(forecast_id, qbo_df):
+    """
+    Update a historical forecast with actual cash flow data.
+
+    Args:
+        forecast_id: UUID of the forecast record to update
+        qbo_df: DataFrame with actual QBO payment data
+
+    Returns:
+        float: Forecast accuracy percentage (0-100)
+    """
+    try:
+        supabase = get_supabase_client()
+
+        # Get the forecast record
+        response = supabase.table("cash_flow_forecast_history").select("*").eq("id", forecast_id).execute()
+
+        if not response.data:
+            return None
+
+        forecast = response.data[0]
+        period_forecasts = json.loads(forecast["period_forecasts"]) if isinstance(forecast["period_forecasts"], str) else forecast["period_forecasts"]
+
+        # Calculate actuals for each period
+        if "txn_date" in qbo_df.columns:
+            qbo_df = qbo_df.copy()
+            qbo_df["txn_date"] = pd.to_datetime(qbo_df["txn_date"], errors="coerce")
+            qbo_df["total_amount"] = pd.to_numeric(qbo_df["total_amount"], errors="coerce").abs()
+
+            # Filter to payments only
+            payment_types = ["Payment", "Receipt"]
+            if "transaction_type" in qbo_df.columns:
+                payments = qbo_df[qbo_df["transaction_type"].isin(payment_types)]
+            else:
+                payments = qbo_df
+
+            # Calculate actuals for each forecasted period
+            total_forecast = 0
+            total_actual = 0
+            updated_forecasts = []
+
+            for period in period_forecasts:
+                period_date = pd.to_datetime(period["period_date"])
+                forecast_amount = period["forecast_amount"]
+                total_forecast += forecast_amount
+
+                # Get actual for this period (same month or week)
+                if forecast["forecast_period"] == "weekly":
+                    period_start = period_date - timedelta(days=period_date.weekday())
+                    period_end = period_start + timedelta(days=6)
+                else:
+                    period_start = period_date.replace(day=1)
+                    next_month = period_start + timedelta(days=32)
+                    period_end = next_month.replace(day=1) - timedelta(days=1)
+
+                actual = payments[
+                    (payments["txn_date"] >= period_start) &
+                    (payments["txn_date"] <= period_end)
+                ]["total_amount"].sum()
+
+                total_actual += actual
+                period["actual_amount"] = float(actual)
+                updated_forecasts.append(period)
+
+            # Calculate accuracy (how close were we?)
+            if total_forecast > 0:
+                accuracy = max(0, 100 - abs(total_forecast - total_actual) / total_forecast * 100)
+            else:
+                accuracy = 0 if total_actual > 0 else 100
+
+            # Update the record
+            supabase.table("cash_flow_forecast_history").update({
+                "period_forecasts": json.dumps(updated_forecasts),
+                "actuals_updated_at": datetime.now().isoformat(),
+                "forecast_accuracy_pct": accuracy
+            }).eq("id", forecast_id).execute()
+
+            return accuracy
+
+        return None
+
+    except Exception as e:
+        print(f"Error updating forecast with actuals: {e}")
+        return None
+
+
+def render_forecast_history_tracking(qbo_df=None):
+    """
+    Render the forecast history tracking UI component.
+    Shows historical forecasts and compares them to actuals.
+    """
+    st.subheader("📊 Forecast History & Accuracy Tracking")
+
+    # Load historical forecasts
+    history_df = get_forecast_history(days=180, limit=20)
+
+    if history_df.empty:
+        st.info("No forecast history available yet. Save a forecast to start tracking accuracy over time.")
+        st.markdown("""
+        **How it works:**
+        1. When you generate a forecast, click "Save Forecast Snapshot" to store it
+        2. As time passes and actuals come in, the system compares forecasts to reality
+        3. Track your forecast accuracy to improve future predictions
+        """)
+        return
+
+    # Summary metrics
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.metric("Total Forecasts", len(history_df))
+
+    with col2:
+        forecasts_with_accuracy = history_df[history_df["forecast_accuracy_pct"].notna()]
+        if not forecasts_with_accuracy.empty:
+            avg_accuracy = forecasts_with_accuracy["forecast_accuracy_pct"].mean()
+            st.metric("Avg Accuracy", f"{avg_accuracy:.1f}%")
+        else:
+            st.metric("Avg Accuracy", "N/A")
+
+    with col3:
+        recent = history_df.iloc[0] if len(history_df) > 0 else None
+        if recent is not None:
+            st.metric("Latest Forecast", recent["forecast_date"].strftime("%b %d, %Y"))
+        else:
+            st.metric("Latest Forecast", "None")
+
+    with col4:
+        if recent is not None and pd.notna(recent.get("forecast_accuracy_pct")):
+            st.metric("Latest Accuracy", f"{recent['forecast_accuracy_pct']:.1f}%")
+        else:
+            st.metric("Latest Accuracy", "Pending")
+
+    # Accuracy trend chart
+    forecasts_with_accuracy = history_df[history_df["forecast_accuracy_pct"].notna()].copy()
+
+    if not forecasts_with_accuracy.empty:
+        st.markdown("### Forecast Accuracy Trend")
+
+        chart_data = forecasts_with_accuracy[["forecast_date", "forecast_accuracy_pct"]].copy()
+        chart_data = chart_data.sort_values("forecast_date")
+
+        accuracy_chart = alt.Chart(chart_data).mark_line(point=True, color="#34a853").encode(
+            x=alt.X("forecast_date:T", title="Forecast Date"),
+            y=alt.Y("forecast_accuracy_pct:Q", title="Accuracy %", scale=alt.Scale(domain=[0, 100])),
+            tooltip=[
+                alt.Tooltip("forecast_date:T", title="Date", format="%b %d, %Y"),
+                alt.Tooltip("forecast_accuracy_pct:Q", title="Accuracy", format=".1f")
+            ]
+        ).properties(
+            width=700,
+            height=300,
+            title="Forecast Accuracy Over Time"
+        )
+
+        # Add target line at 80%
+        target_line = alt.Chart(pd.DataFrame({"y": [80]})).mark_rule(
+            color="orange",
+            strokeDash=[5, 5]
+        ).encode(y="y:Q")
+
+        st.altair_chart(accuracy_chart + target_line, use_container_width=True)
+
+    # Forecast history table
+    st.markdown("### Forecast History")
+
+    display_df = history_df[[
+        "forecast_date", "forecast_period", "forecast_horizon",
+        "total_forecast_inflows", "ending_cash_forecast", "forecast_accuracy_pct"
+    ]].copy()
+
+    display_df.columns = ["Date", "Period", "Horizon", "Forecast Inflows", "Ending Cash", "Accuracy %"]
+    display_df["Date"] = display_df["Date"].dt.strftime("%Y-%m-%d")
+
+    st.dataframe(
+        display_df,
+        column_config={
+            "Date": st.column_config.TextColumn("Forecast Date"),
+            "Period": st.column_config.TextColumn("Period"),
+            "Horizon": st.column_config.NumberColumn("Horizon"),
+            "Forecast Inflows": st.column_config.NumberColumn("Forecast Inflows", format="$%.0f"),
+            "Ending Cash": st.column_config.NumberColumn("Ending Cash", format="$%.0f"),
+            "Accuracy %": st.column_config.NumberColumn("Accuracy", format="%.1f%%"),
+        },
+        hide_index=True,
+        use_container_width=True
+    )
+
+    # Update actuals button
+    if qbo_df is not None and not qbo_df.empty:
+        st.markdown("---")
+        if st.button("🔄 Update Forecasts with Actuals", help="Compare past forecasts to actual cash flow"):
+            with st.spinner("Updating forecasts with actual data..."):
+                updated_count = 0
+                for _, row in history_df.iterrows():
+                    if pd.isna(row.get("forecast_accuracy_pct")):
+                        accuracy = update_forecast_with_actuals(row["id"], qbo_df)
+                        if accuracy is not None:
+                            updated_count += 1
+
+                if updated_count > 0:
+                    st.success(f"Updated {updated_count} forecasts with actual data!")
+                    st.rerun()
+                else:
+                    st.info("No forecasts needed updating.")
 
 def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
     """
@@ -622,9 +939,44 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             if net_flow_per_period < 0:
                 monthly_burn = net_flow_per_period * (4.33 if forecast_period == "Weekly" else 1)
                 st.warning(f"📉 Negative cash flow: Burning ${abs(monthly_burn):,.0f} per month")
-        
+
+            # ===== SAVE FORECAST SNAPSHOT =====
+            st.markdown("---")
+            st.subheader("💾 Save Forecast for Tracking")
+
+            col1, col2 = st.columns([2, 1])
+
+            with col1:
+                st.markdown("""
+                Save this forecast to track its accuracy over time.
+                When actuals come in, you can compare your predictions to reality.
+                """)
+
+            with col2:
+                if st.button("📊 Save Forecast Snapshot", type="primary"):
+                    # Build forecast params
+                    forecast_params = {
+                        "forecast_period": forecast_period.lower(),
+                        "forecast_horizon": forecast_horizon,
+                        "starting_cash": starting_cash,
+                        "deployment_rate": deployment_rate,
+                        "inflow_rate": inflow_rate,
+                        "opex_rate": opex_rate,
+                        "growth_rate": monthly_growth_rate if 'monthly_growth_rate' in locals() else 0
+                    }
+
+                    # Use the forecast_df that was already created
+                    if store_forecast_snapshot(forecast_df, forecast_params):
+                        st.success("✅ Forecast saved! Track accuracy in the History section below.")
+                    else:
+                        st.error("Failed to save forecast. Please try again.")
+
+            # ===== FORECAST HISTORY TRACKING =====
+            st.markdown("---")
+            render_forecast_history_tracking(qbo_df)
+
         else:
             st.error("No valid deal data available for forecasting")
-    
+
     else:
         st.error("No deal data available for forecasting")
