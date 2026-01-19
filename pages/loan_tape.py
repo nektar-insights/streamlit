@@ -331,6 +331,56 @@ def plot_tib_histogram(df: pd.DataFrame):
     st.altair_chart(chart, width='stretch')
 
 
+def plot_positions_histogram(df: pd.DataFrame):
+    """Plot Lien Position distribution histogram (ahead_positions: 0=1st, 1=2nd, 2+=junior)"""
+    if "ahead_positions" not in df.columns:
+        st.info("Position data not available")
+        return
+
+    pos_data = df[df["ahead_positions"].notna()].copy()
+
+    if pos_data.empty:
+        st.info("No position data available for visualization")
+        return
+
+    # Map numeric positions to labels for clearer display
+    def position_label(pos):
+        pos = int(pos)
+        if pos == 0:
+            return "1st Lien"
+        elif pos == 1:
+            return "2nd Lien"
+        elif pos == 2:
+            return "3rd Lien"
+        else:
+            return f"{pos+1}th Lien"
+
+    pos_data["position_label"] = pos_data["ahead_positions"].apply(position_label)
+
+    # Count by position
+    pos_counts = pos_data["position_label"].value_counts().reset_index()
+    pos_counts.columns = ["Position", "Count"]
+
+    # Sort by lien order
+    lien_order = ["1st Lien", "2nd Lien", "3rd Lien", "4th Lien", "5th Lien"]
+    pos_counts["sort_order"] = pos_counts["Position"].apply(
+        lambda x: lien_order.index(x) if x in lien_order else 99
+    )
+    pos_counts = pos_counts.sort_values("sort_order")
+
+    chart = alt.Chart(pos_counts).mark_bar().encode(
+        x=alt.X("Position:N", sort=list(pos_counts["Position"]), title="Lien Position"),
+        y=alt.Y("Count:Q", title="Number of Loans"),
+        color=alt.value(PRIMARY_COLOR),
+        tooltip=[
+            alt.Tooltip("Position:N", title="Position"),
+            alt.Tooltip("Count:Q", title="Count"),
+        ]
+    ).properties(height=300, title="Lien Position Distribution")
+
+    st.altair_chart(chart, width='stretch')
+
+
 def plot_grade_distribution(df: pd.DataFrame):
     """
     Plot grade distribution across ROI, On-Time Payment, and IRR (Speed) grades.
@@ -2042,6 +2092,11 @@ def main():
             plot_csl_participation_histogram(filtered_df)
         with hist_col6:
             plot_tib_histogram(filtered_df)
+
+        # Row 4: Lien Position
+        hist_col7, hist_col8 = st.columns(2)
+        with hist_col7:
+            plot_positions_histogram(filtered_df)
 
         # Performance Grade Distribution
         st.markdown("---")
