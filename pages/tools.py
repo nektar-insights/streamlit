@@ -2042,14 +2042,553 @@ with tab_meeting_timer:
     st.markdown("### CSL Meeting Timer")
     st.markdown("A timer tool for managing meeting agenda topics. Start the meeting, add topics with time allocations, and track overtime.")
 
-    # Load the meeting timer HTML
-    import os
-    meeting_timer_path = os.path.expanduser("~/meeting-timer/meeting-timer-standalone.html")
+    meeting_timer_html = '''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSL Meeting Timer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        @keyframes pulse-live {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .live-pulse {
+            animation: pulse-live 2s ease-in-out infinite;
+        }
+        @keyframes pulse-overtime {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        .overtime-pulse {
+            animation: pulse-overtime 2s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body class="bg-gray-950 text-white">
+    <div id="root" class="container mx-auto p-4"></div>
 
-    if os.path.exists(meeting_timer_path):
-        with open(meeting_timer_path, "r") as f:
-            meeting_timer_html = f.read()
+    <script type="text/babel">
+        const { useState, useEffect } = React;
 
-        st.components.v1.html(meeting_timer_html, height=700, scrolling=True)
-    else:
-        st.error(f"Meeting timer HTML file not found at: {meeting_timer_path}")
+        const Timer = ({ id, name, time, timeLeft, isRunning, overtime, isOvertime, onDelete, onRename, onTimeChange, onStart, onPause, onReset }) => {
+            const [editingName, setEditingName] = useState(false);
+            const [editingTime, setEditingTime] = useState(false);
+            const [timerName, setTimerName] = useState(name);
+            const [timerTime, setTimerTime] = useState(time);
+
+            const formatTime = (seconds) => {
+                const mins = Math.floor(Math.abs(seconds) / 60);
+                const secs = Math.abs(seconds) % 60;
+                return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+            };
+
+            const getTimerColor = () => {
+                if (isOvertime) return 'bg-red-600';
+                if (timeLeft <= 30) return 'bg-red-500';
+                if (timeLeft <= 60) return 'bg-orange-500';
+                if (timeLeft <= 180) return 'bg-yellow-500';
+                return 'bg-green-500';
+            };
+
+            const handleNameChange = (e) => setTimerName(e.target.value);
+            const handleTimeChange = (e) => setTimerTime(parseInt(e.target.value) || 1);
+            const toggleEditName = () => setEditingName(!editingName);
+            const toggleEditTime = () => setEditingTime(!editingTime);
+
+            const saveTimerName = () => {
+                onRename(id, timerName);
+                setEditingName(false);
+            };
+
+            const saveTimerTime = () => {
+                onTimeChange(id, timerTime);
+                setEditingTime(false);
+            };
+
+            return (
+                <div className={`flex flex-col p-4 bg-gray-800 rounded-lg shadow-lg h-full relative ${isRunning ? 'ring-2 ring-green-400' : ''}`}>
+                    {isOvertime && (
+                        <div className={`absolute -top-2 -right-2 bg-red-600 text-white text-xs font-bold px-2 py-1 rounded ${isRunning ? 'overtime-pulse' : ''}`}>
+                            OVERTIME
+                        </div>
+                    )}
+
+                    <div className="flex items-center justify-between w-full mb-3">
+                        {editingName ? (
+                            <div className="flex flex-grow">
+                                <input
+                                    type="text"
+                                    value={timerName}
+                                    onChange={handleNameChange}
+                                    className="flex-grow px-2 py-1 bg-gray-700 text-white text-sm font-bold rounded-l"
+                                    autoFocus
+                                />
+                                <button onClick={saveTimerName} className="px-2 py-1 bg-blue-600 text-white text-sm rounded-r">
+                                    ✓
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="flex flex-grow items-center">
+                                <h2 className="text-lg font-bold text-white truncate">{name}</h2>
+                                <button onClick={toggleEditName} className="ml-2 text-blue-400 hover:text-blue-300 text-sm">
+                                    ✎
+                                </button>
+                            </div>
+                        )}
+                        <button onClick={() => onDelete(id)} className="ml-2 text-red-400 hover:text-red-300">
+                            ✕
+                        </button>
+                    </div>
+
+                    <div className="flex items-center mb-2">
+                        {editingTime ? (
+                            <div className="flex items-center">
+                                <input
+                                    type="number"
+                                    min="1"
+                                    max="999"
+                                    value={timerTime}
+                                    onChange={handleTimeChange}
+                                    className="w-14 px-2 py-1 bg-gray-700 text-white text-xs rounded-l"
+                                    autoFocus
+                                />
+                                <span className="px-1 py-1 bg-gray-600 text-white text-xs">m</span>
+                                <button onClick={saveTimerTime} className="px-2 py-1 bg-blue-600 text-white text-xs rounded-r">
+                                    ✓
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="flex items-center">
+                                <span className="text-gray-400 text-xs">{time} min</span>
+                                <button onClick={toggleEditTime} className="ml-1 text-blue-400 hover:text-blue-300 text-xs">
+                                    ✎
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className={`flex items-center justify-center w-full h-16 mb-3 rounded ${getTimerColor()} ${isOvertime && isRunning ? 'overtime-pulse' : ''}`}>
+                        <span className="text-3xl font-mono font-black text-white tracking-wider" style={{textShadow: '2px 2px 4px rgba(0,0,0,0.5)'}}>
+                            {isOvertime ? '+' : ''}{formatTime(isOvertime ? overtime : timeLeft)}
+                        </span>
+                    </div>
+
+                    <div className="flex space-x-2 mt-auto">
+                        {!isRunning ? (
+                            <button
+                                onClick={() => onStart(id)}
+                                className="flex-1 px-2 py-2 bg-green-600 text-white text-sm font-bold rounded hover:bg-green-700"
+                            >
+                                ▶ START
+                            </button>
+                        ) : (
+                            <button
+                                onClick={() => onPause(id)}
+                                className="flex-1 px-2 py-2 bg-yellow-600 text-white text-sm font-bold rounded hover:bg-yellow-700"
+                            >
+                                ⏸ PAUSE
+                            </button>
+                        )}
+                        <button
+                            onClick={() => onReset(id)}
+                            className="px-3 py-2 bg-gray-600 text-white text-sm font-bold rounded hover:bg-gray-700"
+                            title="Reset this timer"
+                        >
+                            ↺
+                        </button>
+                    </div>
+                </div>
+            );
+        };
+
+        const ScoreBug = ({ timers, meetingIsRunning, meetingElapsedTime }) => {
+            const totalAgendaMinutes = timers.reduce((sum, t) => sum + t.time, 0);
+
+            const totalRemainingSeconds = timers.reduce((sum, t) => {
+                if (t.isOvertime) return sum - t.overtime;
+                return sum + t.timeLeft;
+            }, 0);
+
+            const formatTime = (seconds) => {
+                const isNegative = seconds < 0;
+                const absSeconds = Math.abs(seconds);
+                const hrs = Math.floor(absSeconds / 3600);
+                const mins = Math.floor((absSeconds % 3600) / 60);
+                const secs = absSeconds % 60;
+                const prefix = isNegative ? '-' : '';
+                if (hrs > 0) {
+                    return `${prefix}${hrs}:${mins < 10 ? '0' : ''}${mins}:${secs < 10 ? '0' : ''}${secs}`;
+                }
+                return `${prefix}${mins}:${secs < 10 ? '0' : ''}${secs}`;
+            };
+
+            const getRemainingColor = () => {
+                if (totalRemainingSeconds < 0) return 'text-red-500';
+                if (totalRemainingSeconds < 60) return 'text-red-400';
+                if (totalRemainingSeconds < 180) return 'text-yellow-400';
+                return 'text-green-400';
+            };
+
+            return (
+                <div className="bg-gradient-to-r from-gray-900 via-gray-800 to-gray-900 border-b-4 border-blue-500 rounded-lg mb-6 p-4 shadow-2xl">
+                    <div className="flex items-center justify-center gap-8">
+                        <div className="flex items-center">
+                            {meetingIsRunning ? (
+                                <div className="flex items-center bg-red-600 px-3 py-1 rounded">
+                                    <div className="w-2 h-2 bg-white rounded-full mr-2 live-pulse"></div>
+                                    <span className="text-white text-sm font-bold">LIVE</span>
+                                </div>
+                            ) : (
+                                <div className="flex items-center bg-gray-600 px-3 py-1 rounded">
+                                    <span className="text-gray-300 text-sm font-bold">PAUSED</span>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="text-center">
+                            <div className="text-gray-400 text-xs uppercase tracking-widest mb-1">Meeting Time</div>
+                            <div className={`text-5xl font-mono font-black tracking-wider ${meetingElapsedTime > totalAgendaMinutes * 60 ? 'text-red-500' : 'text-white'}`} style={{textShadow: '0 0 20px rgba(255,255,255,0.3)'}}>
+                                {formatTime(meetingElapsedTime)}
+                            </div>
+                        </div>
+
+                        <div className="h-16 w-px bg-gray-600"></div>
+
+                        <div className="flex gap-6">
+                            <div className="text-center">
+                                <div className="text-gray-400 text-xs uppercase tracking-widest">Agenda</div>
+                                <div className="text-2xl font-bold text-white">{totalAgendaMinutes}m</div>
+                            </div>
+                            <div className="text-center">
+                                <div className="text-gray-400 text-xs uppercase tracking-widest">Remaining</div>
+                                <div className={`text-2xl font-mono font-bold ${getRemainingColor()}`}>
+                                    {formatTime(totalRemainingSeconds)}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const MasterControls = ({ meetingIsRunning, onStartMeeting, onPauseMeeting, onResetAll, onDeleteAll }) => {
+            return (
+                <div className="p-4 bg-gray-800 rounded-lg border border-gray-700 mb-4">
+                    <h2 className="text-sm font-bold text-white uppercase tracking-wider mb-3">Master Controls</h2>
+                    <div className="space-y-2">
+                        {!meetingIsRunning ? (
+                            <button
+                                onClick={onStartMeeting}
+                                className="w-full px-3 py-2 bg-green-600 text-white text-sm font-bold rounded hover:bg-green-700"
+                            >
+                                ▶ START MEETING
+                            </button>
+                        ) : (
+                            <button
+                                onClick={onPauseMeeting}
+                                className="w-full px-3 py-2 bg-yellow-600 text-white text-sm font-bold rounded hover:bg-yellow-700"
+                            >
+                                ⏸ PAUSE ALL
+                            </button>
+                        )}
+                        <button
+                            onClick={onResetAll}
+                            className="w-full px-3 py-2 bg-gray-600 text-white text-sm font-bold rounded hover:bg-gray-700"
+                        >
+                            ↺ RESET ALL
+                        </button>
+                        <button
+                            onClick={onDeleteAll}
+                            className="w-full px-3 py-2 bg-red-600 text-white text-sm font-bold rounded hover:bg-red-700"
+                        >
+                            ✕ DELETE ALL
+                        </button>
+                    </div>
+                </div>
+            );
+        };
+
+        const MeetingTimer = () => {
+            const [timers, setTimers] = useState([
+                { id: 1, name: "Topic 1", time: 5, timeLeft: 5 * 60, isRunning: false, overtime: 0, isOvertime: false }
+            ]);
+            const [nextId, setNextId] = useState(2);
+            const [selectedTime, setSelectedTime] = useState(5);
+            const [customTime, setCustomTime] = useState('');
+            const [newTimerName, setNewTimerName] = useState("New Topic");
+
+            const [meetingIsRunning, setMeetingIsRunning] = useState(false);
+            const [meetingElapsedTime, setMeetingElapsedTime] = useState(0);
+
+            useEffect(() => {
+                let interval = null;
+                if (meetingIsRunning) {
+                    interval = setInterval(() => {
+                        setMeetingElapsedTime(prev => prev + 1);
+                    }, 1000);
+                }
+                return () => {
+                    if (interval) clearInterval(interval);
+                };
+            }, [meetingIsRunning]);
+
+            useEffect(() => {
+                let interval = null;
+                if (meetingIsRunning) {
+                    interval = setInterval(() => {
+                        setTimers(prev => prev.map(timer => {
+                            if (!timer.isRunning) return timer;
+
+                            if (timer.timeLeft > 0) {
+                                return { ...timer, timeLeft: timer.timeLeft - 1 };
+                            } else {
+                                return { ...timer, isOvertime: true, overtime: timer.overtime + 1 };
+                            }
+                        }));
+                    }, 1000);
+                }
+                return () => {
+                    if (interval) clearInterval(interval);
+                };
+            }, [meetingIsRunning]);
+
+            const addTimer = () => {
+                const timeToUse = customTime ? parseInt(customTime) : selectedTime;
+                setTimers([...timers, {
+                    id: nextId,
+                    name: newTimerName,
+                    time: timeToUse,
+                    timeLeft: timeToUse * 60,
+                    isRunning: false,
+                    overtime: 0,
+                    isOvertime: false
+                }]);
+                setNextId(nextId + 1);
+                setNewTimerName("New Topic");
+                setCustomTime('');
+            };
+
+            const deleteTimer = (id) => {
+                setTimers(timers.filter(timer => timer.id !== id));
+            };
+
+            const renameTimer = (id, newName) => {
+                setTimers(timers.map(timer =>
+                    timer.id === id ? { ...timer, name: newName } : timer
+                ));
+            };
+
+            const changeTimerTime = (id, newTime) => {
+                setTimers(timers.map(timer =>
+                    timer.id === id ? {
+                        ...timer,
+                        time: newTime,
+                        timeLeft: newTime * 60,
+                        isRunning: false,
+                        overtime: 0,
+                        isOvertime: false
+                    } : timer
+                ));
+            };
+
+            const startTimer = (id) => {
+                setTimers(prev => prev.map(timer => ({
+                    ...timer,
+                    isRunning: timer.id === id
+                })));
+                setMeetingIsRunning(true);
+            };
+
+            const pauseTimer = (id) => {
+                setTimers(timers.map(timer =>
+                    timer.id === id ? { ...timer, isRunning: false } : timer
+                ));
+            };
+
+            const resetTimer = (id) => {
+                setTimers(timers.map(timer =>
+                    timer.id === id ? {
+                        ...timer,
+                        timeLeft: timer.time * 60,
+                        isRunning: false,
+                        overtime: 0,
+                        isOvertime: false
+                    } : timer
+                ));
+            };
+
+            const startMeeting = () => {
+                setMeetingIsRunning(true);
+                const anyRunning = timers.some(t => t.isRunning);
+                if (!anyRunning && timers.length > 0) {
+                    setTimers(prev => prev.map((timer, idx) => ({
+                        ...timer,
+                        isRunning: idx === 0
+                    })));
+                }
+            };
+
+            const pauseMeeting = () => {
+                setMeetingIsRunning(false);
+                setTimers(prev => prev.map(timer => ({ ...timer, isRunning: false })));
+            };
+
+            const resetAll = () => {
+                setMeetingElapsedTime(0);
+                setMeetingIsRunning(false);
+                setTimers(prev => prev.map(timer => ({
+                    ...timer,
+                    timeLeft: timer.time * 60,
+                    isRunning: false,
+                    overtime: 0,
+                    isOvertime: false
+                })));
+            };
+
+            const deleteAll = () => {
+                setTimers([]);
+                setMeetingElapsedTime(0);
+                setMeetingIsRunning(false);
+            };
+
+            const handleCustomTimeChange = (e) => {
+                setCustomTime(e.target.value);
+                if (e.target.value) setSelectedTime(null);
+            };
+
+            const handlePresetTimeClick = (mins) => {
+                setSelectedTime(mins);
+                setCustomTime('');
+            };
+
+            return (
+                <div className="flex flex-col w-full max-w-6xl mx-auto">
+                    <div className="flex items-center justify-center gap-4 mb-4">
+                        <img
+                            src="https://cslcapitalgroup.com/wp-content/uploads/2024/01/CSL-Capital-Logo-White.png"
+                            alt="CSL Capital"
+                            className="h-10"
+                            onError={(e) => e.target.style.display = 'none'}
+                        />
+                        <h1 className="text-3xl font-black text-white tracking-wider" style={{textShadow: '0 0 10px rgba(59, 130, 246, 0.5)'}}>
+                            MEETING TIMER
+                        </h1>
+                    </div>
+
+                    {timers.length > 0 && (
+                        <ScoreBug
+                            timers={timers}
+                            meetingIsRunning={meetingIsRunning}
+                            meetingElapsedTime={meetingElapsedTime}
+                        />
+                    )}
+
+                    <div className="flex gap-6">
+                        <div className="w-72 flex-shrink-0">
+                            {timers.length > 0 && (
+                                <MasterControls
+                                    meetingIsRunning={meetingIsRunning}
+                                    onStartMeeting={startMeeting}
+                                    onPauseMeeting={pauseMeeting}
+                                    onResetAll={resetAll}
+                                    onDeleteAll={deleteAll}
+                                />
+                            )}
+
+                            <div className="p-4 bg-gray-800 rounded-lg border border-gray-700">
+                                <h2 className="text-sm font-bold text-white uppercase tracking-wider mb-3">Add Topic</h2>
+
+                                <div className="flex mb-3">
+                                    <input
+                                        type="text"
+                                        value={newTimerName}
+                                        onChange={(e) => setNewTimerName(e.target.value)}
+                                        className="flex-grow px-3 py-2 bg-gray-700 text-white text-sm rounded-l border border-gray-600"
+                                        placeholder="Topic Name"
+                                    />
+                                    <button
+                                        onClick={addTimer}
+                                        className="px-3 py-2 bg-blue-600 text-white text-sm font-bold rounded-r hover:bg-blue-700"
+                                    >
+                                        + ADD
+                                    </button>
+                                </div>
+
+                                <div>
+                                    <h3 className="text-xs font-semibold text-gray-400 mb-2 uppercase tracking-wider">Duration</h3>
+                                    <div className="grid grid-cols-6 gap-1 mb-2">
+                                        {[5, 10, 15, 20, 25, 30].map((mins) => (
+                                            <button
+                                                key={mins}
+                                                onClick={() => handlePresetTimeClick(mins)}
+                                                className={`py-2 text-sm font-bold rounded ${
+                                                    selectedTime === mins && !customTime
+                                                        ? 'bg-blue-600 text-white'
+                                                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                                                }`}
+                                            >
+                                                {mins}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <div className="flex items-center">
+                                        <span className="text-gray-400 text-xs mr-2">Custom:</span>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            max="999"
+                                            value={customTime}
+                                            onChange={handleCustomTimeChange}
+                                            className="w-16 px-2 py-1 bg-gray-700 text-white text-sm rounded border border-gray-600"
+                                            placeholder="min"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex-grow">
+                            <h2 className="text-sm font-bold text-white uppercase tracking-wider mb-3">
+                                Agenda • {timers.length} Topics
+                            </h2>
+                            <div className="grid grid-cols-2 xl:grid-cols-3 gap-4">
+                                {timers.length === 0 ? (
+                                    <p className="text-gray-500 text-center py-8 col-span-full">No topics added yet</p>
+                                ) : (
+                                    timers.map(timer => (
+                                        <Timer
+                                            key={timer.id}
+                                            id={timer.id}
+                                            name={timer.name}
+                                            time={timer.time}
+                                            timeLeft={timer.timeLeft}
+                                            isRunning={timer.isRunning}
+                                            overtime={timer.overtime}
+                                            isOvertime={timer.isOvertime}
+                                            onDelete={deleteTimer}
+                                            onRename={renameTimer}
+                                            onTimeChange={changeTimerTime}
+                                            onStart={startTimer}
+                                            onPause={pauseTimer}
+                                            onReset={resetTimer}
+                                        />
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        ReactDOM.render(<MeetingTimer />, document.getElementById('root'));
+    </script>
+</body>
+</html>'''
+
+    st.components.v1.html(meeting_timer_html, height=700, scrolling=True)
