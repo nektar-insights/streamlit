@@ -738,6 +738,74 @@ def plot_payment_performance_by_cohort(df: pd.DataFrame):
     st.caption("On-Target Zone: -5% to +5%. Positive = ahead of schedule, negative = behind schedule.")
 
 
+def display_irr_analysis(df: pd.DataFrame):
+    """Display IRR analysis for paid off loans"""
+    st.subheader("IRR Analysis (Paid Off Loans)")
+
+    paid_off = df[df["loan_status"] == "Paid Off"].copy()
+
+    if paid_off.empty or "realized_irr" not in paid_off.columns:
+        st.info("No paid-off loans with realized IRR data.")
+        return
+
+    paid_off_with_irr = paid_off[paid_off["realized_irr"].notna()]
+
+    if paid_off_with_irr.empty:
+        st.info("No paid-off loans with valid IRR data.")
+        return
+
+    avg_realized_irr = paid_off_with_irr["realized_irr"].mean()
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Paid Off Loans with IRR", len(paid_off_with_irr))
+    with col2:
+        st.metric("Simple Avg Realized IRR", f"{avg_realized_irr:.1%}" if pd.notnull(avg_realized_irr) else "N/A")
+
+
+def plot_irr_by_partner(df: pd.DataFrame):
+    """Plot average IRR by partner source"""
+    paid_off = df[df["loan_status"] == "Paid Off"].copy()
+
+    if paid_off.empty or "realized_irr" not in paid_off.columns or "partner_source" not in paid_off.columns:
+        st.info("Insufficient data for IRR by partner analysis.")
+        return
+
+    paid_off_with_irr = paid_off[paid_off["realized_irr"].notna()]
+
+    if paid_off_with_irr.empty:
+        st.info("No IRR data available for partner analysis.")
+        return
+
+    partner_irr = paid_off_with_irr.groupby("partner_source").agg(
+        avg_irr=("realized_irr", "mean"),
+        loan_count=("loan_id", "count")
+    ).reset_index()
+
+    partner_irr = partner_irr[partner_irr["loan_count"] >= 2]  # Filter for significance
+
+    if partner_irr.empty:
+        st.info("Not enough paid-off loans per partner for IRR analysis.")
+        return
+
+    chart = alt.Chart(partner_irr).mark_bar().encode(
+        x=alt.X("partner_source:N", title="Partner Source", sort="-y"),
+        y=alt.Y("avg_irr:Q", title="Average Realized IRR", axis=alt.Axis(format=".1%")),
+        color=alt.Color(
+            "avg_irr:Q",
+            scale=alt.Scale(domain=[0, 0.2, 0.4], range=["#d62728", "#ffbb78", "#2ca02c"]),
+            legend=None
+        ),
+        tooltip=[
+            alt.Tooltip("partner_source:N", title="Partner"),
+            alt.Tooltip("avg_irr:Q", title="Avg IRR", format=".1%"),
+            alt.Tooltip("loan_count:Q", title="Paid Off Loans"),
+        ]
+    ).properties(width=600, height=350, title="Average Realized IRR by Partner (Paid Off Loans, ≥2 loans)")
+
+    st.altair_chart(chart, use_container_width=True)
+
+
 # -------------------
 # Watchlist Helper Functions
 # -------------------
