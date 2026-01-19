@@ -24,6 +24,7 @@ from utils.config import (
     PRIMARY_COLOR,
     COLOR_PALETTE,
     PLATFORM_FEE_RATE,
+    GRADE_INDICATORS,
 )
 from utils.data_loader import (
     load_loan_summaries,
@@ -41,6 +42,7 @@ from utils.loan_tape_data import (
     calculate_expected_payment_to_date,
     format_dataframe_for_display,
     add_performance_grades,
+    get_grade_summary,
 )
 from utils.loan_tape_analytics import (
     PROBLEM_STATUSES,
@@ -327,6 +329,73 @@ def plot_tib_histogram(df: pd.DataFrame):
     ).properties(height=300, title="Time in Business Distribution")
 
     st.altair_chart(chart, width='stretch')
+
+
+def plot_grade_distribution(df: pd.DataFrame):
+    """
+    Plot grade distribution across ROI, On-Time Payment, and IRR (Speed) grades.
+    Shows bar charts with grade colors for each metric.
+    """
+    grade_summary = get_grade_summary(df)
+
+    if not grade_summary:
+        st.info("No grade data available")
+        return
+
+    # Prepare data for visualization
+    grades_order = ["A", "B", "C", "D", "F"]
+    grade_colors = {g: GRADE_INDICATORS[g]["color"] for g in grades_order}
+
+    # Create three columns for the three grade types
+    col1, col2, col3 = st.columns(3)
+
+    def create_grade_chart(grade_col: str, title: str, container):
+        if grade_col not in grade_summary:
+            container.info(f"No {title} data")
+            return
+
+        data = grade_summary[grade_col]
+        # Filter out N/A and only include grades with counts > 0
+        chart_data = pd.DataFrame([
+            {"Grade": g, "Count": data.get(g, 0), "Color": grade_colors[g]}
+            for g in grades_order
+            if data.get(g, 0) > 0
+        ])
+
+        if chart_data.empty:
+            container.info(f"No graded loans for {title}")
+            return
+
+        # Calculate total for percentages
+        total = chart_data["Count"].sum()
+
+        chart = alt.Chart(chart_data).mark_bar().encode(
+            x=alt.X("Grade:N", sort=grades_order, title=None, axis=alt.Axis(labelAngle=0)),
+            y=alt.Y("Count:Q", title="Loans"),
+            color=alt.Color("Color:N", scale=None),
+            tooltip=[
+                alt.Tooltip("Grade:N", title="Grade"),
+                alt.Tooltip("Count:Q", title="Count"),
+            ]
+        ).properties(
+            height=200,
+            title=title
+        )
+
+        container.altair_chart(chart, use_container_width=True)
+
+        # Show percentages below
+        pct_str = " | ".join([f"{g}: {data.get(g, 0)/total*100:.0f}%" for g in grades_order if data.get(g, 0) > 0])
+        container.caption(pct_str)
+
+    with col1:
+        create_grade_chart("payment_grade", "On-Time Payment Grade", col1)
+
+    with col2:
+        create_grade_chart("roi_grade", "ROI Grade", col2)
+
+    with col3:
+        create_grade_chart("irr_grade", "Speed (IRR) Grade", col3)
 
 
 def _build_return_timeline_from_summaries(df: pd.DataFrame) -> pd.Series:
@@ -1091,6 +1160,139 @@ def plot_irr_by_partner(df: pd.DataFrame):
     st.altair_chart(chart, width='stretch')
 
 
+def plot_metric_correlations(df: pd.DataFrame):
+    """
+    Display correlation analysis between key performance metrics.
+    Shows correlation coefficients and scatter plots for key metric pairs.
+    """
+    st.header("Metric Correlation Analysis")
+
+    # Filter to paid-off loans with both metrics available
+    paid_off = df[df["loan_status"] == "Paid Off"].copy()
+
+    if paid_off.empty:
+        st.info("No paid-off loans available for correlation analysis.")
+        return
+
+    # Check for required columns
+    has_pct_on_time = "pct_on_time" in paid_off.columns
+    has_realized_irr = "realized_irr" in paid_off.columns
+    has_roi = "current_roi" in paid_off.columns
+
+    if not (has_pct_on_time and has_realized_irr):
+        st.info("Insufficient data for correlation analysis. Need on-time rate and IRR data.")
+        return
+
+    # Filter to loans with valid data for both metrics
+    correlation_df = paid_off[
+        paid_off["pct_on_time"].notna() &
+        paid_off["realized_irr"].notna()
+    ].copy()
+
+    if len(correlation_df) < 5:
+        st.info("Need at least 5 paid-off loans with both on-time rate and IRR data for correlation analysis.")
+        return
+
+    # Calculate correlation coefficients
+    corr_ontime_irr = correlation_df["pct_on_time"].corr(correlation_df["realized_irr"])
+
+    # Display correlation coefficients as metrics
+    st.subheader("Key Correlations")
+
+    col1, col2, col3 = st.columns(3)
+
+    def interpret_correlation(r):
+        """Interpret correlation strength."""
+        if abs(r) < 0.1:
+            return "No correlation"
+        elif abs(r) < 0.3:
+            return "Weak"
+        elif abs(r) < 0.5:
+            return "Moderate"
+        elif abs(r) < 0.7:
+            return "Strong"
+        else:
+            return "Very strong"
+
+    with col1:
+        st.metric(
+            "On-Time Rate ↔ IRR",
+            f"r = {corr_ontime_irr:.3f}",
+            interpret_correlation(corr_ontime_irr)
+        )
+
+    # Additional correlations if data available
+    if has_roi:
+        roi_df = correlation_df[correlation_df["current_roi"].notna()]
+        if len(roi_df) >= 5:
+            corr_ontime_roi = roi_df["pct_on_time"].corr(roi_df["current_roi"])
+            corr_roi_irr = roi_df["current_roi"].corr(roi_df["realized_irr"])
+
+            with col2:
+                st.metric(
+                    "On-Time Rate ↔ ROI",
+                    f"r = {corr_ontime_roi:.3f}",
+                    interpret_correlation(corr_ontime_roi)
+                )
+
+            with col3:
+                st.metric(
+                    "ROI ↔ IRR",
+                    f"r = {corr_roi_irr:.3f}",
+                    interpret_correlation(corr_roi_irr)
+                )
+
+    # Scatter plot: On-Time Rate vs IRR
+    st.subheader("On-Time Rate vs Speed (IRR)")
+
+    scatter = alt.Chart(correlation_df).mark_circle(size=60, opacity=0.6).encode(
+        x=alt.X("pct_on_time:Q", title="On-Time Payment Rate", scale=alt.Scale(domain=[0, 1]), axis=alt.Axis(format=".0%")),
+        y=alt.Y("realized_irr:Q", title="Realized IRR (Annualized)", axis=alt.Axis(format=".0%")),
+        color=alt.Color("payment_grade:N", scale=alt.Scale(
+            domain=["A", "B", "C", "D", "F"],
+            range=[GRADE_INDICATORS["A"]["color"], GRADE_INDICATORS["B"]["color"],
+                   GRADE_INDICATORS["C"]["color"], GRADE_INDICATORS["D"]["color"],
+                   GRADE_INDICATORS["F"]["color"]]
+        ), legend=alt.Legend(title="Payment Grade")),
+        tooltip=[
+            alt.Tooltip("loan_id:N", title="Loan ID"),
+            alt.Tooltip("pct_on_time:Q", title="On-Time Rate", format=".1%"),
+            alt.Tooltip("realized_irr:Q", title="Realized IRR", format=".1%"),
+            alt.Tooltip("payment_grade:N", title="Payment Grade"),
+        ]
+    ).properties(
+        width=700,
+        height=400,
+        title=f"On-Time Rate vs IRR (r = {corr_ontime_irr:.3f})"
+    )
+
+    # Add regression line
+    regression_line = scatter.transform_regression(
+        "pct_on_time", "realized_irr"
+    ).mark_line(color="red", strokeDash=[4, 4])
+
+    st.altair_chart(scatter + regression_line, use_container_width=True)
+
+    # Interpretation text
+    with st.expander("How to Interpret Correlations"):
+        st.markdown("""
+        **Correlation Coefficient (r) Interpretation:**
+        - **r ≈ 0**: No linear relationship between metrics
+        - **|r| < 0.3**: Weak correlation
+        - **0.3 ≤ |r| < 0.5**: Moderate correlation
+        - **0.5 ≤ |r| < 0.7**: Strong correlation
+        - **|r| ≥ 0.7**: Very strong correlation
+
+        **Key Insight:** A low correlation between on-time rate and IRR suggests these metrics
+        capture independent aspects of loan performance:
+        - **On-Time Rate**: Measures payment behavior consistency
+        - **IRR (Speed)**: Measures how quickly capital was returned
+
+        This means a borrower can have excellent payment timing but average speed to payoff,
+        or vice versa. Both metrics provide unique information for assessing loan performance.
+        """)
+
+
 # -------------------
 # Watchlist Helper Functions
 # -------------------
@@ -1841,6 +2043,11 @@ def main():
         with hist_col6:
             plot_tib_histogram(filtered_df)
 
+        # Performance Grade Distribution
+        st.markdown("---")
+        st.subheader("Performance Grade Distribution")
+        plot_grade_distribution(filtered_df)
+
     with tabs[2]:
         st.header("Capital Flow Analysis")
         plot_capital_flow(filtered_df)
@@ -1869,6 +2076,9 @@ def main():
 
         st.markdown("---")
         plot_tib_performance_analysis(filtered_df)
+
+        st.markdown("---")
+        plot_metric_correlations(filtered_df)
 
     with tabs[4]:
         st.header("Risk Analytics")
