@@ -292,6 +292,6 @@ bar = create_bar_chart(df, 'month', 'deals', title='Deals by Month')
 line = create_line_chart(df, 'month', 'volume', title='Volume Trend')
 
 # Display in Streamlit
-st.altair_chart(bar, use_container_width=True)
-st.altair_chart(line, use_container_width=True)
+st.altair_chart(bar, width="stretch")
+st.altair_chart(line, width="stretch")
 """

@@ -149,7 +149,7 @@ def plot_status_distribution(df: pd.DataFrame):
         ]
     ).properties(width=600, height=350)
 
-    st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(chart, width="stretch")
 
 
 def plot_roi_distribution(df: pd.DataFrame):
@@ -174,7 +174,7 @@ def plot_roi_distribution(df: pd.DataFrame):
         ]
     ).properties(width=600, height=350, title="Distribution of Current ROI")
 
-    st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(chart, width="stretch")
 
 
 def plot_fico_histogram(df: pd.DataFrame):
@@ -199,7 +199,7 @@ def plot_fico_histogram(df: pd.DataFrame):
         ]
     ).properties(height=300, title="FICO Score Distribution")
 
-    st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(chart, width="stretch")
 
 
 def plot_factor_histogram(df: pd.DataFrame):
@@ -224,7 +224,7 @@ def plot_factor_histogram(df: pd.DataFrame):
         ]
     ).properties(height=300, title="Factor Rate Distribution")
 
-    st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(chart, width="stretch")
 
 
 def plot_term_histogram(df: pd.DataFrame):
@@ -249,7 +249,7 @@ def plot_term_histogram(df: pd.DataFrame):
         ]
     ).properties(height=300, title="Loan Term Distribution")
 
-    st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(chart, width="stretch")
 
 
 def plot_months_left_histogram(df: pd.DataFrame):
@@ -275,7 +275,7 @@ def plot_months_left_histogram(df: pd.DataFrame):
         ]
     ).properties(height=300, title="Remaining Months Distribution (Active Loans)")
 
-    st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(chart, width="stretch")
 
 
 def plot_csl_participation_histogram(df: pd.DataFrame):
@@ -300,7 +300,7 @@ def plot_csl_participation_histogram(df: pd.DataFrame):
         ]
     ).properties(height=300, title="CSL Participation Distribution")
 
-    st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(chart, width="stretch")
 
 
 def plot_tib_histogram(df: pd.DataFrame):
@@ -328,7 +328,7 @@ def plot_tib_histogram(df: pd.DataFrame):
         ]
     ).properties(height=300, title="Time in Business Distribution")
 
-    st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(chart, width="stretch")
 
 
 def plot_positions_histogram(df: pd.DataFrame):
@@ -378,7 +378,7 @@ def plot_positions_histogram(df: pd.DataFrame):
         ]
     ).properties(height=300, title="Lien Position Distribution")
 
-    st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(chart, width="stretch")
 
 
 def plot_grade_distribution(df: pd.DataFrame):
@@ -432,7 +432,7 @@ def plot_grade_distribution(df: pd.DataFrame):
             title=title
         )
 
-        container.altair_chart(chart, use_container_width=True)
+        container.altair_chart(chart, width="stretch")
 
         # Show percentages below
         pct_str = " | ".join([f"{g}: {data.get(g, 0)/total*100:.0f}%" for g in grades_order if data.get(g, 0) > 0])
@@ -600,7 +600,7 @@ def plot_capital_flow(df: pd.DataFrame):
             ],
         ).properties(width=800, height=400, title="Capital Deployed vs. Capital Returned Over Time")
 
-        st.altair_chart(chart, use_container_width=True)
+        st.altair_chart(chart, width="stretch")
     else:
         st.info("Insufficient data to display capital flow chart.")
 
@@ -660,7 +660,7 @@ def plot_investment_net_position(df: pd.DataFrame):
 
         zero_line = alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(strokeDash=[2, 2], color="gray", strokeWidth=1).encode(y="y:Q")
 
-        st.altair_chart(chart + zero_line, use_container_width=True)
+        st.altair_chart(chart + zero_line, width="stretch")
         st.caption("Net Position: Capital still deployed (positive) or profit after recovery (negative).")
     else:
         st.info("Insufficient data for net position analysis.")
@@ -734,7 +734,7 @@ def plot_payment_performance_by_cohort(df: pd.DataFrame):
         y="y:Q", y2="y2:Q"
     )
 
-    st.altair_chart(target_zone + bars + text + ref_line, use_container_width=True)
+    st.altair_chart(target_zone + bars + text + ref_line, width="stretch")
     st.caption("On-Target Zone: -5% to +5%. Positive = ahead of schedule, negative = behind schedule.")
 
 
@@ -874,9 +874,9 @@ def display_watchlist_table(
 
     if show_severity:
         styled_df = display_df.style.apply(highlight_severity, axis=1)
-        st.dataframe(styled_df, hide_index=True, use_container_width=True)
+        st.dataframe(styled_df, hide_index=True, width="stretch")
     else:
-        st.dataframe(display_df, hide_index=True, use_container_width=True)
+        st.dataframe(display_df, hide_index=True, width="stretch")
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -992,7 +992,7 @@ def render_early_payoff_analysis_tab(df: pd.DataFrame):
         y=alt.Y("Count:Q", title="Number of Loans"),
         tooltip=["RTR Band", "Count"]
     ).properties(height=300)
-    st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(chart, width="stretch")
 
     # Display band summary table
     band_display = band_df.copy()
@@ -1000,7 +1000,7 @@ def render_early_payoff_analysis_tab(df: pd.DataFrame):
     band_display["Total Received"] = band_display["Total Received"].apply(lambda x: f"${x:,.0f}")
     band_display["RTR Shortfall"] = band_display["RTR Shortfall"].apply(lambda x: f"${x:,.0f}")
     band_display["Profit"] = band_display["Profit"].apply(lambda x: f"${x:,.0f}")
-    st.dataframe(band_display, hide_index=True, use_container_width=True)
+    st.dataframe(band_display, hide_index=True, width="stretch")
 
     st.markdown("---")
 
@@ -1076,7 +1076,7 @@ def render_early_payoff_analysis_tab(df: pd.DataFrame):
         display_df["Shortfall"] = display_df["Shortfall"].apply(lambda x: f"${x:,.0f}")
         display_df["Profit"] = display_df["Profit"].apply(lambda x: f"${x:,.0f}")
 
-        st.dataframe(display_df, hide_index=True, use_container_width=True)
+        st.dataframe(display_df, hide_index=True, width="stretch")
 
         # Download button
         csv = early_df[display_cols].to_csv(index=False)
@@ -1202,7 +1202,7 @@ def render_watchlist_tab(df: pd.DataFrame):
         display_df["Net Balance"] = approaching_maturity["net_balance"].apply(format_currency)
         display_df["Partner"] = approaching_maturity.get("partner_source", "")
 
-        st.dataframe(display_df, hide_index=True, use_container_width=True)
+        st.dataframe(display_df, hide_index=True, width="stretch")
 
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -1242,7 +1242,7 @@ def render_watchlist_tab(df: pd.DataFrame):
             display_df["Payment Perf"] = consecutive_missed["payment_performance"].apply(format_percentage)
             display_df["Net Balance"] = consecutive_missed["net_balance"].apply(format_currency)
 
-            st.dataframe(display_df, hide_index=True, use_container_width=True)
+            st.dataframe(display_df, hide_index=True, width="stretch")
 
             st.metric("Loans with Missed Payments", len(consecutive_missed))
         else:
@@ -1269,7 +1269,7 @@ def render_watchlist_tab(df: pd.DataFrame):
         display_df["Net Balance"] = low_performing["net_balance"].apply(format_currency)
         display_df["Partner"] = low_performing.get("partner_source", "")
 
-        st.dataframe(display_df, hide_index=True, use_container_width=True)
+        st.dataframe(display_df, hide_index=True, width="stretch")
 
         col1, col2 = st.columns(2)
         with col1:
@@ -1436,7 +1436,7 @@ def render_portfolio_insights_tab(df: pd.DataFrame):
             ]
         ).properties(width=600, height=300, title="Partner Exposure (Top 10)")
 
-        st.altair_chart(partner_chart, use_container_width=True)
+        st.altair_chart(partner_chart, width="stretch")
 
         # Show alerts
         alerts = []
@@ -1496,7 +1496,7 @@ def render_portfolio_insights_tab(df: pd.DataFrame):
                 strokeDash=[2, 2], color="#ff7f0e", strokeWidth=1
             ).encode(y="threshold:Q")
 
-            st.altair_chart(problem_rate_chart + threshold_line + target_line, use_container_width=True)
+            st.altair_chart(problem_rate_chart + threshold_line + target_line, width="stretch")
 
             # Highlight problematic vintages
             high_problem_months = vintage_metrics[vintage_metrics["problem_rate"] >= 0.20]
@@ -1523,7 +1523,7 @@ def render_portfolio_insights_tab(df: pd.DataFrame):
         display_df["pct_of_problem"] = display_df["pct_of_problem"].map(lambda x: f"{x:.1%}")
         display_df.columns = ["Loan ID", "Deal Name", "Partner", "Status", "Net Balance", "% of Problem Exposure"]
 
-        st.dataframe(display_df, hide_index=True, use_container_width=True)
+        st.dataframe(display_df, hide_index=True, width="stretch")
         st.caption(f"Total problem exposure: ${total_problem_exposure:,.0f}")
     else:
         st.info("No problem loans in the active portfolio.")
@@ -1773,7 +1773,7 @@ def main():
                 "Days Funded", "Days Overdue", "Status Mult",
                 "Risk Score", "Net Balance",
             ]
-            st.dataframe(top_risk_display, use_container_width=True, hide_index=True)
+            st.dataframe(top_risk_display, width="stretch", hide_index=True)
 
             st.markdown("---")
             st.subheader("Risk Score Distribution")
@@ -1805,7 +1805,7 @@ def main():
                     ],
                 ).properties(width=700, height=350, title="Loan Count by Risk Band (Active Loans Only)")
 
-                st.altair_chart(risk_bar, use_container_width=True)
+                st.altair_chart(risk_bar, width="stretch")
         else:
             st.info("No active loans to calculate risk scores.")
 
@@ -1870,7 +1870,7 @@ def main():
 
         # Display with conditional formatting
         styled_df = loan_tape.style.apply(highlight_past_maturity, axis=1)
-        st.dataframe(styled_df, use_container_width=True, hide_index=True)
+        st.dataframe(styled_df, width="stretch", hide_index=True)
 
         csv = loan_tape.to_csv(index=False).encode("utf-8")
         st.download_button(

@@ -19,20 +19,18 @@ class DataLoader:
     def _fetch_all_rows(self, table_name: str, chunk_size: int = 1000) -> pd.DataFrame:
         """
         Fetch all rows from a Supabase table using pagination to avoid limits
-        
+
         Args:
             table_name: Name of the table to fetch from
             chunk_size: Number of rows to fetch per batch
-            
+
         Returns:
             pd.DataFrame: Complete dataset from the table
         """
-        print(f"Loading all data from {table_name} using pagination...")
-        
         try:
             rows = []
             start = 0
-            
+
             while True:
                 end = start + chunk_size - 1
                 response = (
@@ -45,23 +43,16 @@ class DataLoader:
                 if not batch:
                     break  # no more rows
                 rows.extend(batch)
-                print(f"Loaded batch: {len(batch)} records from {table_name} (total so far: {len(rows)})")
                 start += chunk_size
-            
-            df = pd.DataFrame(rows)
-            print(f"Successfully loaded {len(df)} total records from {table_name}")
-            return df
-            
-        except Exception as e:
-            print(f"Pagination failed for {table_name}: {e}")
+
+            return pd.DataFrame(rows)
+
+        except Exception:
             # Fallback to standard query
             try:
                 response = self.supabase.table(table_name).select("*").execute()
-                df = pd.DataFrame(response.data)
-                print(f"Fallback successful: {len(df)} records from {table_name}")
-                return df
-            except Exception as e2:
-                print(f"All methods failed for {table_name}: {e2}")
+                return pd.DataFrame(response.data)
+            except Exception:
                 return pd.DataFrame()
     
     def _preprocess_data(self, dataframe: pd.DataFrame) -> pd.DataFrame:
@@ -130,13 +121,10 @@ class DataLoader:
                 # Boolean flags
                 if 'is_closed_won' in df.columns:
                     df["is_participated"] = df["is_closed_won"] == True
-                
-                print(f"Loaded and processed {len(df)} deals")
-            
+
             return df
-            
-        except Exception as e:
-            print(f"Error loading deals: {e}")
+
+        except Exception:
             return pd.DataFrame()
     
     @st.cache_data(ttl=3600)
@@ -150,12 +138,9 @@ class DataLoader:
         try:
             df = _self._fetch_all_rows("mca_deals")
             df = _self._preprocess_data(df)
-            
-            print(f"Loaded and processed {len(df)} MCA deals")
             return df
-            
-        except Exception as e:
-            print(f"Error loading MCA deals: {e}")
+
+        except Exception:
             return pd.DataFrame()
     
     @st.cache_data(ttl=3600)
@@ -181,12 +166,10 @@ class DataLoader:
                 df_txn["week"] = df_txn["txn_date"].dt.isocalendar().week
                 df_txn["day_of_week"] = df_txn["txn_date"].dt.day_name()
                 df_txn["days_since_txn"] = (pd.Timestamp.now() - df_txn["txn_date"]).dt.days
-            
-            print(f"Loaded and processed {len(df_txn)} QBO transactions and {len(df_gl)} GL entries")
+
             return df_txn, df_gl
-            
-        except Exception as e:
-            print(f"Error loading QBO data: {e}")
+
+        except Exception:
             return pd.DataFrame(), pd.DataFrame()
     
     @st.cache_data(ttl=3600)
@@ -200,12 +183,9 @@ class DataLoader:
         try:
             df = _self._fetch_all_rows("loan_summaries")
             df = _self._preprocess_data(df)
-
-            print(f"Loaded and processed {len(df)} loan summaries")
             return df
 
-        except Exception as e:
-            print(f"Error loading loan summaries: {e}")
+        except Exception:
             return pd.DataFrame()
 
     @st.cache_data(ttl=3600)
@@ -219,12 +199,9 @@ class DataLoader:
         try:
             df = _self._fetch_all_rows("loan_schedules")
             df = _self._preprocess_data(df)
-
-            print(f"Loaded and processed {len(df)} loan schedules")
             return df
 
-        except Exception as e:
-            print(f"Error loading loan schedules: {e}")
+        except Exception:
             return pd.DataFrame()
 
     @st.cache_data(ttl=3600)
@@ -238,12 +215,9 @@ class DataLoader:
         try:
             df = _self._fetch_all_rows("naics_sector_risk_profile")
             df = _self._preprocess_data(df)
-
-            print(f"Loaded and processed {len(df)} NAICS sector risk profiles")
             return df
 
-        except Exception as e:
-            print(f"Error loading NAICS sector risk: {e}")
+        except Exception:
             return pd.DataFrame()
 
     @st.cache_data(ttl=3600)
@@ -318,12 +292,9 @@ class DataLoader:
                         axis=1
                     )
                 
-                print(f"Loaded and processed {len(df)} combined MCA deals")
-            
             return df
-            
-        except Exception as e:
-            print(f"Error loading combined MCA deals: {e}")
+
+        except Exception:
             return pd.DataFrame()
     
     def clear_cache(self, dataset: Optional[str] = None):
@@ -433,7 +404,6 @@ class DataLoader:
             return diagnostics
             
         except Exception as e:
-            print(f"Error in get_data_diagnostics: {e}")
             return {"error": str(e)}
 
 

@@ -565,7 +565,7 @@ with tab1:
                 title="Monthly Cash Collections with Trend"
             )
 
-            st.altair_chart(chart, use_container_width=True)
+            st.altair_chart(chart, width="stretch")
 
             # Cumulative chart
             st.subheader("Cumulative Collections vs Target")
@@ -596,7 +596,7 @@ with tab1:
                 y=alt.Y("expected:Q")
             )
 
-            st.altair_chart(cumulative_chart + expected_line, use_container_width=True)
+            st.altair_chart(cumulative_chart + expected_line, width="stretch")
 
             # Monthly stats
             col1, col2, col3 = st.columns(3)
@@ -643,7 +643,7 @@ with tab2:
             title="Cash Collected by Partner (colored by collection rate)"
         )
 
-        st.altair_chart(partner_chart, use_container_width=True)
+        st.altair_chart(partner_chart, width="stretch")
 
         # Partner table
         st.dataframe(
@@ -659,7 +659,7 @@ with tab2:
                 "Avg Loan Size": st.column_config.NumberColumn("Avg Loan", format="$%.0f"),
             },
             hide_index=True,
-            use_container_width=True
+            width="stretch"
         )
     else:
         st.info("No partner performance data available")
@@ -691,7 +691,7 @@ with tab3:
             title="Cash Collected by Origination Cohort"
         )
 
-        st.altair_chart(cohort_chart, use_container_width=True)
+        st.altair_chart(cohort_chart, width="stretch")
 
         # Cohort table
         st.dataframe(
@@ -706,7 +706,7 @@ with tab3:
                 "Remaining": st.column_config.NumberColumn("Remaining", format="$%.0f"),
             },
             hide_index=True,
-            use_container_width=True
+            width="stretch"
         )
     else:
         st.info("No cohort performance data available")
@@ -782,7 +782,7 @@ if not health_df.empty:
                 "Days Since Last Payment": st.column_config.NumberColumn("Days Silent", format="%.0f"),
             },
             hide_index=True,
-            use_container_width=True
+            width="stretch"
         )
 
         # Calculate total at risk
@@ -814,7 +814,7 @@ if not health_df.empty:
                 "Partner Source": st.column_config.TextColumn("Partner"),
             },
             hide_index=True,
-            use_container_width=True
+            width="stretch"
         )
 
 else:
@@ -869,7 +869,7 @@ if forecast_result and len(forecast_result) == 3:
             title="6-Month Cash Flow Forecast"
         )
 
-        st.altair_chart(forecast_chart, use_container_width=True)
+        st.altair_chart(forecast_chart, width="stretch")
 
         # Forecast summary
         col1, col2, col3 = st.columns(3)
@@ -903,7 +903,7 @@ if forecast_result and len(forecast_result) == 3:
                 "Cumulative Forecast": st.column_config.NumberColumn("Cumulative", format="$%.0f"),
             },
             hide_index=True,
-            use_container_width=True
+            width="stretch"
         )
 
         st.info(f"**Note:** Forecast is based on historical collection patterns. ${remaining:,.0f} remaining to collect.")
@@ -1059,7 +1059,7 @@ with st.expander("📋 Data Details & Diagnostics"):
                     "RTR %": st.column_config.NumberColumn("RTR %", format="%.1f%%"),
                 },
                 hide_index=True,
-                use_container_width=True
+                width="stretch"
             )
 
             # Download button
@@ -1109,7 +1109,7 @@ with st.expander("📋 Data Details & Diagnostics"):
                     "Unattributed Amount": st.column_config.NumberColumn("Unattributed", format="$%.0f"),
                 },
                 hide_index=True,
-                use_container_width=True
+                width="stretch"
             )
         else:
             st.info("No customer data available")

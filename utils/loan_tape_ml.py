@@ -2,13 +2,20 @@
 """
 Machine learning utilities for loan tape dashboard.
 Handles model training, evaluation, and visualization of ML results.
+
+Supports two modes:
+1. On-demand training (slower, always fresh)
+2. Pre-computed loading from Supabase (fast, cached results)
 """
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 import altair as alt
-from typing import Tuple, Dict, List
+import json
+import time
+from datetime import datetime
+from typing import Tuple, Dict, List, Optional
 from sklearn.model_selection import StratifiedKFold, KFold
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.impute import SimpleImputer
@@ -29,6 +36,220 @@ from utils.loan_tape_analytics import (
     METRIC_THRESHOLDS,
     PROBLEM_STATUSES,
 )
+from utils.imports import get_supabase_client
+
+
+# =============================================================================
+# MODEL STORAGE FUNCTIONS - Store/Load from Supabase for fast access
+# =============================================================================
+
+def store_model_results(
+    model_type: str,
+    metrics: Dict,
+    coefficients: List[Dict],
+    training_samples: int,
+    feature_count: int,
+    training_duration: float
+) -> Optional[str]:
+    """
+    Store trained model results to Supabase for fast future loading.
+
+    Args:
+        model_type: 'classification', 'regression', or 'current_risk'
+        metrics: Dict of model performance metrics
+        coefficients: List of dicts with feature, coefficient, display_name
+        training_samples: Number of samples used for training
+        feature_count: Number of features in the model
+        training_duration: Time taken to train (seconds)
+
+    Returns:
+        UUID of the stored model, or None if failed
+    """
+    try:
+        supabase = get_supabase_client()
+
+        data = {
+            "model_type": model_type,
+            "is_active": True,
+            "metrics": json.dumps(metrics),
+            "coefficients": json.dumps(coefficients),
+            "training_samples": training_samples,
+            "feature_count": feature_count,
+            "training_duration_seconds": training_duration,
+            "data_as_of": datetime.now().isoformat()
+        }
+
+        response = supabase.table("ml_model_results").insert(data).execute()
+
+        if response.data:
+            return response.data[0]["id"]
+        return None
+
+    except Exception as e:
+        print(f"Error storing model results: {e}")
+        return None
+
+
+def load_model_results(model_type: str) -> Optional[Dict]:
+    """
+    Load the active model results from Supabase.
+
+    Args:
+        model_type: 'classification', 'regression', or 'current_risk'
+
+    Returns:
+        Dict with model results or None if not found
+    """
+    try:
+        supabase = get_supabase_client()
+
+        response = (
+            supabase.table("ml_model_results")
+            .select("*")
+            .eq("model_type", model_type)
+            .eq("is_active", True)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+
+        if response.data:
+            result = response.data[0]
+            # Parse JSON fields
+            result["metrics"] = json.loads(result["metrics"]) if isinstance(result["metrics"], str) else result["metrics"]
+            result["coefficients"] = json.loads(result["coefficients"]) if isinstance(result["coefficients"], str) else result["coefficients"]
+            return result
+
+        return None
+
+    except Exception as e:
+        print(f"Error loading model results: {e}")
+        return None
+
+
+def store_loan_predictions(
+    predictions: List[Dict],
+    classification_model_id: Optional[str] = None,
+    regression_model_id: Optional[str] = None,
+    current_risk_model_id: Optional[str] = None
+) -> bool:
+    """
+    Store predictions for all loans to Supabase.
+
+    Args:
+        predictions: List of dicts with loan_id and prediction values
+        classification_model_id: UUID of the classification model used
+        regression_model_id: UUID of the regression model used
+        current_risk_model_id: UUID of the current risk model used
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        supabase = get_supabase_client()
+
+        # Prepare records for upsert
+        records = []
+        for pred in predictions:
+            record = {
+                "loan_id": str(pred["loan_id"]),
+                "updated_at": datetime.now().isoformat()
+            }
+
+            if "default_probability" in pred:
+                record["default_probability"] = pred["default_probability"]
+                record["risk_tier"] = pred.get("risk_tier")
+                record["classification_model_id"] = classification_model_id
+
+            if "predicted_performance" in pred:
+                record["predicted_performance"] = pred["predicted_performance"]
+                record["regression_model_id"] = regression_model_id
+
+            if "current_risk_score" in pred:
+                record["current_risk_score"] = pred["current_risk_score"]
+                record["current_risk_tier"] = pred.get("current_risk_tier")
+                record["current_risk_model_id"] = current_risk_model_id
+
+            records.append(record)
+
+        # Upsert in batches
+        batch_size = 100
+        for i in range(0, len(records), batch_size):
+            batch = records[i:i + batch_size]
+            supabase.table("ml_loan_predictions").upsert(
+                batch,
+                on_conflict="loan_id"
+            ).execute()
+
+        return True
+
+    except Exception as e:
+        print(f"Error storing loan predictions: {e}")
+        return False
+
+
+def load_loan_predictions() -> pd.DataFrame:
+    """
+    Load all loan predictions from Supabase.
+
+    Returns:
+        DataFrame with loan predictions
+    """
+    try:
+        supabase = get_supabase_client()
+
+        response = (
+            supabase.table("ml_loan_predictions")
+            .select("loan_id, default_probability, risk_tier, predicted_performance, current_risk_score, current_risk_tier, updated_at")
+            .execute()
+        )
+
+        if response.data:
+            return pd.DataFrame(response.data)
+
+        return pd.DataFrame()
+
+    except Exception as e:
+        print(f"Error loading loan predictions: {e}")
+        return pd.DataFrame()
+
+
+def get_risk_tier(probability: float) -> str:
+    """Convert probability to risk tier."""
+    if probability >= 0.7:
+        return "Critical"
+    elif probability >= 0.5:
+        return "High"
+    elif probability >= 0.3:
+        return "Medium"
+    else:
+        return "Low"
+
+
+def check_model_freshness(model_type: str, max_age_hours: int = 24) -> Tuple[bool, Optional[datetime]]:
+    """
+    Check if a stored model is fresh enough to use.
+
+    Args:
+        model_type: Type of model to check
+        max_age_hours: Maximum age in hours before model is considered stale
+
+    Returns:
+        Tuple of (is_fresh, last_trained_datetime)
+    """
+    try:
+        result = load_model_results(model_type)
+        if result is None:
+            return False, None
+
+        created_at = pd.to_datetime(result["created_at"])
+        age_hours = (datetime.now() - created_at.replace(tzinfo=None)).total_seconds() / 3600
+
+        return age_hours < max_age_hours, created_at
+
+    except Exception as e:
+        print(f"Error checking model freshness: {e}")
+        return False, None
 
 
 def create_coefficient_chart(coef_df: pd.DataFrame, title: str, color: str = "#1f77b4") -> alt.Chart:
@@ -548,7 +769,7 @@ def render_corr_outputs(df: pd.DataFrame):
         if c in disp.columns:
             disp[c] = disp[c].map(lambda x: f"{x:.3f}" if pd.notnull(x) else "")
 
-    st.dataframe(disp, use_container_width=True, hide_index=True)
+    st.dataframe(disp, width="stretch", hide_index=True)
 
     # Heatmap visualization (Spearman correlation)
     hm = corr_df[["feature", "spearman_rho_vs_performance"]].dropna()
@@ -574,7 +795,7 @@ def render_corr_outputs(df: pd.DataFrame):
             height=150,
             title="Correlation with Payment Performance"
         )
-        st.altair_chart(chart, use_container_width=True)
+        st.altair_chart(chart, width="stretch")
 
     # Download option
     st.download_button(
@@ -650,7 +871,7 @@ def render_fico_tib_heatmap(df: pd.DataFrame):
         title="FICO × TIB Heatmap"
     )
 
-    st.altair_chart(heat, use_container_width=True)
+    st.altair_chart(heat, width="stretch")
 
 
 def render_data_quality_summary(df: pd.DataFrame):
@@ -695,7 +916,7 @@ def render_data_quality_summary(df: pd.DataFrame):
             })
 
         completeness_df = pd.DataFrame(completeness_data)
-        st.dataframe(completeness_df, use_container_width=True, hide_index=True)
+        st.dataframe(completeness_df, width="stretch", hide_index=True)
 
     # Warnings
     if quality['warnings']:
@@ -1601,7 +1822,7 @@ def render_batch_scorer(
             display_df["raw_probability"] = display_df["raw_probability"].map(lambda x: f"{x:.1%}")
             display_df["deal_size"] = display_df["deal_size"].map(lambda x: f"${x:,.0f}" if pd.notnull(x) else "N/A")
 
-            st.dataframe(display_df, use_container_width=True, hide_index=True)
+            st.dataframe(display_df, width="stretch", hide_index=True)
 
             # Download results
             st.download_button(
@@ -1643,7 +1864,7 @@ def render_batch_scorer(
                 title="Batch Scoring Results by Risk Level"
             )
 
-            st.altair_chart(chart, use_container_width=True)
+            st.altair_chart(chart, width="stretch")
 
         except Exception as e:
             st.error(f"Error processing file: {e}")
@@ -1887,7 +2108,7 @@ def render_model_drift_tracking(df: pd.DataFrame = None) -> None:
 
         chart = chart + threshold_line
 
-    st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(chart, width="stretch")
 
     if threshold is not None:
         st.caption(f"Red dashed line shows the 'Fair' performance threshold ({threshold})")
@@ -1946,6 +2167,474 @@ def render_model_drift_tracking(df: pd.DataFrame = None) -> None:
         display_df = plot_df[["recorded_at", "model_type", metric_col, "n_samples", "problem_rate"]].copy()
         display_df["recorded_at"] = display_df["recorded_at"].dt.strftime("%Y-%m-%d %H:%M")
         display_df.columns = ["Date", "Model", selected_metric, "Samples", "Problem Rate"]
-        st.dataframe(display_df.head(20), use_container_width=True, hide_index=True)
+        st.dataframe(display_df.head(20), width="stretch", hide_index=True)
 
     st.markdown("---")
+
+
+# =============================================================================
+# TRAIN AND STORE - Full pipeline for pre-computing ML results
+# =============================================================================
+
+def train_and_store_all_models(df: pd.DataFrame, schedules_df: pd.DataFrame = None) -> Dict:
+    """
+    Train all ML models and store results to Supabase for fast loading.
+
+    This function:
+    1. Trains classification, regression, and current_risk models
+    2. Stores model coefficients and metrics to Supabase
+    3. Generates and stores predictions for ALL loans
+    4. Returns summary of what was stored
+
+    Args:
+        df: Prepared loan dataframe
+        schedules_df: Optional payment schedules dataframe
+
+    Returns:
+        Dict with training summary and model IDs
+    """
+    results = {
+        "classification": None,
+        "regression": None,
+        "current_risk": None,
+        "predictions_stored": 0,
+        "total_training_time": 0,
+        "errors": []
+    }
+
+    overall_start = time.time()
+    all_predictions = []
+
+    # ========== CLASSIFICATION MODEL ==========
+    try:
+        start_time = time.time()
+        model, metrics, pos_coef, neg_coef = train_classification_small(df)
+        training_time = time.time() - start_time
+
+        # Prepare coefficients for storage
+        coefficients = []
+        for _, row in pos_coef.iterrows():
+            coefficients.append({
+                "feature": row["feature"],
+                "coefficient": float(row["coef"]),
+                "display_name": row["feature"],
+                "direction": "positive"
+            })
+        for _, row in neg_coef.iterrows():
+            coefficients.append({
+                "feature": row["feature"],
+                "coefficient": float(row["coef"]),
+                "display_name": row["feature"],
+                "direction": "negative"
+            })
+
+        # Store model
+        X = build_feature_matrix(df)
+        model_id = store_model_results(
+            model_type="classification",
+            metrics=metrics,
+            coefficients=coefficients,
+            training_samples=len(df),
+            feature_count=len(X.columns),
+            training_duration=training_time
+        )
+
+        # Generate predictions for all loans
+        if model_id:
+            y_proba = model.predict_proba(X)[:, 1]
+            for i, loan_id in enumerate(df["loan_id"].values):
+                prob = float(y_proba[i])
+                all_predictions.append({
+                    "loan_id": loan_id,
+                    "default_probability": prob,
+                    "risk_tier": get_risk_tier(prob)
+                })
+
+            results["classification"] = {
+                "model_id": model_id,
+                "metrics": metrics,
+                "training_time": training_time
+            }
+
+    except Exception as e:
+        results["errors"].append(f"Classification: {str(e)}")
+
+    # ========== REGRESSION MODEL ==========
+    try:
+        start_time = time.time()
+        model, metrics, pos_coef, neg_coef = train_regression_small(df)
+        training_time = time.time() - start_time
+
+        # Prepare coefficients
+        coefficients = []
+        for _, row in pos_coef.iterrows():
+            coefficients.append({
+                "feature": row["feature"],
+                "coefficient": float(row["coef"]),
+                "display_name": row["feature"],
+                "direction": "positive"
+            })
+        for _, row in neg_coef.iterrows():
+            coefficients.append({
+                "feature": row["feature"],
+                "coefficient": float(row["coef"]),
+                "display_name": row["feature"],
+                "direction": "negative"
+            })
+
+        # Store model
+        X = build_feature_matrix(df)
+        model_id = store_model_results(
+            model_type="regression",
+            metrics=metrics,
+            coefficients=coefficients,
+            training_samples=len(df),
+            feature_count=len(X.columns),
+            training_duration=training_time
+        )
+
+        # Generate predictions
+        if model_id:
+            y_pred = model.predict(X)
+            for i, loan_id in enumerate(df["loan_id"].values):
+                # Find existing prediction or create new
+                existing = next((p for p in all_predictions if p["loan_id"] == loan_id), None)
+                if existing:
+                    existing["predicted_performance"] = float(np.clip(y_pred[i], 0, 1))
+                else:
+                    all_predictions.append({
+                        "loan_id": loan_id,
+                        "predicted_performance": float(np.clip(y_pred[i], 0, 1))
+                    })
+
+            results["regression"] = {
+                "model_id": model_id,
+                "metrics": metrics,
+                "training_time": training_time
+            }
+
+    except Exception as e:
+        results["errors"].append(f"Regression: {str(e)}")
+
+    # ========== CURRENT RISK MODEL ==========
+    try:
+        # Filter to active loans only
+        active_df = df[df.get("loan_status", "") != "Paid Off"].copy()
+
+        if len(active_df) >= 20:
+            start_time = time.time()
+            model, metrics, pos_coef, neg_coef = train_current_risk_model(active_df, schedules_df)
+            training_time = time.time() - start_time
+
+            # Prepare coefficients
+            coefficients = []
+            for _, row in pos_coef.iterrows():
+                coefficients.append({
+                    "feature": row["feature"],
+                    "coefficient": float(row["coef"]),
+                    "display_name": row["feature"],
+                    "direction": "positive"
+                })
+            for _, row in neg_coef.iterrows():
+                coefficients.append({
+                    "feature": row["feature"],
+                    "coefficient": float(row["coef"]),
+                    "display_name": row["feature"],
+                    "direction": "negative"
+                })
+
+            # Store model
+            X = build_feature_matrix(active_df, schedules_df, model_type="current_risk")
+            model_id = store_model_results(
+                model_type="current_risk",
+                metrics=metrics,
+                coefficients=coefficients,
+                training_samples=len(active_df),
+                feature_count=len(X.columns),
+                training_duration=training_time
+            )
+
+            # Generate predictions for active loans
+            if model_id:
+                y_proba = model.predict_proba(X)[:, 1]
+                for i, loan_id in enumerate(active_df["loan_id"].values):
+                    prob = float(y_proba[i])
+                    existing = next((p for p in all_predictions if p["loan_id"] == loan_id), None)
+                    if existing:
+                        existing["current_risk_score"] = prob
+                        existing["current_risk_tier"] = get_risk_tier(prob)
+                    else:
+                        all_predictions.append({
+                            "loan_id": loan_id,
+                            "current_risk_score": prob,
+                            "current_risk_tier": get_risk_tier(prob)
+                        })
+
+                results["current_risk"] = {
+                    "model_id": model_id,
+                    "metrics": metrics,
+                    "training_time": training_time
+                }
+
+    except Exception as e:
+        results["errors"].append(f"Current Risk: {str(e)}")
+
+    # ========== STORE ALL PREDICTIONS ==========
+    if all_predictions:
+        success = store_loan_predictions(
+            all_predictions,
+            classification_model_id=results.get("classification", {}).get("model_id"),
+            regression_model_id=results.get("regression", {}).get("model_id"),
+            current_risk_model_id=results.get("current_risk", {}).get("model_id")
+        )
+        if success:
+            results["predictions_stored"] = len(all_predictions)
+
+    results["total_training_time"] = time.time() - overall_start
+    return results
+
+
+def render_stored_ml_results():
+    """
+    Render ML results from pre-computed Supabase storage.
+
+    This is the FAST path - loads stored results instead of training on-the-fly.
+    Shows coefficients, metrics, and loan predictions from the database.
+    """
+    st.subheader("📊 Model Results (Pre-computed)")
+
+    # Check for stored models
+    classification = load_model_results("classification")
+    regression = load_model_results("regression")
+    current_risk = load_model_results("current_risk")
+
+    if not classification and not regression:
+        st.warning("No pre-computed models found. Click 'Train & Store Models' to generate results.")
+        return False
+
+    # Show model freshness
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        if classification:
+            created = pd.to_datetime(classification["created_at"])
+            st.metric(
+                "Default Model",
+                f"AUC: {classification['metrics'].get('roc_auc', 0):.3f}",
+                help=f"Trained: {created.strftime('%Y-%m-%d %H:%M')}"
+            )
+            st.caption(f"Trained {created.strftime('%b %d, %H:%M')}")
+        else:
+            st.metric("Default Model", "Not trained")
+
+    with col2:
+        if regression:
+            created = pd.to_datetime(regression["created_at"])
+            st.metric(
+                "Performance Model",
+                f"R²: {regression['metrics'].get('r2', 0):.3f}",
+                help=f"Trained: {created.strftime('%Y-%m-%d %H:%M')}"
+            )
+            st.caption(f"Trained {created.strftime('%b %d, %H:%M')}")
+        else:
+            st.metric("Performance Model", "Not trained")
+
+    with col3:
+        if current_risk:
+            created = pd.to_datetime(current_risk["created_at"])
+            st.metric(
+                "Current Risk Model",
+                f"AUC: {current_risk['metrics'].get('roc_auc', 0):.3f}",
+                help=f"Trained: {created.strftime('%Y-%m-%d %H:%M')}"
+            )
+            st.caption(f"Trained {created.strftime('%b %d, %H:%M')}")
+        else:
+            st.metric("Current Risk Model", "Not trained")
+
+    st.markdown("---")
+
+    # Tabs for different model views
+    tab1, tab2, tab3, tab4 = st.tabs(["📈 Classification", "📊 Regression", "⚠️ Current Risk", "🎯 Loan Predictions"])
+
+    with tab1:
+        if classification:
+            render_stored_model_details(classification, "Default Prediction Model")
+        else:
+            st.info("Classification model not yet trained.")
+
+    with tab2:
+        if regression:
+            render_stored_model_details(regression, "Payment Performance Model")
+        else:
+            st.info("Regression model not yet trained.")
+
+    with tab3:
+        if current_risk:
+            render_stored_model_details(current_risk, "Current Risk Model")
+        else:
+            st.info("Current risk model not yet trained.")
+
+    with tab4:
+        render_loan_predictions_table()
+
+    return True
+
+
+def render_stored_model_details(model_data: Dict, title: str):
+    """Render details for a single stored model."""
+    st.markdown(f"### {title}")
+
+    # Metrics
+    metrics = model_data.get("metrics", {})
+    coefficients = model_data.get("coefficients", [])
+
+    # Display metrics
+    metric_cols = st.columns(4)
+    metric_keys = ["roc_auc", "precision", "recall", "r2", "rmse"]
+    col_idx = 0
+
+    for key in metric_keys:
+        if key in metrics:
+            with metric_cols[col_idx % 4]:
+                value = metrics[key]
+                st.metric(key.upper().replace("_", " "), f"{value:.3f}")
+            col_idx += 1
+
+    # Coefficient chart
+    if coefficients:
+        st.markdown("#### Feature Importance")
+
+        # Split positive and negative
+        pos_coef = [c for c in coefficients if c.get("direction") == "positive"]
+        neg_coef = [c for c in coefficients if c.get("direction") == "negative"]
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if pos_coef:
+                st.markdown("**🔴 Risk Increasing Factors**")
+                pos_df = pd.DataFrame(pos_coef)
+                pos_df = pos_df.sort_values("coefficient", ascending=False).head(10)
+
+                chart = alt.Chart(pos_df).mark_bar(color="#d62728").encode(
+                    x=alt.X("coefficient:Q", title="Coefficient"),
+                    y=alt.Y("display_name:N", title="", sort="-x"),
+                    tooltip=["display_name", "coefficient"]
+                ).properties(height=300)
+                st.altair_chart(chart, width="stretch")
+
+        with col2:
+            if neg_coef:
+                st.markdown("**🟢 Risk Decreasing Factors**")
+                neg_df = pd.DataFrame(neg_coef)
+                neg_df = neg_df.sort_values("coefficient", ascending=True).head(10)
+
+                chart = alt.Chart(neg_df).mark_bar(color="#2ca02c").encode(
+                    x=alt.X("coefficient:Q", title="Coefficient"),
+                    y=alt.Y("display_name:N", title="", sort="x"),
+                    tooltip=["display_name", "coefficient"]
+                ).properties(height=300)
+                st.altair_chart(chart, width="stretch")
+
+    # Training info
+    with st.expander("Training Details"):
+        st.write(f"**Samples:** {model_data.get('training_samples', 'N/A'):,}")
+        st.write(f"**Features:** {model_data.get('feature_count', 'N/A')}")
+        st.write(f"**Training Time:** {model_data.get('training_duration_seconds', 0):.2f}s")
+        st.write(f"**Trained:** {pd.to_datetime(model_data.get('created_at')).strftime('%Y-%m-%d %H:%M:%S')}")
+
+
+def render_loan_predictions_table():
+    """Render table of loan predictions from stored data."""
+    st.markdown("### Loan Risk Predictions")
+
+    predictions_df = load_loan_predictions()
+
+    if predictions_df.empty:
+        st.info("No predictions stored yet. Train models to generate predictions.")
+        return
+
+    # Summary stats
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.metric("Total Loans", len(predictions_df))
+
+    if "risk_tier" in predictions_df.columns:
+        tier_counts = predictions_df["risk_tier"].value_counts()
+        with col2:
+            critical = tier_counts.get("Critical", 0) + tier_counts.get("High", 0)
+            st.metric("High Risk Loans", critical)
+        with col3:
+            medium = tier_counts.get("Medium", 0)
+            st.metric("Medium Risk", medium)
+        with col4:
+            low = tier_counts.get("Low", 0)
+            st.metric("Low Risk", low)
+
+    # Risk distribution chart
+    if "default_probability" in predictions_df.columns:
+        st.markdown("#### Default Probability Distribution")
+
+        hist_chart = alt.Chart(predictions_df).mark_bar().encode(
+            x=alt.X("default_probability:Q", bin=alt.Bin(maxbins=20), title="Default Probability"),
+            y=alt.Y("count()", title="Number of Loans"),
+            color=alt.condition(
+                alt.datum.default_probability > 0.5,
+                alt.value("#d62728"),
+                alt.value("#2ca02c")
+            )
+        ).properties(height=250)
+
+        st.altair_chart(hist_chart, width="stretch")
+
+    # Table with filtering
+    st.markdown("#### Loan Details")
+
+    # Filter by risk tier
+    if "risk_tier" in predictions_df.columns:
+        risk_filter = st.multiselect(
+            "Filter by Risk Tier",
+            options=["Critical", "High", "Medium", "Low"],
+            default=["Critical", "High"]
+        )
+        if risk_filter:
+            filtered_df = predictions_df[predictions_df["risk_tier"].isin(risk_filter)]
+        else:
+            filtered_df = predictions_df
+    else:
+        filtered_df = predictions_df
+
+    # Sort by risk
+    if "default_probability" in filtered_df.columns:
+        filtered_df = filtered_df.sort_values("default_probability", ascending=False)
+
+    # Display columns
+    display_cols = ["loan_id"]
+    if "default_probability" in filtered_df.columns:
+        display_cols.append("default_probability")
+    if "risk_tier" in filtered_df.columns:
+        display_cols.append("risk_tier")
+    if "predicted_performance" in filtered_df.columns:
+        display_cols.append("predicted_performance")
+    if "current_risk_score" in filtered_df.columns:
+        display_cols.append("current_risk_score")
+    if "current_risk_tier" in filtered_df.columns:
+        display_cols.append("current_risk_tier")
+    if "updated_at" in filtered_df.columns:
+        display_cols.append("updated_at")
+
+    st.dataframe(
+        filtered_df[display_cols].head(100),
+        column_config={
+            "loan_id": st.column_config.TextColumn("Loan ID"),
+            "default_probability": st.column_config.NumberColumn("Default Prob", format="%.2%"),
+            "risk_tier": st.column_config.TextColumn("Risk Tier"),
+            "predicted_performance": st.column_config.NumberColumn("Pred. Performance", format="%.1%"),
+            "current_risk_score": st.column_config.NumberColumn("Current Risk", format="%.2%"),
+            "current_risk_tier": st.column_config.TextColumn("Current Tier"),
+            "updated_at": st.column_config.TextColumn("Updated"),
+        },
+        hide_index=True,
+        width="stretch"
+    )

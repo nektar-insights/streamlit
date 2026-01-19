@@ -124,12 +124,12 @@ pnl_data = pd.DataFrame({
 with col_left:
     st.subheader("Deal Volume by Month")
     bar_chart = create_bar_chart(monthly_data, 'month', 'volume', title='')
-    st.altair_chart(bar_chart, use_container_width=True)
+    st.altair_chart(bar_chart, width="stretch")
 
 with col_right:
     st.subheader("Deals by Partner")
     partner_chart = create_bar_chart(partner_data, 'partner', 'deals', title='', horizontal=False)
-    st.altair_chart(partner_chart, use_container_width=True)
+    st.altair_chart(partner_chart, width="stretch")
 
 # ============================================
 # SECOND CHARTS ROW
@@ -139,13 +139,13 @@ col_left2, col_right2 = st.columns(2)
 with col_left2:
     st.subheader("Monthly P&L")
     pnl_chart = create_positive_negative_bar(pnl_data, 'month', 'pnl', title='')
-    st.altair_chart(pnl_chart, use_container_width=True)
+    st.altair_chart(pnl_chart, width="stretch")
 
 with col_right2:
     st.subheader("Cumulative Volume Trend")
     monthly_data['cumulative'] = monthly_data['volume'].cumsum()
     line_chart = create_line_chart(monthly_data, 'month', 'cumulative', title='')
-    st.altair_chart(line_chart, use_container_width=True)
+    st.altair_chart(line_chart, width="stretch")
 
 st.markdown("---")
 
@@ -165,7 +165,7 @@ deals_df = pd.DataFrame({
 
 st.dataframe(
     deals_df,
-    use_container_width=True,
+    width="stretch",
     hide_index=True,
     column_config={
         "Status": st.column_config.TextColumn(
@@ -189,7 +189,7 @@ with tab1:
         'count': [15, 12, 9, 8, 6]
     })
     chart = create_bar_chart(industry_data, 'industry', 'count')
-    st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(chart, width="stretch")
 
 with tab2:
     term_data = pd.DataFrame({
@@ -197,7 +197,7 @@ with tab2:
         'count': [18, 22, 14, 8]
     })
     chart = create_bar_chart(term_data, 'term', 'count')
-    st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(chart, width="stretch")
 
 with tab3:
     fico_data = pd.DataFrame({
@@ -205,7 +205,7 @@ with tab3:
         'count': [8, 18, 20, 12]
     })
     chart = create_bar_chart(fico_data, 'fico_range', 'count')
-    st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(chart, width="stretch")
 
 # ============================================
 # EXPANDER EXAMPLE

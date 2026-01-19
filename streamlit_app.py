@@ -495,7 +495,7 @@ with col1:
         )
         .properties(height=300)
     )
-    st.altair_chart(participation_box, use_container_width=True)
+    st.altair_chart(participation_box, width="stretch")
 
 with col2:
     st.write("**Factor Rate Distribution**")
@@ -513,7 +513,7 @@ with col2:
         )
         .properties(height=300)
     )
-    st.altair_chart(factor_box, use_container_width=True)
+    st.altair_chart(factor_box, width="stretch")
 
 # Second row - Loan Term and TIB/FICO (when available)
 col3, col4 = st.columns(2)
@@ -534,7 +534,7 @@ with col3:
         )
         .properties(height=300)
     )
-    st.altair_chart(term_box, use_container_width=True)
+    st.altair_chart(term_box, width="stretch")
 
 with col4:
     if has_tib_data:
@@ -553,7 +553,7 @@ with col4:
             )
             .properties(height=300)
         )
-        st.altair_chart(tib_box, use_container_width=True)
+        st.altair_chart(tib_box, width="stretch")
 
     elif has_fico_data:
         st.write("**FICO Score Distribution**")
@@ -571,7 +571,7 @@ with col4:
             )
             .properties(height=300)
         )
-        st.altair_chart(fico_box, use_container_width=True)
+        st.altair_chart(fico_box, width="stretch")
 
     else:
         st.write("**Additional Data**")
@@ -596,7 +596,7 @@ if has_tib_data and has_fico_data:
             )
             .properties(height=300)
         )
-        st.altair_chart(fico_box2, use_container_width=True)
+        st.altair_chart(fico_box2, width="stretch")
     
 # ----------------------------
 # Rolling Deal Flow
@@ -617,7 +617,7 @@ flow_df_display["Funded Change Display"] = flow_df_display["Funded Change"].appl
 st.dataframe(
     flow_df_display[["Period", "Deals", "Deal Change", "Deal Change %", 
                      "Total Funded Display", "Funded Change Display", "Funded Change %"]], 
-    use_container_width=True,
+    width="stretch",
     column_config={
         "Total Funded Display": "Total Funded",
         "Funded Change Display": "Funded Change"
@@ -669,8 +669,8 @@ funded_flow_chart = alt.Chart(flow_df).mark_bar(
     title="Total Funded by Period"
 )
 
-st.altair_chart(flow_chart, use_container_width=True)
-st.altair_chart(funded_flow_chart, use_container_width=True)
+st.altair_chart(flow_chart, width="stretch")
+st.altair_chart(funded_flow_chart, width="stretch")
 
 # ----------------------------
 # Partner Rolling Flow Metrics & Charts (all periods)
@@ -765,9 +765,9 @@ avg_chart = (
 )
 
 
-st.altair_chart(count_chart,   use_container_width=True)
-st.altair_chart(funded_chart, use_container_width=True)
-st.altair_chart(avg_chart,    use_container_width=True)
+st.altair_chart(count_chart,   width="stretch")
+st.altair_chart(funded_chart, width="stretch")
+st.altair_chart(avg_chart,    width="stretch")
 
 # ----------------------------
 # ADDITIONAL DATA PREPARATION FOR DOLLAR-BASED PARTICIPATION RATE
@@ -784,6 +784,15 @@ monthly_participation_ratio_dollar["participation_pct_dollar"] = (
 monthly_participation_ratio_dollar["month_date"] = pd.to_datetime(monthly_participation_ratio_dollar["month"])
 
 # ===================== MONTHLY TREND CHARTS =====================
+
+# Filter to last 6 months for cleaner charts
+six_months_ago = today - pd.DateOffset(months=6)
+
+monthly_deals_6m = monthly_deals[monthly_deals["month_date"] >= six_months_ago].copy()
+monthly_funded_6m = monthly_funded[monthly_funded["month_date"] >= six_months_ago].copy()
+monthly_participation_6m = monthly_participation[monthly_participation["month_date"] >= six_months_ago].copy()
+monthly_participation_ratio_6m = monthly_participation_ratio[monthly_participation_ratio["month_date"] >= six_months_ago].copy()
+monthly_participation_ratio_dollar_6m = monthly_participation_ratio_dollar[monthly_participation_ratio_dollar["month_date"] >= six_months_ago].copy()
 
 # Small helper for the dashed average rule
 def _avg_rule(df_, field, title, fmt):
@@ -826,27 +835,27 @@ def _render_monthly_line(df_, y_field, y_title, fmt, color):
 
     st.altair_chart(
         (line + pts + avg).properties(height=350, padding={"bottom": 80}),
-        use_container_width=True,
+        width="stretch",
     )
 
 # ----------------------------
 # MONTHLY VOLUME CHARTS
 # ----------------------------
 
-# 1) Total Deal Count by Month
-st.subheader("Total Deal Count by Month")
+# 1) Total Deal Count by Month (Last 6 Months)
+st.subheader("Total Deal Count by Month (Last 6 Months)")
 _render_monthly_line(
-    monthly_deals,
+    monthly_deals_6m,
     y_field="deal_count",
     y_title="Deal Count",
     fmt=",.0f",
     color=COLOR_PALETTE[2],
 )
 
-# 2) Total Funded Amount by Month (Total Opportunity Value)
-st.subheader("Total Funded Amount by Month")
+# 2) Total Funded Amount by Month (Last 6 Months)
+st.subheader("Total Funded Amount by Month (Last 6 Months)")
 _render_monthly_line(
-    monthly_funded,
+    monthly_funded_6m,
     y_field="total_funded_amount",
     y_title="Total Funded ($)",
     fmt="$,.0f",
@@ -857,20 +866,20 @@ _render_monthly_line(
 # CSL DEPLOYMENT CHARTS
 # ----------------------------
 
-# 3) Total Amount Deployed by Month (CSL Capital Deployed)
-st.subheader("Total Amount Deployed by Month")
+# 3) Total Amount Deployed by Month (Last 6 Months)
+st.subheader("Total Amount Deployed by Month (Last 6 Months)")
 _render_monthly_line(
-    monthly_participation,
+    monthly_participation_6m,
     y_field="total_amount",
     y_title="Amount Deployed ($)",
     fmt="$,.0f",
     color=COLOR_PALETTE[6],  # Teal
 )
 
-# 4) Participated Deal Count by Month
-st.subheader("Participated Deal Count by Month")
+# 4) Participated Deal Count by Month (Last 6 Months)
+st.subheader("Participated Deal Count by Month (Last 6 Months)")
 _render_monthly_line(
-    monthly_participation,
+    monthly_participation_6m,
     y_field="deal_count",
     y_title="Participated Deals",
     fmt=",.0f",
@@ -881,9 +890,9 @@ _render_monthly_line(
 # PARTICIPATION RATE CHARTS
 # ----------------------------
 
-# 5) Monthly Participation Rate by Deal Count
-st.subheader("Monthly Participation Rate by Deal Count")
-rate_line = alt.Chart(monthly_participation_ratio).mark_line(
+# 5) Monthly Participation Rate by Deal Count (Last 6 Months)
+st.subheader("Monthly Participation Rate by Deal Count (Last 6 Months)")
+rate_line = alt.Chart(monthly_participation_ratio_6m).mark_line(
     color="#e45756", strokeWidth=4,
     point=alt.OverlayMarkDef(color="#e45756", size=80, filled=True)
 ).encode(
@@ -897,11 +906,11 @@ rate_line = alt.Chart(monthly_participation_ratio).mark_line(
     ]
 ).properties(height=350, width=800, padding={"left": 80, "top": 20, "right": 20, "bottom": 60})
 
-st.altair_chart(rate_line, use_container_width=True)
+st.altair_chart(rate_line, width="stretch")
 
-# 6) Monthly Participation Rate by Dollar Amount
-st.subheader("Monthly Participation Rate by Dollar Amount")
-rate_line_dollar = alt.Chart(monthly_participation_ratio_dollar).mark_line(
+# 6) Monthly Participation Rate by Dollar Amount (Last 6 Months)
+st.subheader("Monthly Participation Rate by Dollar Amount (Last 6 Months)")
+rate_line_dollar = alt.Chart(monthly_participation_ratio_dollar_6m).mark_line(
     color="#17a2b8", strokeWidth=4,
     point=alt.OverlayMarkDef(color="#17a2b8", size=80, filled=True)
 ).encode(
@@ -917,7 +926,7 @@ rate_line_dollar = alt.Chart(monthly_participation_ratio_dollar).mark_line(
     ]
 ).properties(height=350, width=800, padding={"left": 80, "top": 20, "right": 20, "bottom": 60})
 
-st.altair_chart(rate_line_dollar, use_container_width=True)
+st.altair_chart(rate_line_dollar, width="stretch")
 # ----------------------------
 # PARTNER SUMMARY TABLES
 # ----------------------------
@@ -992,7 +1001,7 @@ totals_row = pd.DataFrame({
 # Append totals row to display DataFrame
 combined_summary_display = pd.concat([combined_summary_display, totals_row], ignore_index=True)
 
-st.dataframe(combined_summary_display, use_container_width=True, height=450)
+st.dataframe(combined_summary_display, width="stretch", height=450)
 
 # ----------------------------
 # DOWNLOAD FUNCTIONS

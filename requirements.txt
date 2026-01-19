@@ -1,7 +1,6 @@
 supabase
 pandas
 streamlit
-xhtml2pdf
 matplotlib>=3.0
 numpy-financial
 scikit-learn>=1.3,<2.0

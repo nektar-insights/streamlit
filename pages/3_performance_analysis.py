@@ -34,7 +34,6 @@ from utils.loan_tape_data import (
 )
 from utils.loan_tape_analytics import (
     PROBLEM_STATUSES,
-    get_payment_behavior_features,
 )
 from utils.status_constants import (
     STATUS_COLORS,
@@ -104,7 +103,7 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
                 alt.Tooltip("deal_count:Q", title="Loan Count"),
             ],
         ).properties(width=350, height=400, title="Payment Performance by Industry (Top 15)")
-        st.altair_chart(perf_chart, use_container_width=True)
+        st.altair_chart(perf_chart, width="stretch")
 
     with col2:
         return_chart = alt.Chart(industry_metrics).mark_bar().encode(
@@ -121,7 +120,7 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
                 alt.Tooltip("deal_count:Q", title="Loan Count"),
             ],
         ).properties(width=350, height=400, title="Return Rate by Industry (Top 15)")
-        st.altair_chart(return_chart, use_container_width=True)
+        st.altair_chart(return_chart, width="stretch")
 
     st.subheader("Industry Performance Summary")
     display_df = industry_metrics.copy()
@@ -131,7 +130,7 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
     display_df["actual_return_rate"] = display_df["actual_return_rate"].map(lambda x: f"{x:.1%}")
     display_df = display_df[["display_label", "deal_count", "outstanding_balance", "pct_of_total_outstanding", "avg_payment_performance", "actual_return_rate"]]
     display_df.columns = ["Industry (NAICS 2-Digit)", "Loan Count", "Outstanding Balance", "% of Total Outstanding", "Avg Payment Performance", "Actual Return Rate"]
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(display_df, width="stretch", hide_index=True)
 
     # --- Capital Exposure Analysis Section ---
     st.subheader("Capital Exposure Analysis")
@@ -192,7 +191,7 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
                     size=24, fontWeight="bold", color="#333"
                 ).encode(text="text:N")
 
-                st.altair_chart(industry_donut + center_text, use_container_width=True)
+                st.altair_chart(industry_donut + center_text, width="stretch")
 
             with col2:
                 # Get colors for statuses present in data (uses shared STATUS_COLORS)
@@ -218,7 +217,7 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
                     size=24, fontWeight="bold", color="#333"
                 ).encode(text="text:N")
 
-                st.altair_chart(status_donut + center_text2, use_container_width=True)
+                st.altair_chart(status_donut + center_text2, width="stretch")
 
             # --- Stacked Bar Chart: Industry x Status Breakdown ---
             st.markdown("##### Exposure by Industry & Status")
@@ -253,7 +252,7 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
                 order=alt.Order("loan_status:N"),
             ).properties(width=800, height=500, title="Industry Exposure Breakdown by Loan Status")
 
-            st.altair_chart(stacked_bar, use_container_width=True)
+            st.altair_chart(stacked_bar, width="stretch")
 
 
 def plot_fico_performance_analysis(df: pd.DataFrame):
@@ -310,7 +309,7 @@ def plot_fico_performance_analysis(df: pd.DataFrame):
                 alt.Tooltip("deal_count:Q", title="Loan Count"),
             ],
         ).properties(width=350, height=300, title="Payment Performance by FICO Score")
-        st.altair_chart(perf_chart, use_container_width=True)
+        st.altair_chart(perf_chart, width="stretch")
 
     with col2:
         problem_chart = alt.Chart(fico_metrics).mark_bar().encode(
@@ -327,7 +326,7 @@ def plot_fico_performance_analysis(df: pd.DataFrame):
                 alt.Tooltip("deal_count:Q", title="Total Loans"),
             ],
         ).properties(width=350, height=300, title="Problem Loan Rate by FICO Score")
-        st.altair_chart(problem_chart, use_container_width=True)
+        st.altair_chart(problem_chart, width="stretch")
 
     return_chart = alt.Chart(fico_metrics).mark_bar().encode(
         x=alt.X("fico_band:N", title="FICO Score Band", sort=fico_labels),
@@ -343,7 +342,7 @@ def plot_fico_performance_analysis(df: pd.DataFrame):
             alt.Tooltip("deal_count:Q", title="Loan Count"),
         ],
     ).properties(width=700, height=300, title="Actual Return Rate by FICO Score")
-    st.altair_chart(return_chart, use_container_width=True)
+    st.altair_chart(return_chart, width="stretch")
 
     st.subheader("FICO Performance Summary")
     display_df = fico_metrics.copy()
@@ -356,7 +355,7 @@ def plot_fico_performance_analysis(df: pd.DataFrame):
         "avg_payment_performance", "actual_return_rate", "problem_rate"
     ]]
     display_df.columns = ["FICO Band", "Loan Count", "Outstanding Balance", "Avg Payment Performance", "Actual Return Rate", "Problem Loan Rate"]
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(display_df, width="stretch", hide_index=True)
 
 
 def plot_tib_performance_analysis(df: pd.DataFrame):
@@ -413,7 +412,7 @@ def plot_tib_performance_analysis(df: pd.DataFrame):
                 alt.Tooltip("deal_count:Q", title="Loan Count"),
             ],
         ).properties(width=350, height=300, title="Payment Performance by Time in Business")
-        st.altair_chart(perf_chart, use_container_width=True)
+        st.altair_chart(perf_chart, width="stretch")
 
     with col2:
         problem_chart = alt.Chart(tib_metrics).mark_bar().encode(
@@ -430,7 +429,7 @@ def plot_tib_performance_analysis(df: pd.DataFrame):
                 alt.Tooltip("deal_count:Q", title="Total Loans"),
             ],
         ).properties(width=350, height=300, title="Problem Loan Rate by Time in Business")
-        st.altair_chart(problem_chart, use_container_width=True)
+        st.altair_chart(problem_chart, width="stretch")
 
     return_chart = alt.Chart(tib_metrics).mark_bar().encode(
         x=alt.X("tib_band:N", title="TIB Band (Years)", sort=tib_labels),
@@ -446,7 +445,7 @@ def plot_tib_performance_analysis(df: pd.DataFrame):
             alt.Tooltip("deal_count:Q", title="Loan Count"),
         ],
     ).properties(width=700, height=300, title="Actual Return Rate by Time in Business")
-    st.altair_chart(return_chart, use_container_width=True)
+    st.altair_chart(return_chart, width="stretch")
 
     st.subheader("TIB Performance Summary")
     display_df = tib_metrics.copy()
@@ -456,7 +455,7 @@ def plot_tib_performance_analysis(df: pd.DataFrame):
     display_df["problem_rate"] = display_df["problem_rate"].map(lambda x: f"{x:.1%}")
     display_df = display_df[["tib_band", "deal_count", "outstanding_balance", "avg_payment_performance", "actual_return_rate", "problem_rate"]]
     display_df.columns = ["TIB Band", "Loan Count", "Outstanding Balance", "Avg Payment Performance", "Actual Return Rate", "Problem Loan Rate"]
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(display_df, width="stretch", hide_index=True)
 
 
 def plot_metric_correlations(df: pd.DataFrame):
@@ -570,7 +569,7 @@ def plot_metric_correlations(df: pd.DataFrame):
         "pct_on_time", "realized_irr"
     ).mark_line(color="red", strokeDash=[4, 4])
 
-    st.altair_chart(scatter + regression_line, use_container_width=True)
+    st.altair_chart(scatter + regression_line, width="stretch")
 
     # Interpretation text
     with st.expander("How to Interpret Correlations"):
@@ -617,9 +616,6 @@ def main():
     # Calculate IRR and add grades
     df = calculate_irr(df)
     df = add_performance_grades(df)
-
-    # Add payment behavior features for correlation analysis
-    df = get_payment_behavior_features(df)
 
     # Sidebar filters
     st.sidebar.header("Filters")

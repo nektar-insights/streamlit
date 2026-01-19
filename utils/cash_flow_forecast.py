@@ -277,7 +277,7 @@ def render_forecast_history_tracking(qbo_df=None):
             strokeDash=[5, 5]
         ).encode(y="y:Q")
 
-        st.altair_chart(accuracy_chart + target_line, use_container_width=True)
+        st.altair_chart(accuracy_chart + target_line, width="stretch")
 
     # Forecast history table
     st.markdown("### Forecast History")
@@ -301,7 +301,7 @@ def render_forecast_history_tracking(qbo_df=None):
             "Accuracy %": st.column_config.NumberColumn("Accuracy", format="%.1f%%"),
         },
         hide_index=True,
-        use_container_width=True
+        width="stretch"
     )
 
     # Update actuals button
@@ -873,7 +873,7 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
                     
                     st.dataframe(
                         summary_df[["Date", "Starting Cash", "Inflows", "Deployment", "OpEx", "Net Flow", "Ending Cash"]],
-                        use_container_width=True,
+                        width="stretch",
                         column_config={
                             "Date": st.column_config.TextColumn("Period"),
                             "Starting Cash": st.column_config.NumberColumn("Starting Cash", format="$%.0f"),
@@ -925,7 +925,7 @@ def create_cash_flow_forecast(deals_df, closed_won_df, qbo_df=None):
             # Layer them together
             combined_chart = cash_chart + reserve_line
             
-            st.altair_chart(combined_chart, use_container_width=True)
+            st.altair_chart(combined_chart, width="stretch")
             
             # Warnings
             if forecast_df["Ending Cash"].min() < min_cash_threshold:

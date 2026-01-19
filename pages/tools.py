@@ -164,7 +164,7 @@ with tab_bad_debt:
             )
 
             # Calculate button
-            calculate_btn = st.button("Calculate Recovery Score", type="primary", use_container_width=True, key="bde_calc")
+            calculate_btn = st.button("Calculate Recovery Score", type="primary", width="stretch", key="bde_calc")
 
         # Compute and display results
         with col_output:
@@ -275,7 +275,7 @@ with tab_bad_debt:
                 height=200
             )
 
-            st.altair_chart(chart, use_container_width=True)
+            st.altair_chart(chart, width="stretch")
 
             # Display weight explanation
             with st.expander("Understanding the Weights"):
@@ -490,7 +490,7 @@ with tab_bad_debt:
                         height=300
                     )
 
-                    st.altair_chart(chart, use_container_width=True)
+                    st.altair_chart(chart, width="stretch")
 
                 st.divider()
 
@@ -538,7 +538,7 @@ with tab_bad_debt:
                     sort_idx = scored_df["recovery_bad_debt_mid"].fillna(0).sort_values(ascending=False).index
                     display_df = display_df.loc[sort_idx]
 
-                st.dataframe(display_df.head(50), use_container_width=True, hide_index=True)
+                st.dataframe(display_df.head(50), width="stretch", hide_index=True)
 
                 if len(scored_df) > 50:
                     st.caption(f"Showing top 50 of {len(scored_df)} loans by estimated bad debt.")
@@ -671,6 +671,11 @@ with tab_scorer:
         render_batch_scorer,
         store_model_metrics,
         render_model_drift_tracking,
+        # Pre-computed ML storage functions
+        train_and_store_all_models,
+        render_stored_ml_results,
+        load_model_results,
+        check_model_freshness,
         NAICS_SECTOR_NAMES,
         RISK_LEVELS,
     )
@@ -704,16 +709,35 @@ with tab_scorer:
             return None
         return get_origination_model_coefficients(_df)
 
-    # Load data
+    # Check for pre-computed model results first (fast path)
+    classification_fresh, classification_time = check_model_freshness("classification", max_age_hours=24)
+    stored_classification = load_model_results("classification") if classification_fresh else None
+
+    # Status indicator for stored results
+    if stored_classification:
+        st.success(f"Using pre-computed model results (last trained: {classification_time.strftime('%Y-%m-%d %H:%M') if classification_time else 'Unknown'})")
+        use_stored_results = True
+    else:
+        st.info("No recent pre-computed results found. Loading data for real-time training...")
+        use_stored_results = False
+
+    # Load data (needed for new deal scoring and retraining)
     with st.spinner("Loading portfolio data..."):
         scorer_df, partners = load_scorer_data()
 
     if scorer_df.empty:
         st.error("Unable to load loan data. Please check database connection.")
     else:
-        # Train model and get coefficients
-        with st.spinner("Training risk model on historical data..."):
-            coefficients_data = train_scorer_model(scorer_df)
+        # Get coefficients - use stored if available, otherwise train
+        if use_stored_results and stored_classification:
+            # Reconstruct coefficients_data from stored results for deal scoring
+            coefficients_data = {
+                "coefficients": stored_classification.get("coefficients", {}),
+                "model_quality": stored_classification.get("metrics", {}),
+            }
+        else:
+            with st.spinner("Training risk model on historical data..."):
+                coefficients_data = train_scorer_model(scorer_df)
 
         if coefficients_data is None:
             st.error("Unable to train risk model. Insufficient data.")
@@ -841,7 +865,7 @@ with tab_scorer:
                     ) / 100
 
                 st.markdown("---")
-                score_button = st.button("Score This Deal", type="primary", use_container_width=True, key="scorer_calc")
+                score_button = st.button("Score This Deal", type="primary", width="stretch", key="scorer_calc")
 
                 if score_button:
                     if partner is None and sector_code is None:
@@ -922,7 +946,7 @@ with tab_scorer:
                             color="gray", strokeDash=[3, 3]
                         ).encode(x="x:Q")
 
-                        st.altair_chart(chart + rule, use_container_width=True)
+                        st.altair_chart(chart + rule, width="stretch")
 
                         st.caption("Red bars increase risk, green bars decrease risk. Larger absolute values have more impact.")
 
@@ -1025,7 +1049,7 @@ with tab_scorer:
                                 }
                                 display_df.rename(columns=rename_map, inplace=True)
 
-                                st.dataframe(display_df, use_container_width=True, hide_index=True)
+                                st.dataframe(display_df, width="stretch", hide_index=True)
 
                                 st.caption("""
                                 **Problem Classification Logic:**
@@ -1139,355 +1163,390 @@ with tab_scorer:
                 validate model quality, and identify patterns across partners and industries.
                 """)
 
-                # Train models first to get metrics for executive summary
-                classification_metrics = None
-                regression_metrics = None
-                top_pos = pd.DataFrame()
-                top_neg = pd.DataFrame()
+                # Train & Store button for manual retraining
+                col_retrain, col_status = st.columns([1, 3])
+                with col_retrain:
+                    retrain_clicked = st.button(
+                        "Train & Store Models",
+                        type="secondary",
+                        help="Retrain all ML models and store results in Supabase for faster future loading",
+                        key="retrain_models_btn"
+                    )
 
-                try:
-                    model, metrics, top_pos, top_neg = train_classification_small(scorer_df)
-                    classification_metrics = metrics
-                    # Store metrics for drift tracking
-                    store_model_metrics("classification", metrics, scorer_df)
-                except Exception:
-                    pass
+                # Handle retrain request
+                if retrain_clicked:
+                    with st.spinner("Training and storing all ML models... This may take a minute."):
+                        schedules_df = load_loan_schedules()
+                        train_results = train_and_store_all_models(scorer_df, schedules_df)
 
-                try:
-                    r_model, r_metrics = train_regression_small(scorer_df)
-                    regression_metrics = r_metrics
-                    # Store metrics for drift tracking
-                    store_model_metrics("regression", r_metrics, scorer_df)
-                except Exception:
-                    pass
+                    if train_results.get("success"):
+                        st.success("Models trained and stored successfully! Results will load instantly on next visit.")
+                        # Clear cache to force reload with new stored results
+                        st.cache_data.clear()
+                        st.rerun()
+                    else:
+                        st.error(f"Training failed: {train_results.get('error', 'Unknown error')}")
 
-                # Executive Summary - Plain English for non-technical users
-                if classification_metrics and regression_metrics:
-                    render_executive_summary(classification_metrics, regression_metrics, scorer_df)
+                # Check if we should display stored results (fast path) or train in real-time
+                if use_stored_results:
+                    # Fast path: Display pre-computed results from Supabase
+                    render_stored_ml_results()
+                else:
+                    # Slow path: Train in real-time (fallback when no stored results)
+                    st.info("Training models in real-time. Click 'Train & Store Models' to save results for faster loading.")
 
-                # Factor Impact Examples - Concrete examples of what changes mean
-                render_factor_impact_examples(coefficients_data, scorer_df)
+                    # Train models to get metrics for executive summary
+                    classification_metrics = None
+                    regression_metrics = None
+                    top_pos = pd.DataFrame()
+                    top_neg = pd.DataFrame()
 
-                st.markdown("""
-                Three models are trained on your historical portfolio data:
+                    try:
+                        model, metrics, top_pos, top_neg = train_classification_small(scorer_df)
+                        classification_metrics = metrics
+                        # Store metrics for drift tracking
+                        store_model_metrics("classification", metrics, scorer_df)
+                    except Exception:
+                        pass
+
+                    try:
+                        r_model, r_metrics = train_regression_small(scorer_df)
+                        regression_metrics = r_metrics
+                        # Store metrics for drift tracking
+                        store_model_metrics("regression", r_metrics, scorer_df)
+                    except Exception:
+                        pass
+
+                    # Executive Summary - Plain English for non-technical users
+                    if classification_metrics and regression_metrics:
+                        render_executive_summary(classification_metrics, regression_metrics, scorer_df)
+
+                # The rest of the diagnostics only shows when NOT using stored results
+                # (since render_stored_ml_results() already covers all this content)
+                if not use_stored_results:
+                    # Factor Impact Examples - Concrete examples of what changes mean
+                    render_factor_impact_examples(coefficients_data, scorer_df)
+
+                    st.markdown("""
+                    Three models are trained on your historical portfolio data:
                 - **Problem Loan Classifier**: Predicts which loans will become problematic
                 - **Payment Performance Regressor**: Predicts expected recovery percentage
                 - **Current Risk Scorer**: Scores active loans using both origination and behavioral data
-                """)
-
-                st.markdown("---")
-
-                # Problem Loan Prediction Model
-                st.subheader("Problem Loan Prediction Model")
-                st.markdown("""
-                This model predicts which loans are likely to become "problem loans"
-                (late payments, defaults, bankruptcies) based on observable characteristics at origination.
-                """)
-
-                with st.expander("How to interpret these metrics", expanded=False):
-                    render_ml_explainer(metric_type="classification")
-
-                # Use pre-trained classification model from above (avoid duplicate training)
-                if classification_metrics is not None:
-                    metrics = classification_metrics
-
-                    col1, col2, col3, col4, col5 = st.columns([1.2, 1, 1, 1, 1.5])
-                    with col1:
-                        roc_val = metrics['ROC AUC'][0]
-                        auc_tier = metrics.get('auc_tier', 'N/A')
-                        st.metric("ROC AUC", f"{roc_val:.3f}" if pd.notnull(roc_val) else "N/A")
-                        st.caption(f"Performance: **{auc_tier}**")
-                    with col2:
-                        prec_val = metrics['Precision'][0]
-                        st.metric("Precision", f"{prec_val:.3f}")
-                    with col3:
-                        recall_val = metrics['Recall'][0]
-                        st.metric("Recall", f"{recall_val:.3f}")
-                    with col4:
-                        st.metric("Baseline AUC", f"{metrics.get('baseline_auc', 0.5):.2f}")
-                        st.caption("Random classifier")
-                    with col5:
-                        lift = metrics.get('auc_lift', 0)
-                        st.metric("Lift vs Baseline", f"+{lift:.0%}" if lift > 0 else f"{lift:.0%}")
-                        st.caption(f"n={metrics['n_samples']:,}, {metrics.get('n_splits', 'N/A')}-fold CV")
-
-                    st.markdown("##### Key Risk Factors")
-                    st.markdown("""
-                    These coefficients show which features most strongly predict problem loans.
-                    **Red flags** (positive coefficients) increase risk; **green flags** (negative coefficients) decrease risk.
                     """)
 
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.markdown("**Risk-Increasing Factors (Red Flags)**")
-                        if not top_pos.empty:
-                            display_df = top_pos.copy()
-                            if "Feature" in display_df.columns:
-                                chart_data = pd.DataFrame({
-                                    "feature": display_df["Feature"],
-                                    "coef": display_df["coef"]
-                                })
-                            else:
-                                chart_data = display_df[["feature", "coef"]]
-                            chart = create_coefficient_chart(chart_data, "Risk-Increasing Features", "#d62728")
-                            st.altair_chart(chart, use_container_width=True)
+                    st.markdown("---")
 
-                            table_data = display_df[["Feature", "coef"]].copy() if "Feature" in display_df.columns else display_df[["feature", "coef"]].copy()
-                            table_data.columns = ["Feature", "Coefficient"]
-                            table_data["Coefficient"] = table_data["Coefficient"].map(lambda x: f"{x:+.4f}")
-                            st.dataframe(table_data, use_container_width=True, hide_index=True)
+                    # Problem Loan Prediction Model
+                    st.subheader("Problem Loan Prediction Model")
+                    st.markdown("""
+                    This model predicts which loans are likely to become "problem loans"
+                    (late payments, defaults, bankruptcies) based on observable characteristics at origination.
+                    """)
 
-                    with col2:
-                        st.markdown("**Risk-Decreasing Factors (Green Flags)**")
-                        if not top_neg.empty:
-                            display_df = top_neg.copy()
-                            if "Feature" in display_df.columns:
-                                chart_data = pd.DataFrame({
-                                    "feature": display_df["Feature"],
-                                    "coef": display_df["coef"]
-                                })
-                            else:
-                                chart_data = display_df[["feature", "coef"]]
-                            chart = create_coefficient_chart(chart_data, "Risk-Decreasing Features", "#2ca02c")
-                            st.altair_chart(chart, use_container_width=True)
+                    with st.expander("How to interpret these metrics", expanded=False):
+                        render_ml_explainer(metric_type="classification")
 
-                            table_data = display_df[["Feature", "coef"]].copy() if "Feature" in display_df.columns else display_df[["feature", "coef"]].copy()
-                            table_data.columns = ["Feature", "Coefficient"]
-                            table_data["Coefficient"] = table_data["Coefficient"].map(lambda x: f"{x:+.4f}")
-                            st.dataframe(table_data, use_container_width=True, hide_index=True)
-                else:
-                    st.warning("Classification model could not be trained. Check data quality or scikit-learn installation.")
+                    # Use pre-trained classification model from above (avoid duplicate training)
+                    if classification_metrics is not None:
+                        metrics = classification_metrics
 
-                st.markdown("---")
+                        col1, col2, col3, col4, col5 = st.columns([1.2, 1, 1, 1, 1.5])
+                        with col1:
+                            roc_val = metrics['ROC AUC'][0]
+                            auc_tier = metrics.get('auc_tier', 'N/A')
+                            st.metric("ROC AUC", f"{roc_val:.3f}" if pd.notnull(roc_val) else "N/A")
+                            st.caption(f"Performance: **{auc_tier}**")
+                        with col2:
+                            prec_val = metrics['Precision'][0]
+                            st.metric("Precision", f"{prec_val:.3f}")
+                        with col3:
+                            recall_val = metrics['Recall'][0]
+                            st.metric("Recall", f"{recall_val:.3f}")
+                        with col4:
+                            st.metric("Baseline AUC", f"{metrics.get('baseline_auc', 0.5):.2f}")
+                            st.caption("Random classifier")
+                        with col5:
+                            lift = metrics.get('auc_lift', 0)
+                            st.metric("Lift vs Baseline", f"+{lift:.0%}" if lift > 0 else f"{lift:.0%}")
+                            st.caption(f"n={metrics['n_samples']:,}, {metrics.get('n_splits', 'N/A')}-fold CV")
 
-                # Regression Model
-                st.subheader("Payment Performance Prediction Model")
-                st.markdown("""
-                This model predicts the expected payment performance (% of invested capital recovered)
-                for each loan based on its characteristics at origination.
-                """)
+                        st.markdown("##### Key Risk Factors")
+                        st.markdown("""
+                        These coefficients show which features most strongly predict problem loans.
+                        **Red flags** (positive coefficients) increase risk; **green flags** (negative coefficients) decrease risk.
+                        """)
 
-                with st.expander("How to interpret these metrics", expanded=False):
-                    render_ml_explainer(metric_type="regression")
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.markdown("**Risk-Increasing Factors (Red Flags)**")
+                            if not top_pos.empty:
+                                display_df = top_pos.copy()
+                                if "Feature" in display_df.columns:
+                                    chart_data = pd.DataFrame({
+                                        "feature": display_df["Feature"],
+                                        "coef": display_df["coef"]
+                                    })
+                                else:
+                                    chart_data = display_df[["feature", "coef"]]
+                                chart = create_coefficient_chart(chart_data, "Risk-Increasing Features", "#d62728")
+                                st.altair_chart(chart, width="stretch")
 
-                # Use pre-trained regression model from above (avoid duplicate training)
-                if regression_metrics is not None:
-                    r_metrics = regression_metrics
+                                table_data = display_df[["Feature", "coef"]].copy() if "Feature" in display_df.columns else display_df[["feature", "coef"]].copy()
+                                table_data.columns = ["Feature", "Coefficient"]
+                                table_data["Coefficient"] = table_data["Coefficient"].map(lambda x: f"{x:+.4f}")
+                                st.dataframe(table_data, width="stretch", hide_index=True)
 
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        r2_val = r_metrics['R2'][0]
-                        r2_tier = r_metrics.get('r2_tier', 'N/A')
-                        st.metric("R2 Score", f"{r2_val:.3f}" if pd.notnull(r2_val) else "N/A")
-                        st.caption(f"Performance: **{r2_tier}**")
-                    with col2:
-                        rmse_val = r_metrics['RMSE'][0]
-                        st.metric("RMSE", f"{rmse_val:.3f}")
-                        st.caption("Avg prediction error")
-                    with col3:
-                        baseline_rmse = r_metrics.get('baseline_rmse', 0)
-                        st.metric("Baseline RMSE", f"{baseline_rmse:.3f}")
-                        st.caption("Mean predictor")
-                    with col4:
-                        improvement = r_metrics.get('rmse_improvement_pct', 0)
-                        st.metric("RMSE Improvement", f"{improvement:.1%}")
-                        st.caption(f"n={r_metrics['n_samples']:,}, {r_metrics.get('n_splits', 'N/A')}-fold CV")
+                        with col2:
+                            st.markdown("**Risk-Decreasing Factors (Green Flags)**")
+                            if not top_neg.empty:
+                                display_df = top_neg.copy()
+                                if "Feature" in display_df.columns:
+                                    chart_data = pd.DataFrame({
+                                        "feature": display_df["Feature"],
+                                        "coef": display_df["coef"]
+                                    })
+                                else:
+                                    chart_data = display_df[["feature", "coef"]]
+                                chart = create_coefficient_chart(chart_data, "Risk-Decreasing Features", "#2ca02c")
+                                st.altair_chart(chart, width="stretch")
 
-                    st.markdown("##### Target Variable Context")
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.metric("Avg Payment Performance", f"{r_metrics.get('mean_target', 0):.1%}")
-                    with col2:
-                        st.metric("Std Dev", f"{r_metrics.get('std_target', 0):.1%}")
-                else:
-                    st.warning("Regression model could not be trained. Check data quality or scikit-learn installation.")
-
-                st.markdown("---")
-
-                # Current Risk Scores
-                st.subheader("Current Risk Scores")
-                st.markdown("""
-                This model scores **active loans** on their current risk level using both
-                origination characteristics and payment behavior. Higher scores indicate
-                higher risk of becoming a problem loan.
-                """)
-
-                schedules_df = load_loan_schedules()
-
-                try:
-                    risk_model, risk_metrics, partner_rankings, industry_rankings, loan_predictions = train_current_risk_model(
-                        scorer_df, schedules_df
-                    )
-                    # Store metrics for drift tracking
-                    store_model_metrics("current_risk", risk_metrics, scorer_df)
-
-                    col1, col2, col3, col4, col5 = st.columns([1.2, 1, 1, 1, 1.5])
-                    with col1:
-                        roc_val = risk_metrics['ROC AUC'][0]
-                        auc_tier = risk_metrics.get('auc_tier', 'N/A')
-                        st.metric("ROC AUC", f"{roc_val:.3f}" if pd.notnull(roc_val) else "N/A")
-                        st.caption(f"Performance: **{auc_tier}**")
-                    with col2:
-                        prec_val = risk_metrics['Precision'][0]
-                        st.metric("Precision", f"{prec_val:.3f}" if pd.notnull(prec_val) else "N/A")
-                    with col3:
-                        recall_val = risk_metrics['Recall'][0]
-                        st.metric("Recall", f"{recall_val:.3f}" if pd.notnull(recall_val) else "N/A")
-                    with col4:
-                        st.metric("Problem Loans", f"{risk_metrics.get('n_problem_loans', 0)}")
-                        st.caption(f"of {risk_metrics.get('n_samples', 0)} active")
-                    with col5:
-                        pos_rate = risk_metrics.get('pos_rate', 0)
-                        st.metric("Problem Rate", f"{pos_rate:.1%}")
-                        st.caption(f"{risk_metrics.get('n_splits', 'N/A')}-fold CV")
+                                table_data = display_df[["Feature", "coef"]].copy() if "Feature" in display_df.columns else display_df[["feature", "coef"]].copy()
+                                table_data.columns = ["Feature", "Coefficient"]
+                                table_data["Coefficient"] = table_data["Coefficient"].map(lambda x: f"{x:+.4f}")
+                                st.dataframe(table_data, width="stretch", hide_index=True)
+                    else:
+                        st.warning("Classification model could not be trained. Check data quality or scikit-learn installation.")
 
                     st.markdown("---")
 
-                    st.markdown("##### Highest Risk Active Loans")
-                    st.caption("Loans sorted by ML-predicted risk score (0-100). Higher = more likely to become a problem.")
+                    # Regression Model
+                    st.subheader("Payment Performance Prediction Model")
+                    st.markdown("""
+                    This model predicts the expected payment performance (% of invested capital recovered)
+                    for each loan based on its characteristics at origination.
+                    """)
 
-                    top_risk_loans = loan_predictions.head(15).copy()
-                    if not top_risk_loans.empty:
-                        display_cols = ["loan_id", "deal_name", "loan_status", "partner_source",
-                                       "risk_score", "payment_performance", "net_balance"]
-                        display_df = top_risk_loans[[c for c in display_cols if c in top_risk_loans.columns]].copy()
+                    with st.expander("How to interpret these metrics", expanded=False):
+                        render_ml_explainer(metric_type="regression")
 
-                        if "risk_score" in display_df.columns:
-                            display_df["risk_score"] = display_df["risk_score"].map(lambda x: f"{x:.1f}")
-                        if "payment_performance" in display_df.columns:
-                            display_df["payment_performance"] = display_df["payment_performance"].map(
-                                lambda x: f"{x:.1%}" if pd.notnull(x) else "N/A"
-                            )
-                        if "net_balance" in display_df.columns:
-                            display_df["net_balance"] = display_df["net_balance"].map(
-                                lambda x: f"${x:,.0f}" if pd.notnull(x) else "N/A"
-                            )
+                    # Use pre-trained regression model from above (avoid duplicate training)
+                    if regression_metrics is not None:
+                        r_metrics = regression_metrics
 
-                        display_df.columns = ["Loan ID", "Deal Name", "Status", "Partner",
-                                             "Risk Score", "Payment Perf", "Net Balance"][:len(display_df.columns)]
-                        st.dataframe(display_df, use_container_width=True, hide_index=True)
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            r2_val = r_metrics['R2'][0]
+                            r2_tier = r_metrics.get('r2_tier', 'N/A')
+                            st.metric("R2 Score", f"{r2_val:.3f}" if pd.notnull(r2_val) else "N/A")
+                            st.caption(f"Performance: **{r2_tier}**")
+                        with col2:
+                            rmse_val = r_metrics['RMSE'][0]
+                            st.metric("RMSE", f"{rmse_val:.3f}")
+                            st.caption("Avg prediction error")
+                        with col3:
+                            baseline_rmse = r_metrics.get('baseline_rmse', 0)
+                            st.metric("Baseline RMSE", f"{baseline_rmse:.3f}")
+                            st.caption("Mean predictor")
+                        with col4:
+                            improvement = r_metrics.get('rmse_improvement_pct', 0)
+                            st.metric("RMSE Improvement", f"{improvement:.1%}")
+                            st.caption(f"n={r_metrics['n_samples']:,}, {r_metrics.get('n_splits', 'N/A')}-fold CV")
 
-                    st.markdown("---")
-
-                    col1, col2 = st.columns(2)
-
-                    with col1:
-                        st.markdown("##### Partner Risk Leaderboard")
-                        st.caption("Problem rate and avg risk score by partner source")
-
-                        if not partner_rankings.empty:
-                            partner_display = partner_rankings.copy()
-                            partner_display["problem_rate"] = partner_display["problem_rate"].map(lambda x: f"{x:.1%}")
-                            partner_display["avg_risk_score"] = partner_display["avg_risk_score"].map(lambda x: f"{x:.1f}")
-                            partner_display["total_balance"] = partner_display["total_balance"].map(lambda x: f"${x:,.0f}")
-                            partner_display = partner_display[["partner_source", "loan_count", "problem_rate", "avg_risk_score", "total_balance"]]
-                            partner_display.columns = ["Partner", "Loans", "Problem Rate", "Avg Risk", "Balance"]
-                            st.dataframe(partner_display, use_container_width=True, hide_index=True)
-
-                            partner_chart_data = partner_rankings[partner_rankings["loan_count"] >= 2].head(10).copy()
-                            if not partner_chart_data.empty:
-                                chart = alt.Chart(partner_chart_data).mark_bar().encode(
-                                    x=alt.X("partner_source:N", title="Partner", sort="-y"),
-                                    y=alt.Y("problem_rate:Q", title="Problem Rate", axis=alt.Axis(format=".0%")),
-                                    color=alt.Color(
-                                        "problem_rate:Q",
-                                        scale=alt.Scale(domain=[0, 0.2, 0.5], range=["#2ca02c", "#ffbb78", "#d62728"]),
-                                        legend=None
-                                    ),
-                                    tooltip=[
-                                        alt.Tooltip("partner_source:N", title="Partner"),
-                                        alt.Tooltip("problem_rate:Q", title="Problem Rate", format=".1%"),
-                                        alt.Tooltip("loan_count:Q", title="Loans"),
-                                        alt.Tooltip("avg_risk_score:Q", title="Avg Risk Score", format=".1f"),
-                                    ]
-                                ).properties(height=250, title="Problem Rate by Partner (min 2 loans)")
-                                st.altair_chart(chart, use_container_width=True)
-
-                    with col2:
-                        st.markdown("##### Industry Risk Heatmap")
-                        st.caption("Problem rate by NAICS sector code")
-
-                        if not industry_rankings.empty:
-                            industry_display = industry_rankings.copy()
-                            industry_display["problem_rate"] = industry_display["problem_rate"].map(lambda x: f"{x:.1%}")
-                            industry_display["avg_risk_score"] = industry_display["avg_risk_score"].map(lambda x: f"{x:.1f}")
-                            industry_display = industry_display[["sector_code", "sector_name", "loan_count", "problem_rate", "avg_risk_score"]]
-                            industry_display.columns = ["Sector", "Name", "Loans", "Problem Rate", "Avg Risk"]
-                            st.dataframe(industry_display.head(10), use_container_width=True, hide_index=True)
-
-                            industry_chart_data = industry_rankings[industry_rankings["loan_count"] >= 2].head(10).copy()
-                            if not industry_chart_data.empty:
-                                industry_chart_data["display_label"] = industry_chart_data["sector_code"] + " - " + industry_chart_data["sector_name"].astype(str)
-                                chart = alt.Chart(industry_chart_data).mark_bar().encode(
-                                    x=alt.X("display_label:N", title="Industry", sort="-y"),
-                                    y=alt.Y("problem_rate:Q", title="Problem Rate", axis=alt.Axis(format=".0%")),
-                                    color=alt.Color(
-                                        "problem_rate:Q",
-                                        scale=alt.Scale(domain=[0, 0.2, 0.5], range=["#2ca02c", "#ffbb78", "#d62728"]),
-                                        legend=None
-                                    ),
-                                    tooltip=[
-                                        alt.Tooltip("display_label:N", title="Industry"),
-                                        alt.Tooltip("problem_rate:Q", title="Problem Rate", format=".1%"),
-                                        alt.Tooltip("loan_count:Q", title="Loans"),
-                                        alt.Tooltip("avg_risk_score:Q", title="Avg Risk Score", format=".1f"),
-                                    ]
-                                ).properties(height=250, title="Problem Rate by Industry (min 2 loans)")
-                                st.altair_chart(chart, use_container_width=True)
+                        st.markdown("##### Target Variable Context")
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("Avg Payment Performance", f"{r_metrics.get('mean_target', 0):.1%}")
+                        with col2:
+                            st.metric("Std Dev", f"{r_metrics.get('std_target', 0):.1%}")
+                    else:
+                        st.warning("Regression model could not be trained. Check data quality or scikit-learn installation.")
 
                     st.markdown("---")
 
-                    st.markdown("##### Top Risk Factors (Model Coefficients)")
-                    st.caption("Features that most strongly predict problem loan status. Positive = increases risk, Negative = decreases risk.")
+                    # Current Risk Scores
+                    st.subheader("Current Risk Scores")
+                    st.markdown("""
+                    This model scores **active loans** on their current risk level using both
+                    origination characteristics and payment behavior. Higher scores indicate
+                    higher risk of becoming a problem loan.
+                    """)
 
-                    coef_df = risk_metrics.get("coef_df", pd.DataFrame())
-                    if not coef_df.empty:
+                    schedules_df = load_loan_schedules()
+
+                    try:
+                        risk_model, risk_metrics, partner_rankings, industry_rankings, loan_predictions = train_current_risk_model(
+                            scorer_df, schedules_df
+                        )
+                        # Store metrics for drift tracking
+                        store_model_metrics("current_risk", risk_metrics, scorer_df)
+
+                        col1, col2, col3, col4, col5 = st.columns([1.2, 1, 1, 1, 1.5])
+                        with col1:
+                            roc_val = risk_metrics['ROC AUC'][0]
+                            auc_tier = risk_metrics.get('auc_tier', 'N/A')
+                            st.metric("ROC AUC", f"{roc_val:.3f}" if pd.notnull(roc_val) else "N/A")
+                            st.caption(f"Performance: **{auc_tier}**")
+                        with col2:
+                            prec_val = risk_metrics['Precision'][0]
+                            st.metric("Precision", f"{prec_val:.3f}" if pd.notnull(prec_val) else "N/A")
+                        with col3:
+                            recall_val = risk_metrics['Recall'][0]
+                            st.metric("Recall", f"{recall_val:.3f}" if pd.notnull(recall_val) else "N/A")
+                        with col4:
+                            st.metric("Problem Loans", f"{risk_metrics.get('n_problem_loans', 0)}")
+                            st.caption(f"of {risk_metrics.get('n_samples', 0)} active")
+                        with col5:
+                            pos_rate = risk_metrics.get('pos_rate', 0)
+                            st.metric("Problem Rate", f"{pos_rate:.1%}")
+                            st.caption(f"{risk_metrics.get('n_splits', 'N/A')}-fold CV")
+
+                        st.markdown("---")
+
+                        st.markdown("##### Highest Risk Active Loans")
+                        st.caption("Loans sorted by ML-predicted risk score (0-100). Higher = more likely to become a problem.")
+
+                        top_risk_loans = loan_predictions.head(15).copy()
+                        if not top_risk_loans.empty:
+                            display_cols = ["loan_id", "deal_name", "loan_status", "partner_source",
+                                           "risk_score", "payment_performance", "net_balance"]
+                            display_df = top_risk_loans[[c for c in display_cols if c in top_risk_loans.columns]].copy()
+
+                            if "risk_score" in display_df.columns:
+                                display_df["risk_score"] = display_df["risk_score"].map(lambda x: f"{x:.1f}")
+                            if "payment_performance" in display_df.columns:
+                                display_df["payment_performance"] = display_df["payment_performance"].map(
+                                    lambda x: f"{x:.1%}" if pd.notnull(x) else "N/A"
+                                )
+                            if "net_balance" in display_df.columns:
+                                display_df["net_balance"] = display_df["net_balance"].map(
+                                    lambda x: f"${x:,.0f}" if pd.notnull(x) else "N/A"
+                                )
+
+                            display_df.columns = ["Loan ID", "Deal Name", "Status", "Partner",
+                                                 "Risk Score", "Payment Perf", "Net Balance"][:len(display_df.columns)]
+                            st.dataframe(display_df, width="stretch", hide_index=True)
+
+                        st.markdown("---")
+
                         col1, col2 = st.columns(2)
 
                         with col1:
-                            st.markdown("**Risk-Increasing Factors**")
-                            top_pos = coef_df.head(10).copy()
-                            if not top_pos.empty:
-                                chart_data = pd.DataFrame({
-                                    "feature": top_pos["display_name"],
-                                    "coef": top_pos["coef"]
-                                })
-                                chart = create_coefficient_chart(chart_data, "Risk-Increasing Features", "#d62728")
-                                st.altair_chart(chart, use_container_width=True)
+                            st.markdown("##### Partner Risk Leaderboard")
+                            st.caption("Problem rate and avg risk score by partner source")
+
+                            if not partner_rankings.empty:
+                                partner_display = partner_rankings.copy()
+                                partner_display["problem_rate"] = partner_display["problem_rate"].map(lambda x: f"{x:.1%}")
+                                partner_display["avg_risk_score"] = partner_display["avg_risk_score"].map(lambda x: f"{x:.1f}")
+                                partner_display["total_balance"] = partner_display["total_balance"].map(lambda x: f"${x:,.0f}")
+                                partner_display = partner_display[["partner_source", "loan_count", "problem_rate", "avg_risk_score", "total_balance"]]
+                                partner_display.columns = ["Partner", "Loans", "Problem Rate", "Avg Risk", "Balance"]
+                                st.dataframe(partner_display, width="stretch", hide_index=True)
+
+                                partner_chart_data = partner_rankings[partner_rankings["loan_count"] >= 2].head(10).copy()
+                                if not partner_chart_data.empty:
+                                    chart = alt.Chart(partner_chart_data).mark_bar().encode(
+                                        x=alt.X("partner_source:N", title="Partner", sort="-y"),
+                                        y=alt.Y("problem_rate:Q", title="Problem Rate", axis=alt.Axis(format=".0%")),
+                                        color=alt.Color(
+                                            "problem_rate:Q",
+                                            scale=alt.Scale(domain=[0, 0.2, 0.5], range=["#2ca02c", "#ffbb78", "#d62728"]),
+                                            legend=None
+                                        ),
+                                        tooltip=[
+                                            alt.Tooltip("partner_source:N", title="Partner"),
+                                            alt.Tooltip("problem_rate:Q", title="Problem Rate", format=".1%"),
+                                            alt.Tooltip("loan_count:Q", title="Loans"),
+                                            alt.Tooltip("avg_risk_score:Q", title="Avg Risk Score", format=".1f"),
+                                        ]
+                                    ).properties(height=250, title="Problem Rate by Partner (min 2 loans)")
+                                    st.altair_chart(chart, width="stretch")
 
                         with col2:
-                            st.markdown("**Risk-Decreasing Factors**")
-                            top_neg = coef_df.tail(10).iloc[::-1].copy()
-                            if not top_neg.empty:
-                                chart_data = pd.DataFrame({
-                                    "feature": top_neg["display_name"],
-                                    "coef": top_neg["coef"]
-                                })
-                                chart = create_coefficient_chart(chart_data, "Risk-Decreasing Features", "#2ca02c")
-                                st.altair_chart(chart, use_container_width=True)
+                            st.markdown("##### Industry Risk Heatmap")
+                            st.caption("Problem rate by NAICS sector code")
+
+                            if not industry_rankings.empty:
+                                industry_display = industry_rankings.copy()
+                                industry_display["problem_rate"] = industry_display["problem_rate"].map(lambda x: f"{x:.1%}")
+                                industry_display["avg_risk_score"] = industry_display["avg_risk_score"].map(lambda x: f"{x:.1f}")
+                                industry_display = industry_display[["sector_code", "sector_name", "loan_count", "problem_rate", "avg_risk_score"]]
+                                industry_display.columns = ["Sector", "Name", "Loans", "Problem Rate", "Avg Risk"]
+                                st.dataframe(industry_display.head(10), width="stretch", hide_index=True)
+
+                                industry_chart_data = industry_rankings[industry_rankings["loan_count"] >= 2].head(10).copy()
+                                if not industry_chart_data.empty:
+                                    industry_chart_data["display_label"] = industry_chart_data["sector_code"] + " - " + industry_chart_data["sector_name"].astype(str)
+                                    chart = alt.Chart(industry_chart_data).mark_bar().encode(
+                                        x=alt.X("display_label:N", title="Industry", sort="-y"),
+                                        y=alt.Y("problem_rate:Q", title="Problem Rate", axis=alt.Axis(format=".0%")),
+                                        color=alt.Color(
+                                            "problem_rate:Q",
+                                            scale=alt.Scale(domain=[0, 0.2, 0.5], range=["#2ca02c", "#ffbb78", "#d62728"]),
+                                            legend=None
+                                        ),
+                                        tooltip=[
+                                            alt.Tooltip("display_label:N", title="Industry"),
+                                            alt.Tooltip("problem_rate:Q", title="Problem Rate", format=".1%"),
+                                            alt.Tooltip("loan_count:Q", title="Loans"),
+                                            alt.Tooltip("avg_risk_score:Q", title="Avg Risk Score", format=".1f"),
+                                        ]
+                                    ).properties(height=250, title="Problem Rate by Industry (min 2 loans)")
+                                    st.altair_chart(chart, width="stretch")
+
+                        st.markdown("---")
+
+                        st.markdown("##### Top Risk Factors (Model Coefficients)")
+                        st.caption("Features that most strongly predict problem loan status. Positive = increases risk, Negative = decreases risk.")
+
+                        coef_df = risk_metrics.get("coef_df", pd.DataFrame())
+                        if not coef_df.empty:
+                            col1, col2 = st.columns(2)
+
+                            with col1:
+                                st.markdown("**Risk-Increasing Factors**")
+                                top_pos = coef_df.head(10).copy()
+                                if not top_pos.empty:
+                                    chart_data = pd.DataFrame({
+                                        "feature": top_pos["display_name"],
+                                        "coef": top_pos["coef"]
+                                    })
+                                    chart = create_coefficient_chart(chart_data, "Risk-Increasing Features", "#d62728")
+                                    st.altair_chart(chart, width="stretch")
+
+                            with col2:
+                                st.markdown("**Risk-Decreasing Factors**")
+                                top_neg = coef_df.tail(10).iloc[::-1].copy()
+                                if not top_neg.empty:
+                                    chart_data = pd.DataFrame({
+                                        "feature": top_neg["display_name"],
+                                        "coef": top_neg["coef"]
+                                    })
+                                    chart = create_coefficient_chart(chart_data, "Risk-Decreasing Features", "#2ca02c")
+                                    st.altair_chart(chart, width="stretch")
+
+                        st.markdown("---")
+                        csv_data = loan_predictions.to_csv(index=False).encode("utf-8")
+                        st.download_button(
+                            label="Download Risk Scores (CSV)",
+                            data=csv_data,
+                            file_name=f"current_risk_scores_{pd.Timestamp.today().strftime('%Y%m%d')}.csv",
+                            mime="text/csv",
+                            key="scorer_download"
+                        )
+
+                    except ValueError as e:
+                        st.warning(f"Current risk model could not run: {e}")
+                    except Exception as e:
+                        st.warning(f"Current risk model error: {e}")
 
                     st.markdown("---")
-                    csv_data = loan_predictions.to_csv(index=False).encode("utf-8")
-                    st.download_button(
-                        label="Download Risk Scores (CSV)",
-                        data=csv_data,
-                        file_name=f"current_risk_scores_{pd.Timestamp.today().strftime('%Y%m%d')}.csv",
-                        mime="text/csv",
-                        key="scorer_download"
-                    )
 
-                except ValueError as e:
-                    st.warning(f"Current risk model could not run: {e}")
-                except Exception as e:
-                    st.warning(f"Current risk model error: {e}")
+                    if classification_metrics and regression_metrics:
+                        render_model_summary(classification_metrics, regression_metrics)
 
-                st.markdown("---")
-
-                if classification_metrics and regression_metrics:
-                    render_model_summary(classification_metrics, regression_metrics)
-
-                # Model Drift Tracking
-                render_model_drift_tracking(scorer_df)
+                    # Model Drift Tracking
+                    render_model_drift_tracking(scorer_df)
 
 
 # =============================================================================
@@ -1898,11 +1957,11 @@ with tab_maturity:
 
         # Show first and last payments with option to see all
         st.markdown("**First 10 Payments:**")
-        st.dataframe(schedule_df.head(10), use_container_width=True, hide_index=True)
+        st.dataframe(schedule_df.head(10), width="stretch", hide_index=True)
 
         if len(payment_dates) > 20:
             st.markdown("**Last 10 Payments:**")
-            st.dataframe(schedule_df.tail(10), use_container_width=True, hide_index=True)
+            st.dataframe(schedule_df.tail(10), width="stretch", hide_index=True)
 
         # Download full schedule
         csv_data = schedule_df.to_csv(index=False).encode("utf-8")
@@ -1972,5 +2031,5 @@ with tab_maturity:
         "Monthly": ["3 payments", "6 payments", "9 payments", "12 payments", "18 payments", "24 payments"],
     }
 
-    st.dataframe(pd.DataFrame(reference_data), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(reference_data), width="stretch", hide_index=True)
     st.caption("Note: Daily business day counts assume approximately 21 business days per month.")
