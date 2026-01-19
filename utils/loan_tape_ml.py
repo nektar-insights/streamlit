@@ -8,6 +8,11 @@ Supports two modes:
 2. Pre-computed loading from Supabase (fast, cached results)
 """
 
+import warnings
+# Suppress sklearn imputer warnings for features with no observed values
+# (these are handled gracefully by sklearn and filtered out in build_feature_matrix)
+warnings.filterwarnings("ignore", message="Skipping features without any observed values")
+
 import streamlit as st
 import pandas as pd
 import numpy as np

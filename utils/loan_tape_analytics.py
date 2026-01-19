@@ -590,7 +590,7 @@ def get_payment_behavior_features(schedules_df: pd.DataFrame) -> pd.DataFrame:
             "avg_payment_variance": avg_payment_variance,
         })
 
-    result = due_df.groupby("loan_id").apply(calc_loan_features).reset_index()
+    result = due_df.groupby("loan_id").apply(calc_loan_features, include_groups=False).reset_index()
 
     return result
 
@@ -716,6 +716,12 @@ def build_feature_matrix(
 
     if not cat_df.empty:
         X = pd.concat([X, cat_df], axis=1)
+
+    # Drop columns that have no valid values (all NaN) to avoid sklearn warnings
+    numeric_cols = X.select_dtypes(include=[np.number]).columns
+    all_nan_cols = [col for col in numeric_cols if X[col].notna().sum() == 0]
+    if all_nan_cols:
+        X = X.drop(columns=all_nan_cols)
 
     return X
 
@@ -1099,7 +1105,7 @@ def calculate_industry_performance(df: pd.DataFrame) -> pd.DataFrame:
 
     # Calculate problem rate by consolidated sector
     problem_by_sector = work_df.groupby("sector_code").apply(
-        lambda x: make_problem_label(x).mean()
+        lambda x: make_problem_label(x).mean(), include_groups=False
     ).reset_index()
     problem_by_sector.columns = ["sector_code", "problem_rate"]
 

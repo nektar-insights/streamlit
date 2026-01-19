@@ -803,7 +803,7 @@ def plot_irr_by_partner(df: pd.DataFrame):
         ]
     ).properties(width=600, height=350, title="Average Realized IRR by Partner (Paid Off Loans, ≥2 loans)")
 
-    st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(chart, width="stretch")
 
 
 # -------------------
