@@ -151,16 +151,16 @@ def clean_debt_ratio(debt_ratio: str) -> Optional[float]:
     """
     Clean and standardize debt_ratio field from HubSpot.
 
-    Handles formats like:
-    - "8.39"
-    - "13.00%"
-    - "4.14%"
+    Handles three formats found in the data:
+    - Whole numbers: "12", "6", "15" → 12%, 6%, 15%
+    - With % symbol: "9.94%", "20.09%", "4.14%" → strip % symbol
+    - Decimal ratios: "0.0400", "0.0511" → multiply by 100 (4%, 5.11%)
 
     Args:
         debt_ratio: Raw debt ratio string
 
     Returns:
-        Float value (as percentage, e.g., 8.39 means 8.39%) or None
+        Float value as percentage (e.g., 8.39 means 8.39%) or None
     """
     if pd.isna(debt_ratio) or not debt_ratio:
         return None
@@ -170,8 +170,15 @@ def clean_debt_ratio(debt_ratio: str) -> Optional[float]:
         # Remove % symbol if present
         debt_str = debt_str.replace("%", "").strip()
         value = float(debt_str)
-        # Sanity check - debt ratios should typically be 0-100%
-        if 0 <= value <= 100:
+
+        # If value is less than 1, it's likely a decimal ratio (e.g., 0.04 = 4%)
+        # Convert to percentage
+        if 0 < value < 1:
+            value = value * 100
+
+        # Sanity check - debt ratios should typically be 0-50% for MCA
+        # Values above 50% are likely data entry errors
+        if 0 <= value <= 50:
             return value
         return None
     except (ValueError, TypeError):
@@ -622,14 +629,7 @@ def prepare_loan_data(loans_df: pd.DataFrame, deals_df: pd.DataFrame) -> pd.Data
         df["revenue_tier"] = "Unknown"
         df["loan_to_revenue"] = np.nan
 
-    # 11. Collateral indicator - simplified binary flag
-    if "collateral_type" in df.columns:
-        # Check if collateral is secured or unsecured
-        df["has_collateral"] = df["collateral_type"].apply(
-            lambda x: 0 if pd.isna(x) or "unsecured" in str(x).lower() or "none" in str(x).lower() else 1
-        )
-    else:
-        df["has_collateral"] = np.nan
+    # Note: has_collateral feature removed - only 25% data coverage in HubSpot
 
     return df
 

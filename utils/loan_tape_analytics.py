@@ -64,7 +64,6 @@ FEATURE_DISPLAY_NAMES = {
     "is_weekly_payment": "Weekly Payment Schedule",
     "debt_ratio_clean": "Borrower Debt Ratio (%)",
     "loan_to_revenue": "Loan-to-Revenue Ratio",
-    "has_collateral": "Has Collateral (Secured)",
     "deal_size_tier": "Deal Size Tier",
     "region": "Geographic Region",
     "revenue_tier": "Business Revenue Tier",
@@ -631,7 +630,7 @@ def build_feature_matrix(
         "is_weekly_payment": pd.to_numeric(df.get("is_weekly_payment"), errors="coerce"),
         "debt_ratio_clean": pd.to_numeric(df.get("debt_ratio_clean"), errors="coerce"),
         "loan_to_revenue": pd.to_numeric(df.get("loan_to_revenue"), errors="coerce"),
-        "has_collateral": pd.to_numeric(df.get("has_collateral"), errors="coerce"),
+        # Note: has_collateral removed - only 25% data coverage
     })
 
     # Add sector code (2-digit NAICS)
