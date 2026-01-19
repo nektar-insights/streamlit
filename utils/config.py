@@ -4,6 +4,9 @@ from supabase import create_client
 from pathlib import Path
 import base64
 
+# Import Altair theme
+from utils.altair_theme import register_csl_theme
+
 # ----------------------------
 # Supabase Connection
 # ----------------------------
@@ -94,6 +97,8 @@ def setup_page(title: str = "CSL Capital | Dashboard", layout: str = "wide"):
     st.set_page_config(page_title=title, layout=layout)
     inject_global_styles()
     inject_logo()
+    # Register and enable the CSL Altair chart theme
+    register_csl_theme()
 
 # ----------------------------
 # Branding Functions
@@ -112,24 +117,35 @@ def inject_logo():
         )
 
 def inject_global_styles():
-    st.markdown(
-        f"""
-        <style>
-            html, body, [class*="css"]  {{
-                font-family: 'Segoe UI', sans-serif;
-                color: {TEXT_COLOR};
-                background-color: {BACKGROUND_COLOR};
-            }}
-            .stButton > button {{
-                background-color: {PRIMARY_COLOR};
-                color: white;
-                border-radius: 6px;
-                padding: 0.5rem 1rem;
-            }}
-            .stMetric label {{
-                color: {TEXT_COLOR};
-            }}
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
+    """Load custom CSS theme from assets/styles.css"""
+    css_path = Path("assets/styles.css")
+    if css_path.exists():
+        with open(css_path) as f:
+            css_content = f.read()
+            st.markdown(f"<style>{css_content}</style>", unsafe_allow_html=True)
+            # Debug: shows toast when CSS loads (remove after confirming)
+            st.toast(f"CSL theme loaded: {len(css_content)} bytes")
+    else:
+        st.warning(f"CSS file not found at: {css_path.absolute()}")
+        # Fallback to basic styles if CSS file not found
+        st.markdown(
+            f"""
+            <style>
+                html, body, [class*="css"]  {{
+                    font-family: 'Segoe UI', sans-serif;
+                    color: {TEXT_COLOR};
+                    background-color: {BACKGROUND_COLOR};
+                }}
+                .stButton > button {{
+                    background-color: {PRIMARY_COLOR};
+                    color: white;
+                    border-radius: 6px;
+                    padding: 0.5rem 1rem;
+                }}
+                .stMetric label {{
+                    color: {TEXT_COLOR};
+                }}
+            </style>
+            """,
+            unsafe_allow_html=True
+        )

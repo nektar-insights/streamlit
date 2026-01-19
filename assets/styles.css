@@ -1,0 +1,453 @@
+/* ============================================
+   CSL CAPITAL - STREAMLIT CUSTOM THEME
+   Hybrid: Dark sidebar + Light content area
+   ============================================ */
+
+/* ---------- CSS Variables ---------- */
+:root {
+    --csl-green: #00C853;
+    --csl-green-dark: #00A344;
+    --csl-green-light: #69F0AE;
+    --csl-black: #1a1a1a;
+    --csl-dark-bg: #121212;
+    --csl-card-bg: #ffffff;
+    --csl-content-bg: #f5f7fa;
+    --csl-text-dark: #1a1a1a;
+    --csl-text-light: #ffffff;
+    --csl-text-muted: #6b7280;
+    --csl-border: #e5e7eb;
+    --csl-positive: #00C853;
+    --csl-negative: #ef4444;
+    --csl-warning: #f59e0b;
+}
+
+/* ---------- Hide Streamlit Branding ---------- */
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
+
+/* ---------- Main App Container ---------- */
+.stApp {
+    background-color: var(--csl-content-bg);
+}
+
+/* ---------- Sidebar Styling ---------- */
+[data-testid="stSidebar"] {
+    background-color: var(--csl-dark-bg);
+    border-right: 1px solid #2a2a2a;
+}
+
+[data-testid="stSidebar"] * {
+    color: var(--csl-text-light) !important;
+}
+
+[data-testid="stSidebar"] .stSelectbox label,
+[data-testid="stSidebar"] .stMultiSelect label,
+[data-testid="stSidebar"] .stTextInput label,
+[data-testid="stSidebar"] .stDateInput label {
+    color: var(--csl-text-muted) !important;
+}
+
+[data-testid="stSidebar"] hr {
+    border-color: #2a2a2a;
+}
+
+/* Sidebar navigation links */
+[data-testid="stSidebar"] a {
+    color: var(--csl-text-light) !important;
+    text-decoration: none;
+    transition: color 0.2s ease;
+}
+
+[data-testid="stSidebar"] a:hover {
+    color: var(--csl-green) !important;
+}
+
+/* Sidebar selectbox/dropdown styling */
+[data-testid="stSidebar"] [data-testid="stSelectbox"] > div > div {
+    background-color: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    border-radius: 8px;
+}
+
+/* ---------- Typography ---------- */
+h1 {
+    color: var(--csl-black) !important;
+    font-weight: 700 !important;
+    font-size: 2rem !important;
+    margin-bottom: 0.5rem !important;
+}
+
+h2 {
+    color: var(--csl-black) !important;
+    font-weight: 600 !important;
+    font-size: 1.5rem !important;
+    margin-top: 1.5rem !important;
+}
+
+h3 {
+    color: var(--csl-text-muted) !important;
+    font-weight: 500 !important;
+    font-size: 1.1rem !important;
+}
+
+p, span, label {
+    color: var(--csl-text-dark);
+}
+
+/* ---------- Cards / Containers ---------- */
+[data-testid="stVerticalBlock"] > div > div > div > div {
+    background-color: var(--csl-card-bg);
+    border-radius: 12px;
+    padding: 1rem;
+    border: 1px solid var(--csl-border);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+/* Metric cards */
+[data-testid="stMetric"] {
+    background-color: var(--csl-card-bg);
+    border-radius: 12px;
+    padding: 1.25rem;
+    border: 1px solid var(--csl-border);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+[data-testid="stMetricLabel"] {
+    color: var(--csl-text-muted) !important;
+    font-size: 0.875rem !important;
+    font-weight: 500 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+[data-testid="stMetricValue"] {
+    color: var(--csl-black) !important;
+    font-size: 1.75rem !important;
+    font-weight: 700 !important;
+}
+
+/* Positive/Negative delta indicators */
+[data-testid="stMetricDelta"] > div {
+    font-weight: 600 !important;
+}
+
+[data-testid="stMetricDelta"][data-testid-direction="up"] {
+    color: var(--csl-positive) !important;
+}
+
+[data-testid="stMetricDelta"][data-testid-direction="down"] {
+    color: var(--csl-negative) !important;
+}
+
+/* ---------- Buttons ---------- */
+.stButton > button {
+    background-color: var(--csl-green) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 8px !important;
+    padding: 0.5rem 1.25rem !important;
+    font-weight: 600 !important;
+    transition: all 0.2s ease !important;
+}
+
+.stButton > button:hover {
+    background-color: var(--csl-green-dark) !important;
+    box-shadow: 0 4px 12px rgba(0, 200, 83, 0.3) !important;
+}
+
+/* Secondary/outline button style */
+.stButton > button[kind="secondary"] {
+    background-color: transparent !important;
+    color: var(--csl-green) !important;
+    border: 2px solid var(--csl-green) !important;
+}
+
+.stButton > button[kind="secondary"]:hover {
+    background-color: var(--csl-green) !important;
+    color: white !important;
+}
+
+/* ---------- Data Tables ---------- */
+[data-testid="stDataFrame"],
+[data-testid="stTable"] {
+    background-color: var(--csl-card-bg);
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--csl-border);
+}
+
+[data-testid="stDataFrame"] table {
+    border-collapse: collapse;
+}
+
+[data-testid="stDataFrame"] th {
+    background-color: #f9fafb !important;
+    color: var(--csl-text-muted) !important;
+    font-weight: 600 !important;
+    text-transform: uppercase !important;
+    font-size: 0.75rem !important;
+    letter-spacing: 0.5px !important;
+    padding: 0.75rem 1rem !important;
+    border-bottom: 2px solid var(--csl-border) !important;
+}
+
+[data-testid="stDataFrame"] td {
+    padding: 0.75rem 1rem !important;
+    border-bottom: 1px solid var(--csl-border) !important;
+    color: var(--csl-text-dark) !important;
+}
+
+[data-testid="stDataFrame"] tr:hover td {
+    background-color: #f9fafb !important;
+}
+
+/* ---------- Tabs ---------- */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 0;
+    background-color: var(--csl-card-bg);
+    border-radius: 12px 12px 0 0;
+    padding: 0.5rem 0.5rem 0 0.5rem;
+    border: 1px solid var(--csl-border);
+    border-bottom: none;
+}
+
+.stTabs [data-baseweb="tab"] {
+    padding: 0.75rem 1.5rem;
+    color: var(--csl-text-muted);
+    font-weight: 500;
+    border-radius: 8px 8px 0 0;
+    transition: all 0.2s ease;
+}
+
+.stTabs [data-baseweb="tab"]:hover {
+    color: var(--csl-green);
+    background-color: rgba(0, 200, 83, 0.05);
+}
+
+.stTabs [aria-selected="true"] {
+    color: var(--csl-green) !important;
+    background-color: white !important;
+    border-bottom: 2px solid var(--csl-green) !important;
+}
+
+.stTabs [data-baseweb="tab-panel"] {
+    background-color: var(--csl-card-bg);
+    border: 1px solid var(--csl-border);
+    border-top: none;
+    border-radius: 0 0 12px 12px;
+    padding: 1.5rem;
+}
+
+/* ---------- Expander ---------- */
+[data-testid="stExpander"] {
+    background-color: var(--csl-card-bg);
+    border: 1px solid var(--csl-border);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+[data-testid="stExpander"] summary {
+    padding: 1rem;
+    font-weight: 600;
+    color: var(--csl-text-dark);
+}
+
+[data-testid="stExpander"] summary:hover {
+    background-color: #f9fafb;
+}
+
+/* ---------- Input Fields ---------- */
+.stTextInput > div > div > input,
+.stNumberInput > div > div > input,
+.stDateInput > div > div > input {
+    background-color: var(--csl-card-bg) !important;
+    border: 1px solid var(--csl-border) !important;
+    border-radius: 8px !important;
+    padding: 0.625rem 0.875rem !important;
+    color: var(--csl-text-dark) !important;
+    transition: border-color 0.2s ease !important;
+}
+
+.stTextInput > div > div > input:focus,
+.stNumberInput > div > div > input:focus,
+.stDateInput > div > div > input:focus {
+    border-color: var(--csl-green) !important;
+    box-shadow: 0 0 0 3px rgba(0, 200, 83, 0.1) !important;
+}
+
+/* Selectbox */
+.stSelectbox > div > div {
+    background-color: var(--csl-card-bg) !important;
+    border: 1px solid var(--csl-border) !important;
+    border-radius: 8px !important;
+}
+
+/* ---------- Multiselect ---------- */
+.stMultiSelect > div > div {
+    background-color: var(--csl-card-bg) !important;
+    border: 1px solid var(--csl-border) !important;
+    border-radius: 8px !important;
+}
+
+.stMultiSelect [data-baseweb="tag"] {
+    background-color: var(--csl-green) !important;
+    color: white !important;
+    border-radius: 6px !important;
+}
+
+/* ---------- Checkbox & Radio ---------- */
+.stCheckbox label span,
+.stRadio label span {
+    color: var(--csl-text-dark) !important;
+}
+
+/* ---------- Progress Bar ---------- */
+.stProgress > div > div > div {
+    background-color: var(--csl-green) !important;
+}
+
+/* ---------- Alerts / Info boxes ---------- */
+.stAlert {
+    border-radius: 12px !important;
+    border: none !important;
+}
+
+[data-testid="stAlert"][data-baseweb="notification"][kind="info"] {
+    background-color: #eff6ff !important;
+    border-left: 4px solid #3b82f6 !important;
+}
+
+[data-testid="stAlert"][data-baseweb="notification"][kind="success"] {
+    background-color: #f0fdf4 !important;
+    border-left: 4px solid var(--csl-green) !important;
+}
+
+[data-testid="stAlert"][data-baseweb="notification"][kind="warning"] {
+    background-color: #fffbeb !important;
+    border-left: 4px solid var(--csl-warning) !important;
+}
+
+[data-testid="stAlert"][data-baseweb="notification"][kind="error"] {
+    background-color: #fef2f2 !important;
+    border-left: 4px solid var(--csl-negative) !important;
+}
+
+/* ---------- Divider ---------- */
+hr {
+    border: none;
+    border-top: 1px solid var(--csl-border);
+    margin: 1.5rem 0;
+}
+
+/* ---------- Chart Container ---------- */
+[data-testid="stVegaLiteChart"],
+[data-testid="stArrowVegaLiteChart"] {
+    background-color: var(--csl-card-bg);
+    border-radius: 12px;
+    padding: 1rem;
+    border: 1px solid var(--csl-border);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+/* ---------- File Uploader ---------- */
+[data-testid="stFileUploader"] {
+    background-color: var(--csl-card-bg);
+    border: 2px dashed var(--csl-border);
+    border-radius: 12px;
+    padding: 2rem;
+    transition: border-color 0.2s ease;
+}
+
+[data-testid="stFileUploader"]:hover {
+    border-color: var(--csl-green);
+}
+
+/* ---------- Spinner ---------- */
+.stSpinner > div {
+    border-top-color: var(--csl-green) !important;
+}
+
+/* ---------- Scrollbar Styling ---------- */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #a1a1a1;
+}
+
+/* Sidebar scrollbar */
+[data-testid="stSidebar"] ::-webkit-scrollbar-track {
+    background: #2a2a2a;
+}
+
+[data-testid="stSidebar"] ::-webkit-scrollbar-thumb {
+    background: #4a4a4a;
+}
+
+/* ---------- Page Links (Multipage) ---------- */
+[data-testid="stSidebarNav"] a {
+    padding: 0.75rem 1rem !important;
+    border-radius: 8px !important;
+    margin: 0.25rem 0.5rem !important;
+    transition: all 0.2s ease !important;
+}
+
+[data-testid="stSidebarNav"] a:hover {
+    background-color: rgba(0, 200, 83, 0.1) !important;
+}
+
+[data-testid="stSidebarNav"] a[aria-current="page"] {
+    background-color: var(--csl-green) !important;
+    color: white !important;
+}
+
+/* ---------- Utility Classes ---------- */
+/* Use with st.markdown('<div class="card">...</div>', unsafe_allow_html=True) */
+.card {
+    background-color: var(--csl-card-bg);
+    border-radius: 12px;
+    padding: 1.5rem;
+    border: 1px solid var(--csl-border);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    margin-bottom: 1rem;
+}
+
+.card-header {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--csl-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 0.5rem;
+}
+
+.card-value {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--csl-black);
+}
+
+.positive {
+    color: var(--csl-positive) !important;
+}
+
+.negative {
+    color: var(--csl-negative) !important;
+}
+
+.muted {
+    color: var(--csl-text-muted) !important;
+}
