@@ -36,11 +36,12 @@ st.markdown("Analytical and forecasting tools for portfolio management and deal 
 # =============================================================================
 # MAIN TAB NAVIGATION
 # =============================================================================
-tab_bad_debt, tab_forecast, tab_scorer, tab_maturity = st.tabs([
+tab_bad_debt, tab_forecast, tab_scorer, tab_maturity, tab_meeting_timer = st.tabs([
     "Bad Debt Estimator",
     "Capital Forecast",
     "Deal Scorer",
-    "Loan Maturity Calculator"
+    "Loan Maturity Calculator",
+    "Meeting Timer"
 ])
 
 # =============================================================================
@@ -2033,3 +2034,22 @@ with tab_maturity:
 
     st.dataframe(pd.DataFrame(reference_data), width="stretch", hide_index=True)
     st.caption("Note: Daily business day counts assume approximately 21 business days per month.")
+
+# =============================================================================
+# TAB 5: MEETING TIMER
+# =============================================================================
+with tab_meeting_timer:
+    st.markdown("### CSL Meeting Timer")
+    st.markdown("A timer tool for managing meeting agenda topics. Start the meeting, add topics with time allocations, and track overtime.")
+
+    # Load the meeting timer HTML
+    import os
+    meeting_timer_path = os.path.expanduser("~/meeting-timer/meeting-timer-standalone.html")
+
+    if os.path.exists(meeting_timer_path):
+        with open(meeting_timer_path, "r") as f:
+            meeting_timer_html = f.read()
+
+        st.components.v1.html(meeting_timer_html, height=700, scrolling=True)
+    else:
+        st.error(f"Meeting timer HTML file not found at: {meeting_timer_path}")
