@@ -666,6 +666,9 @@ with tab_scorer:
         create_coefficient_chart,
         render_ml_explainer,
         render_model_summary,
+        render_executive_summary,
+        render_factor_impact_examples,
+        render_batch_scorer,
         NAICS_SECTOR_NAMES,
         RISK_LEVELS,
     )
@@ -714,7 +717,7 @@ with tab_scorer:
             st.error("Unable to train risk model. Insufficient data.")
         else:
             # Sub-tabs for Deal Scorer
-            scorer_tab_new, scorer_tab_diag = st.tabs(["Score New Deal", "Model Diagnostics"])
+            scorer_tab_new, scorer_tab_batch, scorer_tab_diag = st.tabs(["Score New Deal", "Batch Scoring", "Model Diagnostics"])
 
             # =================================================================
             # DEAL SCORER - SCORE NEW DEAL
@@ -1118,6 +1121,12 @@ with tab_scorer:
                     """)
 
             # =================================================================
+            # DEAL SCORER - BATCH SCORING
+            # =================================================================
+            with scorer_tab_batch:
+                render_batch_scorer(coefficients_data, partners)
+
+            # =================================================================
             # DEAL SCORER - MODEL DIAGNOSTICS
             # =================================================================
             with scorer_tab_diag:
@@ -1126,7 +1135,34 @@ with tab_scorer:
                 This section provides **transparency into how the risk models work** and how well they
                 perform. Use these diagnostics to understand which factors drive risk predictions,
                 validate model quality, and identify patterns across partners and industries.
+                """)
 
+                # Train models first to get metrics for executive summary
+                classification_metrics = None
+                regression_metrics = None
+                top_pos = pd.DataFrame()
+                top_neg = pd.DataFrame()
+
+                try:
+                    model, metrics, top_pos, top_neg = train_classification_small(scorer_df)
+                    classification_metrics = metrics
+                except Exception:
+                    pass
+
+                try:
+                    r_model, r_metrics = train_regression_small(scorer_df)
+                    regression_metrics = r_metrics
+                except Exception:
+                    pass
+
+                # Executive Summary - Plain English for non-technical users
+                if classification_metrics and regression_metrics:
+                    render_executive_summary(classification_metrics, regression_metrics, scorer_df)
+
+                # Factor Impact Examples - Concrete examples of what changes mean
+                render_factor_impact_examples(coefficients_data, scorer_df)
+
+                st.markdown("""
                 Three models are trained on your historical portfolio data:
                 - **Problem Loan Classifier**: Predicts which loans will become problematic
                 - **Payment Performance Regressor**: Predicts expected recovery percentage
@@ -1145,12 +1181,9 @@ with tab_scorer:
                 with st.expander("How to interpret these metrics", expanded=False):
                     render_ml_explainer(metric_type="classification")
 
-                classification_metrics = None
-                regression_metrics = None
-
-                try:
-                    model, metrics, top_pos, top_neg = train_classification_small(scorer_df)
-                    classification_metrics = metrics
+                # Use pre-trained classification model from above (avoid duplicate training)
+                if classification_metrics is not None:
+                    metrics = classification_metrics
 
                     col1, col2, col3, col4, col5 = st.columns([1.2, 1, 1, 1, 1.5])
                     with col1:
@@ -1216,11 +1249,8 @@ with tab_scorer:
                             table_data.columns = ["Feature", "Coefficient"]
                             table_data["Coefficient"] = table_data["Coefficient"].map(lambda x: f"{x:+.4f}")
                             st.dataframe(table_data, use_container_width=True, hide_index=True)
-
-                except ImportError:
-                    st.warning("scikit-learn or scipy not installed. Run `pip install scikit-learn scipy` to enable modeling.")
-                except Exception as e:
-                    st.warning(f"Classification model could not run: {e}")
+                else:
+                    st.warning("Classification model could not be trained. Check data quality or scikit-learn installation.")
 
                 st.markdown("---")
 
@@ -1234,9 +1264,9 @@ with tab_scorer:
                 with st.expander("How to interpret these metrics", expanded=False):
                     render_ml_explainer(metric_type="regression")
 
-                try:
-                    r_model, r_metrics = train_regression_small(scorer_df)
-                    regression_metrics = r_metrics
+                # Use pre-trained regression model from above (avoid duplicate training)
+                if regression_metrics is not None:
+                    r_metrics = regression_metrics
 
                     col1, col2, col3, col4 = st.columns(4)
                     with col1:
@@ -1263,11 +1293,8 @@ with tab_scorer:
                         st.metric("Avg Payment Performance", f"{r_metrics.get('mean_target', 0):.1%}")
                     with col2:
                         st.metric("Std Dev", f"{r_metrics.get('std_target', 0):.1%}")
-
-                except ImportError:
-                    st.warning("scikit-learn not installed. Run `pip install scikit-learn` to enable modeling.")
-                except Exception as e:
-                    st.warning(f"Regression model could not run: {e}")
+                else:
+                    st.warning("Regression model could not be trained. Check data quality or scikit-learn installation.")
 
                 st.markdown("---")
 

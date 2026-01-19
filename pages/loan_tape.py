@@ -1493,6 +1493,206 @@ def display_watchlist_table(
         st.metric("Avg Payment Perf", format_percentage(avg_perf))
 
 
+def render_early_payoff_analysis_tab(df: pd.DataFrame):
+    """Render the Early Payoff Analysis tab content."""
+    st.header("Early Payoff Analysis")
+    st.caption("Understanding the impact of early payoffs on expected returns")
+
+    # Filter to paid off loans only
+    paid_off_df = df[df["loan_status"] == "Paid Off"].copy()
+
+    if paid_off_df.empty:
+        st.info("No paid off loans found in the portfolio.")
+        return
+
+    # Calculate key metrics for each paid off loan
+    # RTR = factor_rate * csl_participation_amount (expected total return)
+    # RTR % = total_paid / RTR (percentage of expected return received)
+    paid_off_df["expected_rtr"] = paid_off_df["factor_rate"] * paid_off_df["csl_participation_amount"]
+    paid_off_df["rtr_percentage"] = (paid_off_df["total_paid"] / paid_off_df["expected_rtr"]).clip(0, 1.5)
+    paid_off_df["rtr_shortfall"] = (paid_off_df["expected_rtr"] - paid_off_df["total_paid"]).clip(lower=0)
+    paid_off_df["profit"] = paid_off_df["total_paid"] - paid_off_df["csl_participation_amount"]
+
+    # Summary Metrics
+    st.subheader("Summary Metrics")
+
+    total_loans = len(paid_off_df)
+    total_expected_rtr = paid_off_df["expected_rtr"].sum()
+    total_received = paid_off_df["total_paid"].sum()
+    total_shortfall = paid_off_df["rtr_shortfall"].sum()
+    total_profit = paid_off_df["profit"].sum()
+    total_deployed = paid_off_df["csl_participation_amount"].sum()
+
+    # Count early vs full payoffs
+    early_payoffs = paid_off_df[paid_off_df["rtr_percentage"] < 0.98]
+    full_payoffs = paid_off_df[paid_off_df["rtr_percentage"] >= 0.98]
+    early_payoff_rate = len(early_payoffs) / total_loans if total_loans > 0 else 0
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.metric(
+            label="Paid Off Loans",
+            value=f"{total_loans}",
+            delta=f"{len(early_payoffs)} early ({early_payoff_rate:.0%})"
+        )
+
+    with col2:
+        st.metric(
+            label="Expected RTR",
+            value=f"${total_expected_rtr:,.0f}",
+            delta=f"${total_received:,.0f} received"
+        )
+
+    with col3:
+        st.metric(
+            label="RTR Shortfall",
+            value=f"${total_shortfall:,.0f}",
+            delta=f"-{total_shortfall/total_expected_rtr:.1%} vs expected" if total_expected_rtr > 0 else "N/A",
+            delta_color="inverse"
+        )
+
+    with col4:
+        st.metric(
+            label="Total Profit",
+            value=f"${total_profit:,.0f}",
+            delta=f"{total_profit/total_deployed:.1%} return" if total_deployed > 0 else "N/A",
+            delta_color="normal" if total_profit >= 0 else "inverse"
+        )
+
+    st.markdown("---")
+
+    # RTR Distribution by Percentage Bands
+    st.subheader("RTR Distribution by Percentage Bands")
+    st.caption("How much of the expected Right-to-Receive was actually collected")
+
+    # Create RTR bands
+    bands = [
+        ("<80%", 0, 0.80),
+        ("80-85%", 0.80, 0.85),
+        ("85-90%", 0.85, 0.90),
+        ("90-95%", 0.90, 0.95),
+        ("95-98%", 0.95, 0.98),
+        ("98%+ (Full)", 0.98, 1.5)
+    ]
+
+    band_data = []
+    for band_name, low, high in bands:
+        band_loans = paid_off_df[(paid_off_df["rtr_percentage"] >= low) & (paid_off_df["rtr_percentage"] < high)]
+        band_data.append({
+            "RTR Band": band_name,
+            "Count": len(band_loans),
+            "Capital Deployed": band_loans["csl_participation_amount"].sum(),
+            "Total Received": band_loans["total_paid"].sum(),
+            "RTR Shortfall": band_loans["rtr_shortfall"].sum(),
+            "Profit": band_loans["profit"].sum()
+        })
+
+    band_df = pd.DataFrame(band_data)
+
+    # Display as bar chart
+    chart_data = band_df[["RTR Band", "Count"]].copy()
+    chart = alt.Chart(chart_data).mark_bar(color=PRIMARY_COLOR).encode(
+        x=alt.X("RTR Band:N", sort=None, title="RTR Percentage Band"),
+        y=alt.Y("Count:Q", title="Number of Loans"),
+        tooltip=["RTR Band", "Count"]
+    ).properties(height=300)
+    st.altair_chart(chart, use_container_width=True)
+
+    # Display band summary table
+    band_display = band_df.copy()
+    band_display["Capital Deployed"] = band_display["Capital Deployed"].apply(lambda x: f"${x:,.0f}")
+    band_display["Total Received"] = band_display["Total Received"].apply(lambda x: f"${x:,.0f}")
+    band_display["RTR Shortfall"] = band_display["RTR Shortfall"].apply(lambda x: f"${x:,.0f}")
+    band_display["Profit"] = band_display["Profit"].apply(lambda x: f"${x:,.0f}")
+    st.dataframe(band_display, hide_index=True, use_container_width=True)
+
+    st.markdown("---")
+
+    # Outcome Categories
+    st.subheader("Outcome Categories")
+
+    # Categorize loans
+    def categorize_outcome(row):
+        if row["rtr_percentage"] >= 0.98:
+            return "Full RTR (98%+)"
+        elif row["profit"] >= 0:
+            return "Early Payoff (Profitable)"
+        else:
+            return "Partial Loss"
+
+    paid_off_df["outcome"] = paid_off_df.apply(categorize_outcome, axis=1)
+
+    outcome_summary = paid_off_df.groupby("outcome").agg({
+        "loan_id": "count",
+        "csl_participation_amount": "sum",
+        "total_paid": "sum",
+        "rtr_shortfall": "sum",
+        "profit": "sum"
+    }).rename(columns={
+        "loan_id": "Count",
+        "csl_participation_amount": "Capital Deployed",
+        "total_paid": "Total Received",
+        "rtr_shortfall": "RTR Shortfall",
+        "profit": "Profit"
+    }).reset_index().rename(columns={"outcome": "Outcome"})
+
+    # Reorder rows
+    outcome_order = ["Full RTR (98%+)", "Early Payoff (Profitable)", "Partial Loss"]
+    outcome_summary["sort_key"] = outcome_summary["Outcome"].apply(lambda x: outcome_order.index(x) if x in outcome_order else 99)
+    outcome_summary = outcome_summary.sort_values("sort_key").drop(columns=["sort_key"])
+
+    col1, col2, col3 = st.columns(3)
+
+    for i, (_, row) in enumerate(outcome_summary.iterrows()):
+        with [col1, col2, col3][i % 3]:
+            color = "#34a853" if "Full" in row["Outcome"] else ("#f9ab00" if "Profitable" in row["Outcome"] else "#ea4335")
+            st.markdown(f"**{row['Outcome']}**")
+            st.metric(label="Count", value=row["Count"])
+            st.metric(label="Capital Deployed", value=f"${row['Capital Deployed']:,.0f}")
+            st.metric(label="Profit", value=f"${row['Profit']:,.0f}")
+
+    st.markdown("---")
+
+    # Detailed Table
+    st.subheader("Detailed Early Payoff Loans")
+    st.caption("Loans that paid off with less than 98% of expected RTR")
+
+    early_df = paid_off_df[paid_off_df["rtr_percentage"] < 0.98].copy()
+
+    if early_df.empty:
+        st.info("All loans received full RTR (98%+)")
+    else:
+        # Sort by RTR shortfall descending
+        early_df = early_df.sort_values("rtr_shortfall", ascending=False)
+
+        display_cols = ["loan_id", "deal_name", "partner_source", "csl_participation_amount",
+                        "expected_rtr", "total_paid", "rtr_percentage", "rtr_shortfall", "profit"]
+
+        display_df = early_df[display_cols].copy()
+        display_df.columns = ["Loan ID", "Deal Name", "Partner", "Capital Deployed",
+                              "Expected RTR", "Total Received", "RTR %", "Shortfall", "Profit"]
+
+        # Format columns
+        display_df["Capital Deployed"] = display_df["Capital Deployed"].apply(lambda x: f"${x:,.0f}")
+        display_df["Expected RTR"] = display_df["Expected RTR"].apply(lambda x: f"${x:,.0f}")
+        display_df["Total Received"] = display_df["Total Received"].apply(lambda x: f"${x:,.0f}")
+        display_df["RTR %"] = display_df["RTR %"].apply(lambda x: f"{x:.1%}")
+        display_df["Shortfall"] = display_df["Shortfall"].apply(lambda x: f"${x:,.0f}")
+        display_df["Profit"] = display_df["Profit"].apply(lambda x: f"${x:,.0f}")
+
+        st.dataframe(display_df, hide_index=True, use_container_width=True)
+
+        # Download button
+        csv = early_df[display_cols].to_csv(index=False)
+        st.download_button(
+            label="Download Early Payoff Data",
+            data=csv,
+            file_name=f"early_payoff_analysis_{pd.Timestamp.today().strftime('%Y%m%d')}.csv",
+            mime="text/csv"
+        )
+
+
 def render_watchlist_tab(df: pd.DataFrame):
     """Render the Watchlist tab content."""
     st.header("Loan Watchlist")
@@ -2018,7 +2218,7 @@ def main():
     filtered_df = add_performance_grades(filtered_df)
 
     # Tabs with persistence support
-    tab_names = ["Summary", "Loan Tape", "Capital Flow", "Performance Analysis", "Risk Analytics", "Watchlist", "Portfolio Insights"]
+    tab_names = ["Summary", "Loan Tape", "Capital Flow", "Performance Analysis", "Risk Analytics", "Watchlist", "Portfolio Insights", "Early Payoff"]
     tabs = st.tabs(tab_names)
 
     # Inject JavaScript to click the correct tab if we need to stay on Loan Tape
@@ -2349,6 +2549,9 @@ def main():
 
     with tabs[6]:
         render_portfolio_insights_tab(filtered_df)
+
+    with tabs[7]:
+        render_early_payoff_analysis_tab(filtered_df)
 
 
 if __name__ == "__main__":

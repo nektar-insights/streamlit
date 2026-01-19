@@ -1192,3 +1192,458 @@ def render_model_summary(classification_metrics: Dict, regression_metrics: Dict)
         st.warning("Regression model could not be evaluated.")
 
     st.markdown("---")
+
+
+def render_executive_summary(
+    classification_metrics: Dict,
+    regression_metrics: Dict,
+    df: pd.DataFrame
+) -> None:
+    """
+    Render a plain-English executive summary at the top of Model Diagnostics.
+
+    Designed for non-technical users to quickly understand model status and portfolio health.
+
+    Args:
+        classification_metrics: Dict from train_classification_small
+        regression_metrics: Dict from train_regression_small
+        df: DataFrame with loan data for portfolio stats
+    """
+    st.markdown("### Portfolio Health Summary")
+
+    # Calculate portfolio stats
+    total_loans = len(df)
+    problem_rate = classification_metrics.get('pos_rate', 0)
+    problem_count = int(total_loans * problem_rate) if total_loans > 0 else 0
+    auc = classification_metrics.get('ROC AUC', (np.nan, np.nan))[0]
+    recall = classification_metrics.get('Recall', (np.nan, np.nan))[0]
+    precision = classification_metrics.get('Precision', (np.nan, np.nan))[0]
+
+    # Determine overall health status
+    if problem_rate < 0.10:
+        health_status = "Healthy"
+        health_color = "#2ca02c"
+        health_icon = "✅"
+    elif problem_rate < 0.20:
+        health_status = "Moderate Risk"
+        health_color = "#ffbb78"
+        health_icon = "⚡"
+    else:
+        health_status = "Elevated Risk"
+        health_color = "#d62728"
+        health_icon = "⚠️"
+
+    # Model confidence assessment
+    if not np.isnan(auc):
+        if auc >= 0.80:
+            model_confidence = "High"
+            confidence_desc = "The model reliably identifies problem loans"
+        elif auc >= 0.70:
+            model_confidence = "Moderate"
+            confidence_desc = "The model provides useful risk signals"
+        else:
+            model_confidence = "Limited"
+            confidence_desc = "Results should be used directionally only"
+    else:
+        model_confidence = "N/A"
+        confidence_desc = "Insufficient data to assess model"
+
+    # Display summary box
+    st.markdown(f"""
+    <div style="
+        background: linear-gradient(135deg, {health_color}15, {health_color}25);
+        border-left: 5px solid {health_color};
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+    ">
+        <h3 style="margin: 0 0 10px 0;">{health_icon} Portfolio Status: {health_status}</h3>
+        <p style="margin: 5px 0; font-size: 1.1em;">
+            Your portfolio has <strong>{problem_count:,} problem loans</strong> out of <strong>{total_loans:,} total loans</strong>
+            (<strong>{problem_rate:.1%}</strong> problem rate).
+        </p>
+        <p style="margin: 5px 0; font-size: 1.1em;">
+            <strong>Model Confidence:</strong> {model_confidence} — {confidence_desc}
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Plain-English model interpretation
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        if not np.isnan(recall):
+            recall_pct = recall * 100
+            st.metric(
+                "Problem Detection Rate",
+                f"{recall_pct:.0f}%",
+                help="Of all actual problem loans, how many does the model catch?"
+            )
+            if recall >= 0.70:
+                st.caption("✅ Model catches most problem loans")
+            elif recall >= 0.50:
+                st.caption("⚡ Model catches about half of problems")
+            else:
+                st.caption("⚠️ Many problems may go undetected")
+        else:
+            st.metric("Problem Detection Rate", "N/A")
+
+    with col2:
+        if not np.isnan(precision):
+            precision_pct = precision * 100
+            st.metric(
+                "Prediction Accuracy",
+                f"{precision_pct:.0f}%",
+                help="When the model flags a loan as risky, how often is it actually a problem?"
+            )
+            if precision >= 0.70:
+                st.caption("✅ Flagged loans are usually problems")
+            elif precision >= 0.50:
+                st.caption("⚡ About half of flagged loans are problems")
+            else:
+                st.caption("⚠️ Many false alarms in predictions")
+        else:
+            st.metric("Prediction Accuracy", "N/A")
+
+    with col3:
+        avg_perf = df.get("payment_performance", pd.Series()).mean()
+        if not np.isnan(avg_perf):
+            st.metric(
+                "Avg Recovery Rate",
+                f"{avg_perf:.1%}",
+                help="Average payment performance across all loans"
+            )
+            if avg_perf >= 0.95:
+                st.caption("✅ Strong portfolio recovery")
+            elif avg_perf >= 0.85:
+                st.caption("⚡ Good recovery with some losses")
+            else:
+                st.caption("⚠️ Significant recovery shortfall")
+        else:
+            st.metric("Avg Recovery Rate", "N/A")
+
+    st.markdown("---")
+
+
+def render_factor_impact_examples(
+    coefficients_data: Dict,
+    df: pd.DataFrame
+) -> None:
+    """
+    Render concrete examples showing how changing input factors affects risk scores.
+
+    Shows plain-English explanations like "+50 FICO = -X% risk reduction".
+
+    Args:
+        coefficients_data: Dict from get_origination_model_coefficients()
+        df: DataFrame with loan data for calculating baseline values
+    """
+    st.markdown("### What Factors Matter Most?")
+    st.markdown("""
+    These examples show **how much each factor changes the risk score** based on your historical data.
+    Use these insights to understand which deal characteristics have the biggest impact.
+    """)
+
+    coefficients = coefficients_data.get("coefficients", {})
+    feature_means = coefficients_data.get("feature_means", {})
+    feature_stds = coefficients_data.get("feature_stds", {})
+
+    # Calculate impact examples for key features
+    impact_examples = []
+
+    # FICO impact
+    if "fico" in coefficients and "fico" in feature_stds:
+        fico_coef = coefficients["fico"]
+        fico_std = feature_stds.get("fico", 50)
+        # Impact of +50 FICO points
+        fico_change = 50
+        fico_impact = fico_coef * (fico_change / fico_std) if fico_std > 0 else 0
+        # Convert log-odds change to approximate probability change
+        prob_change = fico_impact * 0.15  # rough conversion factor
+        direction = "decreases" if prob_change < 0 else "increases"
+        impact_examples.append({
+            "Factor": "FICO Score",
+            "Change": "+50 points",
+            "Impact": f"{direction} risk by ~{abs(prob_change):.0%}",
+            "Example": "680 → 730 FICO",
+            "direction": "good" if prob_change < 0 else "bad"
+        })
+
+    # Time in Business impact
+    if "tib" in coefficients and "tib" in feature_stds:
+        tib_coef = coefficients["tib"]
+        tib_std = feature_stds.get("tib", 5)
+        # Impact of +5 years TIB
+        tib_change = 5
+        tib_impact = tib_coef * (tib_change / tib_std) if tib_std > 0 else 0
+        prob_change = tib_impact * 0.15
+        direction = "decreases" if prob_change < 0 else "increases"
+        impact_examples.append({
+            "Factor": "Time in Business",
+            "Change": "+5 years",
+            "Impact": f"{direction} risk by ~{abs(prob_change):.0%}",
+            "Example": "3 yrs → 8 yrs",
+            "direction": "good" if prob_change < 0 else "bad"
+        })
+
+    # Position impact
+    if "ahead_positions" in coefficients and "ahead_positions" in feature_stds:
+        pos_coef = coefficients["ahead_positions"]
+        pos_std = feature_stds.get("ahead_positions", 0.5)
+        # Impact of moving from 1st to 2nd position
+        pos_change = 1
+        pos_impact = pos_coef * (pos_change / pos_std) if pos_std > 0 else 0
+        prob_change = pos_impact * 0.15
+        direction = "increases" if prob_change > 0 else "decreases"
+        impact_examples.append({
+            "Factor": "Lien Position",
+            "Change": "1st → 2nd",
+            "Impact": f"{direction} risk by ~{abs(prob_change):.0%}",
+            "Example": "Moving down in priority",
+            "direction": "bad" if prob_change > 0 else "good"
+        })
+
+    # Deal size impact
+    if "total_invested" in coefficients and "total_invested" in feature_stds:
+        size_coef = coefficients["total_invested"]
+        size_std = feature_stds.get("total_invested", 30000)
+        # Impact of +$25k deal size
+        size_change = 25000
+        size_impact = size_coef * (size_change / size_std) if size_std > 0 else 0
+        prob_change = size_impact * 0.15
+        direction = "increases" if prob_change > 0 else "decreases"
+        impact_examples.append({
+            "Factor": "CSL Participation",
+            "Change": "+$25,000",
+            "Impact": f"{direction} risk by ~{abs(prob_change):.0%}",
+            "Example": "$50k → $75k",
+            "direction": "bad" if prob_change > 0 else "good"
+        })
+
+    if not impact_examples:
+        st.info("Not enough coefficient data to calculate factor impacts.")
+        return
+
+    # Display as cards
+    cols = st.columns(len(impact_examples))
+    for col, example in zip(cols, impact_examples):
+        with col:
+            color = "#2ca02c" if example["direction"] == "good" else "#d62728"
+            icon = "📉" if example["direction"] == "good" else "📈"
+            st.markdown(f"""
+            <div style="
+                background: {color}15;
+                border: 1px solid {color}40;
+                border-radius: 8px;
+                padding: 15px;
+                text-align: center;
+            ">
+                <div style="font-size: 1.5em; margin-bottom: 5px;">{icon}</div>
+                <div style="font-weight: bold; color: {color};">{example['Factor']}</div>
+                <div style="font-size: 0.9em; margin: 5px 0;">{example['Change']}</div>
+                <div style="font-weight: bold;">{example['Impact']}</div>
+                <div style="font-size: 0.8em; color: #666; margin-top: 5px;">e.g., {example['Example']}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    st.markdown("")
+    st.caption("Note: Impact estimates are approximate and based on historical patterns. Actual risk varies based on all factors combined.")
+    st.markdown("---")
+
+
+def score_batch_deals(
+    deals_data: List[Dict],
+    coefficients_data: Dict
+) -> pd.DataFrame:
+    """
+    Score multiple deals at once using the trained model.
+
+    Args:
+        deals_data: List of dicts, each containing deal attributes:
+            - partner: Partner source name
+            - fico: FICO score
+            - tib: Time in business (years)
+            - position: Lien position (0=1st, 1=2nd, 2=3rd+)
+            - sector_code: 2-digit NAICS code
+            - deal_size: CSL participation amount
+            - factor_rate: Factor rate
+            - commission: Commission rate
+        coefficients_data: Dict from get_origination_model_coefficients()
+
+    Returns:
+        DataFrame with columns: [deal inputs], risk_score, risk_level, raw_probability
+    """
+    results = []
+
+    for i, deal in enumerate(deals_data):
+        result = calculate_deal_risk_score(
+            partner=deal.get("partner"),
+            fico=deal.get("fico"),
+            tib=deal.get("tib"),
+            position=deal.get("position", 0),
+            sector_code=deal.get("sector_code"),
+            deal_size=deal.get("deal_size"),
+            factor_rate=deal.get("factor_rate"),
+            commission=deal.get("commission"),
+            coefficients_data=coefficients_data
+        )
+
+        results.append({
+            "deal_num": i + 1,
+            "partner": deal.get("partner", "Unknown"),
+            "fico": deal.get("fico"),
+            "tib": deal.get("tib"),
+            "position": deal.get("position", 0),
+            "sector_code": deal.get("sector_code"),
+            "deal_size": deal.get("deal_size"),
+            "risk_score": result["total_score"],
+            "risk_level": result["risk_level"],
+            "raw_probability": result["raw_probability"],
+        })
+
+    return pd.DataFrame(results)
+
+
+def render_batch_scorer(
+    coefficients_data: Dict,
+    partners: List[str]
+) -> None:
+    """
+    Render a batch scoring interface for multiple deals.
+
+    Allows users to upload a CSV or enter multiple deals to score at once.
+
+    Args:
+        coefficients_data: Dict from get_origination_model_coefficients()
+        partners: List of available partner names
+    """
+    st.markdown("### Batch Deal Scoring")
+    st.markdown("""
+    Score multiple prospective deals at once. Upload a CSV file with deal data or use the
+    template below.
+    """)
+
+    # Template download
+    template_data = pd.DataFrame({
+        "partner": ["Partner A", "Partner B"],
+        "fico": [680, 720],
+        "tib": [5.0, 10.0],
+        "position": [0, 1],
+        "sector_code": ["23", "44"],
+        "deal_size": [50000, 75000],
+        "factor_rate": [1.30, 1.25],
+        "commission": [0.05, 0.04],
+    })
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.download_button(
+            label="Download Template CSV",
+            data=template_data.to_csv(index=False).encode("utf-8"),
+            file_name="batch_scoring_template.csv",
+            mime="text/csv",
+            key="batch_template"
+        )
+
+    with col2:
+        st.markdown("""
+        **Required columns:**
+        - `partner`, `fico`, `tib`, `position`
+        - `sector_code`, `deal_size`, `factor_rate`, `commission`
+        """)
+
+    uploaded_file = st.file_uploader(
+        "Upload deals CSV",
+        type=["csv"],
+        key="batch_upload",
+        help="Upload a CSV with columns matching the template"
+    )
+
+    if uploaded_file is not None:
+        try:
+            deals_df = pd.read_csv(uploaded_file)
+            st.success(f"Loaded {len(deals_df)} deals from file")
+
+            # Validate required columns
+            required_cols = ["fico", "tib", "position", "deal_size"]
+            missing_cols = [c for c in required_cols if c not in deals_df.columns]
+
+            if missing_cols:
+                st.error(f"Missing required columns: {missing_cols}")
+                return
+
+            # Convert to list of dicts
+            deals_data = deals_df.to_dict("records")
+
+            # Score all deals
+            with st.spinner(f"Scoring {len(deals_data)} deals..."):
+                results_df = score_batch_deals(deals_data, coefficients_data)
+
+            st.markdown("#### Scoring Results")
+
+            # Summary stats
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Deals", len(results_df))
+            with col2:
+                low_risk = (results_df["risk_level"] == "LOW").sum()
+                st.metric("Low Risk", low_risk, delta=f"{low_risk/len(results_df):.0%}")
+            with col3:
+                high_risk = (results_df["risk_level"].isin(["ELEVATED", "HIGH"])).sum()
+                st.metric("Elevated/High Risk", high_risk, delta=f"{high_risk/len(results_df):.0%}", delta_color="inverse")
+            with col4:
+                avg_score = results_df["risk_score"].mean()
+                st.metric("Avg Risk Score", f"{avg_score:.1f}")
+
+            # Results table
+            display_df = results_df.copy()
+            display_df["risk_score"] = display_df["risk_score"].map(lambda x: f"{x:.1f}")
+            display_df["raw_probability"] = display_df["raw_probability"].map(lambda x: f"{x:.1%}")
+            display_df["deal_size"] = display_df["deal_size"].map(lambda x: f"${x:,.0f}" if pd.notnull(x) else "N/A")
+
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+            # Download results
+            st.download_button(
+                label="Download Scored Results",
+                data=results_df.to_csv(index=False).encode("utf-8"),
+                file_name=f"batch_scoring_results_{pd.Timestamp.today().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                key="batch_results_download"
+            )
+
+            # Risk distribution chart
+            risk_counts = results_df["risk_level"].value_counts().reset_index()
+            risk_counts.columns = ["Risk Level", "Count"]
+
+            # Order levels
+            level_order = ["LOW", "MODERATE", "ELEVATED", "HIGH"]
+            risk_counts["sort_order"] = risk_counts["Risk Level"].map(
+                lambda x: level_order.index(x) if x in level_order else 99
+            )
+            risk_counts = risk_counts.sort_values("sort_order")
+
+            chart = alt.Chart(risk_counts).mark_bar().encode(
+                x=alt.X("Risk Level:N", sort=list(risk_counts["Risk Level"]), title="Risk Level"),
+                y=alt.Y("Count:Q", title="Number of Deals"),
+                color=alt.Color(
+                    "Risk Level:N",
+                    scale=alt.Scale(
+                        domain=["LOW", "MODERATE", "ELEVATED", "HIGH"],
+                        range=["#2ca02c", "#ffbb78", "#ff7f0e", "#d62728"]
+                    ),
+                    legend=None
+                ),
+                tooltip=[
+                    alt.Tooltip("Risk Level:N"),
+                    alt.Tooltip("Count:Q", title="Deals")
+                ]
+            ).properties(
+                height=250,
+                title="Batch Scoring Results by Risk Level"
+            )
+
+            st.altair_chart(chart, use_container_width=True)
+
+        except Exception as e:
+            st.error(f"Error processing file: {e}")
