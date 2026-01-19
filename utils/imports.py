@@ -10,7 +10,12 @@ import numpy_financial as npf
 
 # Third-party libraries
 from numpy import busday_count
-from xhtml2pdf import pisa
+
+# Optional PDF export (requires system cairo libraries)
+try:
+    from xhtml2pdf import pisa
+except ImportError:
+    pisa = None  # PDF export will be disabled
 
 # Project imports
 from utils.config import (

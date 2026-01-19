@@ -6,3 +6,4 @@ secrets.toml
 *.json
 __pycache__/
 *.backup
+venv/

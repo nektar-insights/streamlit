@@ -495,7 +495,7 @@ with col1:
         )
         .properties(height=300)
     )
-    st.altair_chart(participation_box, width='stretch')
+    st.altair_chart(participation_box, use_container_width=True)
 
 with col2:
     st.write("**Factor Rate Distribution**")
@@ -513,7 +513,7 @@ with col2:
         )
         .properties(height=300)
     )
-    st.altair_chart(factor_box, width='stretch')
+    st.altair_chart(factor_box, use_container_width=True)
 
 # Second row - Loan Term and TIB/FICO (when available)
 col3, col4 = st.columns(2)
@@ -534,7 +534,7 @@ with col3:
         )
         .properties(height=300)
     )
-    st.altair_chart(term_box, width='stretch')
+    st.altair_chart(term_box, use_container_width=True)
 
 with col4:
     if has_tib_data:
@@ -553,7 +553,7 @@ with col4:
             )
             .properties(height=300)
         )
-        st.altair_chart(tib_box, width='stretch')
+        st.altair_chart(tib_box, use_container_width=True)
 
     elif has_fico_data:
         st.write("**FICO Score Distribution**")
@@ -571,7 +571,7 @@ with col4:
             )
             .properties(height=300)
         )
-        st.altair_chart(fico_box, width='stretch')
+        st.altair_chart(fico_box, use_container_width=True)
 
     else:
         st.write("**Additional Data**")
@@ -596,7 +596,7 @@ if has_tib_data and has_fico_data:
             )
             .properties(height=300)
         )
-        st.altair_chart(fico_box2, width='stretch')
+        st.altair_chart(fico_box2, use_container_width=True)
     
 # ----------------------------
 # Rolling Deal Flow
@@ -617,7 +617,7 @@ flow_df_display["Funded Change Display"] = flow_df_display["Funded Change"].appl
 st.dataframe(
     flow_df_display[["Period", "Deals", "Deal Change", "Deal Change %", 
                      "Total Funded Display", "Funded Change Display", "Funded Change %"]], 
-    width='stretch',
+    use_container_width=True,
     column_config={
         "Total Funded Display": "Total Funded",
         "Funded Change Display": "Funded Change"
@@ -669,8 +669,8 @@ funded_flow_chart = alt.Chart(flow_df).mark_bar(
     title="Total Funded by Period"
 )
 
-st.altair_chart(flow_chart, width='stretch')
-st.altair_chart(funded_flow_chart, width='stretch')
+st.altair_chart(flow_chart, use_container_width=True)
+st.altair_chart(funded_flow_chart, use_container_width=True)
 
 # ----------------------------
 # Partner Rolling Flow Metrics & Charts (all periods)
@@ -765,9 +765,9 @@ avg_chart = (
 )
 
 
-st.altair_chart(count_chart,   width='stretch')
-st.altair_chart(funded_chart, width='stretch')
-st.altair_chart(avg_chart,    width='stretch')
+st.altair_chart(count_chart,   use_container_width=True)
+st.altair_chart(funded_chart, use_container_width=True)
+st.altair_chart(avg_chart,    use_container_width=True)
 
 # ----------------------------
 # ADDITIONAL DATA PREPARATION FOR DOLLAR-BASED PARTICIPATION RATE
@@ -826,7 +826,7 @@ def _render_monthly_line(df_, y_field, y_title, fmt, color):
 
     st.altair_chart(
         (line + pts + avg).properties(height=350, padding={"bottom": 80}),
-        width='stretch',
+        use_container_width=True,
     )
 
 # ----------------------------
@@ -897,7 +897,7 @@ rate_line = alt.Chart(monthly_participation_ratio).mark_line(
     ]
 ).properties(height=350, width=800, padding={"left": 80, "top": 20, "right": 20, "bottom": 60})
 
-st.altair_chart(rate_line, width='stretch')
+st.altair_chart(rate_line, use_container_width=True)
 
 # 6) Monthly Participation Rate by Dollar Amount
 st.subheader("Monthly Participation Rate by Dollar Amount")
@@ -917,7 +917,7 @@ rate_line_dollar = alt.Chart(monthly_participation_ratio_dollar).mark_line(
     ]
 ).properties(height=350, width=800, padding={"left": 80, "top": 20, "right": 20, "bottom": 60})
 
-st.altair_chart(rate_line_dollar, width='stretch')
+st.altair_chart(rate_line_dollar, use_container_width=True)
 # ----------------------------
 # PARTNER SUMMARY TABLES
 # ----------------------------
@@ -992,12 +992,14 @@ totals_row = pd.DataFrame({
 # Append totals row to display DataFrame
 combined_summary_display = pd.concat([combined_summary_display, totals_row], ignore_index=True)
 
-st.dataframe(combined_summary_display, width='stretch', height=450)
+st.dataframe(combined_summary_display, use_container_width=True, height=450)
 
 # ----------------------------
 # DOWNLOAD FUNCTIONS
 # ----------------------------
 def create_pdf_from_html(html: str):
+    if pisa is None:
+        return None
     result = io.BytesIO()
     pisa.CreatePDF(io.StringIO(html), dest=result)
     return result.getvalue()
@@ -1018,12 +1020,15 @@ with col_download1:
     )
 
 with col_download2:
-    # Combined Summary PDF Download
-    combined_html = combined_summary_display.to_html(index=False)
-    combined_pdf = create_pdf_from_html(combined_html)
-    st.download_button(
-        label="Download Partner Summary (PDF)",
-        data=combined_pdf,
-        file_name="partner_performance_summary.pdf",
-        mime="application/pdf"
-    )
+    # Combined Summary PDF Download (requires xhtml2pdf)
+    if pisa is not None:
+        combined_html = combined_summary_display.to_html(index=False)
+        combined_pdf = create_pdf_from_html(combined_html)
+        st.download_button(
+            label="Download Partner Summary (PDF)",
+            data=combined_pdf,
+            file_name="partner_performance_summary.pdf",
+            mime="application/pdf"
+        )
+    else:
+        st.info("PDF export unavailable (xhtml2pdf not installed)")
