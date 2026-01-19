@@ -1841,7 +1841,23 @@ def main():
                 "Days Funded", "Days Overdue", "Status Mult",
                 "Risk Score", "Net Balance",
             ]
-            st.dataframe(top_risk_display, width="stretch", hide_index=True)
+
+            # Apply status coloring
+            def color_risk_status(val):
+                if val == "Active":
+                    return "background-color: #d4edda; color: black"
+                elif val == "Paid Off":
+                    return "background-color: #cce5ff; color: black"
+                elif val in ["Default", "Charged Off", "Bankruptcy", "Non-Performing"]:
+                    return "background-color: #dc3545; color: white"
+                elif "Delinquency" in str(val) or "Late" in str(val):
+                    return "background-color: #fff3cd; color: black"
+                elif val in ["NSF / Suspended", "In Collections", "Legal Action"]:
+                    return "background-color: #f8d7da; color: black"
+                return ""
+
+            styled_risk = top_risk_display.style.applymap(color_risk_status, subset=["Status"])
+            st.dataframe(styled_risk, width="stretch", hide_index=True)
 
             st.markdown("---")
             st.subheader("Risk Score Distribution")
@@ -1936,8 +1952,28 @@ def main():
             except:
                 return [""] * len(row)
 
+        # Apply status-based background coloring to Status column
+        def color_status(val):
+            """Return background color style based on loan status"""
+            color = STATUS_COLORS.get(val, "#f0f0f0")
+            # Use lighter version for background, determine text color based on brightness
+            text_color = "white" if val in ["Default", "Charged Off", "Bankruptcy", "Non-Performing", "Legal Action", "In Collections"] else "black"
+            if val == "Active":
+                return f"background-color: #d4edda; color: black"
+            elif val == "Paid Off":
+                return f"background-color: #cce5ff; color: black"
+            elif val in ["Default", "Charged Off", "Bankruptcy", "Non-Performing"]:
+                return f"background-color: {color}; color: white"
+            elif "Delinquency" in str(val) or "Late" in str(val):
+                return f"background-color: #fff3cd; color: black"
+            elif val in ["NSF / Suspended", "In Collections", "Legal Action"]:
+                return f"background-color: #f8d7da; color: black"
+            return ""
+
         # Display with conditional formatting
         styled_df = loan_tape.style.apply(highlight_past_maturity, axis=1)
+        if "Status" in loan_tape.columns:
+            styled_df = styled_df.applymap(color_status, subset=["Status"])
         st.dataframe(styled_df, width="stretch", hide_index=True)
 
         csv = loan_tape.to_csv(index=False).encode("utf-8")
