@@ -56,6 +56,41 @@ NAICS_CONSOLIDATED_NAMES = {
     "31": "Manufacturing",
 }
 
+# US State to Region mapping for geographic risk analysis
+STATE_TO_REGION = {
+    # Northeast
+    "CT": "Northeast", "ME": "Northeast", "MA": "Northeast", "NH": "Northeast",
+    "RI": "Northeast", "VT": "Northeast", "NJ": "Northeast", "NY": "Northeast", "PA": "Northeast",
+    # Southeast
+    "AL": "Southeast", "AR": "Southeast", "FL": "Southeast", "GA": "Southeast",
+    "KY": "Southeast", "LA": "Southeast", "MS": "Southeast", "NC": "Southeast",
+    "SC": "Southeast", "TN": "Southeast", "VA": "Southeast", "WV": "Southeast",
+    "DC": "Southeast", "MD": "Southeast", "DE": "Southeast",
+    # Midwest
+    "IL": "Midwest", "IN": "Midwest", "IA": "Midwest", "KS": "Midwest",
+    "MI": "Midwest", "MN": "Midwest", "MO": "Midwest", "NE": "Midwest",
+    "ND": "Midwest", "OH": "Midwest", "SD": "Midwest", "WI": "Midwest",
+    # Southwest
+    "AZ": "Southwest", "NM": "Southwest", "OK": "Southwest", "TX": "Southwest",
+    # West
+    "AK": "West", "CA": "West", "CO": "West", "HI": "West", "ID": "West",
+    "MT": "West", "NV": "West", "OR": "West", "UT": "West", "WA": "West", "WY": "West",
+}
+
+# Deal size tier boundaries
+DEAL_SIZE_TIERS = {
+    "Small": (0, 500000),
+    "Medium": (500000, 1500000),
+    "Large": (1500000, float("inf")),
+}
+
+# Revenue tier boundaries
+REVENUE_TIERS = {
+    "Small": (0, 5_000_000),
+    "Medium": (5_000_000, 50_000_000),
+    "Large": (50_000_000, float("inf")),
+}
+
 
 def consolidate_sector_code(sector_code: str) -> str:
     """
@@ -74,6 +109,125 @@ def consolidate_sector_code(sector_code: str) -> str:
         return sector_code
     sector_str = str(sector_code).strip().zfill(2)
     return NAICS_SECTOR_CONSOLIDATION.get(sector_str, sector_str)
+
+
+def extract_state_from_location(location: str) -> Optional[str]:
+    """
+    Extract US state code from location string.
+
+    Handles formats like:
+    - "Miami, FL"
+    - "Los Angeles, CA"
+    - "FL" (just state)
+    - "OH" (just state)
+
+    Args:
+        location: Location string from HubSpot
+
+    Returns:
+        2-letter state code or None if not found
+    """
+    if pd.isna(location) or not location:
+        return None
+
+    location = str(location).strip()
+
+    # Try to extract state after comma (e.g., "Miami, FL")
+    import re
+    match = re.search(r',\s*([A-Z]{2})$', location)
+    if match:
+        state = match.group(1)
+        if state in STATE_TO_REGION:
+            return state
+
+    # Check if it's just a state code (e.g., "OH")
+    if len(location) == 2 and location.upper() in STATE_TO_REGION:
+        return location.upper()
+
+    return None
+
+
+def clean_debt_ratio(debt_ratio: str) -> Optional[float]:
+    """
+    Clean and standardize debt_ratio field from HubSpot.
+
+    Handles formats like:
+    - "8.39"
+    - "13.00%"
+    - "4.14%"
+
+    Args:
+        debt_ratio: Raw debt ratio string
+
+    Returns:
+        Float value (as percentage, e.g., 8.39 means 8.39%) or None
+    """
+    if pd.isna(debt_ratio) or not debt_ratio:
+        return None
+
+    try:
+        debt_str = str(debt_ratio).strip()
+        # Remove % symbol if present
+        debt_str = debt_str.replace("%", "").strip()
+        value = float(debt_str)
+        # Sanity check - debt ratios should typically be 0-100%
+        if 0 <= value <= 100:
+            return value
+        return None
+    except (ValueError, TypeError):
+        return None
+
+
+def clean_revenue(revenue: str) -> Optional[float]:
+    """
+    Clean and standardize total_revenue field from HubSpot.
+
+    Handles formats like:
+    - "4600000"
+    - "118000000"
+
+    Args:
+        revenue: Raw revenue string
+
+    Returns:
+        Float value or None
+    """
+    if pd.isna(revenue) or not revenue:
+        return None
+
+    try:
+        revenue_str = str(revenue).strip()
+        # Remove any commas or dollar signs
+        revenue_str = revenue_str.replace(",", "").replace("$", "").strip()
+        value = float(revenue_str)
+        # Sanity check - revenue should be positive
+        if value > 0:
+            return value
+        return None
+    except (ValueError, TypeError):
+        return None
+
+
+def get_deal_size_tier(amount: float) -> str:
+    """Categorize deal by total funded amount into tiers."""
+    if pd.isna(amount) or amount <= 0:
+        return "Unknown"
+
+    for tier, (low, high) in DEAL_SIZE_TIERS.items():
+        if low < amount <= high:
+            return tier
+    return "Unknown"
+
+
+def get_revenue_tier(revenue: float) -> str:
+    """Categorize business by revenue into tiers."""
+    if pd.isna(revenue) or revenue <= 0:
+        return "Unknown"
+
+    for tier, (low, high) in REVENUE_TIERS.items():
+        if low < revenue <= high:
+            return tier
+    return "Unknown"
 
 
 def _normalize_loan_id(series: pd.Series) -> pd.Series:
@@ -192,8 +346,11 @@ def prepare_loan_data(loans_df: pd.DataFrame, deals_df: pd.DataFrame) -> pd.Data
         merge_cols = [
             "loan_id", "deal_name", "partner_source", "industry", "commission_fee", "fico", "tib",
             "factor_rate", "loan_term", "ahead_positions",
+            # NEW: Additional HubSpot fields for enhanced ML model
+            "location", "debt_ratio", "total_revenue", "total_funded_amount",
+            "number_of_payments", "payment_interval", "collateral_type",
             # Collateral field variations
-            "collateral_type", "collateral", "collateral_score", "collateral_category",
+            "collateral", "collateral_score", "collateral_category",
             # Communication field variations
             "communication_status", "communication", "communication_score", "borrower_communication"
         ]
@@ -395,6 +552,84 @@ def prepare_loan_data(loans_df: pd.DataFrame, deals_df: pd.DataFrame) -> pd.Data
         with np.errstate(divide="ignore", invalid="ignore"):
             perf = np.where(df["total_invested"] > 0, df["total_paid"] / df["total_invested"], np.nan)
             df["payment_performance"] = np.clip(perf, 0, 1)
+
+    # =========================================================================
+    # ENHANCED ML FEATURES - Additional HubSpot fields for improved predictions
+    # =========================================================================
+
+    # 1. Participation Ratio - what percentage of the total deal is CSL's
+    if "total_funded_amount" in df.columns:
+        df["total_funded_amount"] = pd.to_numeric(df["total_funded_amount"], errors="coerce")
+        df["participation_ratio"] = np.where(
+            df["total_funded_amount"] > 0,
+            df["csl_participation_amount"] / df["total_funded_amount"],
+            np.nan
+        )
+    else:
+        df["participation_ratio"] = np.nan
+
+    # 2. Payment Density - payments per month of loan term
+    if "number_of_payments" in df.columns:
+        df["number_of_payments"] = pd.to_numeric(df["number_of_payments"], errors="coerce")
+        df["payment_density"] = np.where(
+            (df["loan_term"].notna()) & (df["loan_term"] > 0),
+            df["number_of_payments"] / df["loan_term"],
+            np.nan
+        )
+    else:
+        df["payment_density"] = np.nan
+
+    # 3. Payment Interval - binary encoding for weekly vs other
+    if "payment_interval" in df.columns:
+        df["is_weekly_payment"] = (df["payment_interval"].str.lower() == "weekly").astype(int)
+    else:
+        df["is_weekly_payment"] = np.nan
+
+    # 4. Deal Size Tier - categorize by total funded amount
+    if "total_funded_amount" in df.columns:
+        df["deal_size_tier"] = df["total_funded_amount"].apply(get_deal_size_tier)
+    else:
+        df["deal_size_tier"] = "Unknown"
+
+    # 5. Debt Ratio - clean and standardize
+    if "debt_ratio" in df.columns:
+        df["debt_ratio_clean"] = df["debt_ratio"].apply(clean_debt_ratio)
+    else:
+        df["debt_ratio_clean"] = np.nan
+
+    # 6. State - extract from location
+    if "location" in df.columns:
+        df["state"] = df["location"].apply(extract_state_from_location)
+        # 7. Region - map from state
+        df["region"] = df["state"].map(STATE_TO_REGION)
+    else:
+        df["state"] = None
+        df["region"] = None
+
+    # 8. Revenue - clean and standardize
+    if "total_revenue" in df.columns:
+        df["revenue"] = df["total_revenue"].apply(clean_revenue)
+        # 9. Revenue Tier
+        df["revenue_tier"] = df["revenue"].apply(get_revenue_tier)
+        # 10. Loan to Revenue Ratio
+        df["loan_to_revenue"] = np.where(
+            (df["revenue"].notna()) & (df["revenue"] > 0) & (df["total_funded_amount"].notna()),
+            df["total_funded_amount"] / df["revenue"],
+            np.nan
+        )
+    else:
+        df["revenue"] = np.nan
+        df["revenue_tier"] = "Unknown"
+        df["loan_to_revenue"] = np.nan
+
+    # 11. Collateral indicator - simplified binary flag
+    if "collateral_type" in df.columns:
+        # Check if collateral is secured or unsecured
+        df["has_collateral"] = df["collateral_type"].apply(
+            lambda x: 0 if pd.isna(x) or "unsecured" in str(x).lower() or "none" in str(x).lower() else 1
+        )
+    else:
+        df["has_collateral"] = np.nan
 
     return df
 

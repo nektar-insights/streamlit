@@ -58,6 +58,17 @@ FEATURE_DISPLAY_NAMES = {
     # Categorical features (one-hot encoded names)
     "industry": "Industry (NAICS)",
     "partner_source": "Partner Source",
+    # NEW: Enhanced HubSpot features
+    "participation_ratio": "CSL Participation Ratio",
+    "payment_density": "Payments per Month",
+    "is_weekly_payment": "Weekly Payment Schedule",
+    "debt_ratio_clean": "Borrower Debt Ratio (%)",
+    "loan_to_revenue": "Loan-to-Revenue Ratio",
+    "has_collateral": "Has Collateral (Secured)",
+    "deal_size_tier": "Deal Size Tier",
+    "region": "Geographic Region",
+    "revenue_tier": "Business Revenue Tier",
+    "state": "State",
 }
 
 # Performance tier thresholds for interpretation
@@ -240,13 +251,18 @@ def get_display_name(feature_name: str) -> str:
         return FEATURE_DISPLAY_NAMES[feature_name]
 
     # Handle one-hot encoded categorical features (e.g., 'industry_44' or 'partner_source_ABC')
-    for prefix in ["industry_", "partner_source_"]:
+    categorical_prefixes = {
+        "industry_": "Industry",
+        "partner_source_": "Partner",
+        "deal_size_tier_": "Deal Size",
+        "region_": "Region",
+        "revenue_tier_": "Revenue",
+    }
+
+    for prefix, label in categorical_prefixes.items():
         if feature_name.startswith(prefix):
             category = feature_name[len(prefix):]
-            if prefix == "industry_":
-                return f"Industry: {category}"
-            else:
-                return f"Partner: {category}"
+            return f"{label}: {category}"
 
     # Default: capitalize and replace underscores
     return feature_name.replace("_", " ").title()
@@ -609,6 +625,13 @@ def build_feature_matrix(
         "tib": pd.to_numeric(df.get("tib"), errors="coerce"),
         "total_invested": pd.to_numeric(df.get("total_invested"), errors="coerce"),
         "ahead_positions": pd.to_numeric(df.get("ahead_positions"), errors="coerce"),
+        # NEW: Enhanced features from HubSpot
+        "participation_ratio": pd.to_numeric(df.get("participation_ratio"), errors="coerce"),
+        "payment_density": pd.to_numeric(df.get("payment_density"), errors="coerce"),
+        "is_weekly_payment": pd.to_numeric(df.get("is_weekly_payment"), errors="coerce"),
+        "debt_ratio_clean": pd.to_numeric(df.get("debt_ratio_clean"), errors="coerce"),
+        "loan_to_revenue": pd.to_numeric(df.get("loan_to_revenue"), errors="coerce"),
+        "has_collateral": pd.to_numeric(df.get("has_collateral"), errors="coerce"),
     })
 
     # Add sector code (2-digit NAICS)
@@ -681,9 +704,16 @@ def build_feature_matrix(
 
     # Add categorical features
     cat_df = pd.DataFrame()
+    # Original categorical features
     for c in ["industry", "partner_source"]:
         if c in df.columns:
             cat_df[c] = df[c].astype(str)
+
+    # NEW: Enhanced categorical features from HubSpot
+    for c in ["deal_size_tier", "region", "revenue_tier"]:
+        if c in df.columns:
+            # Replace None/NaN with "Unknown" for categorical encoding
+            cat_df[c] = df[c].fillna("Unknown").astype(str)
 
     if not cat_df.empty:
         X = pd.concat([X, cat_df], axis=1)
