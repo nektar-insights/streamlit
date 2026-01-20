@@ -1345,6 +1345,89 @@ def render_watchlist_tab(df: pd.DataFrame):
         with col2:
             st.metric("Exposure", format_currency(low_performing["net_balance"].sum()))
 
+    st.markdown("---")
+
+    # Unpaid This Week Section
+    st.subheader("Unpaid This Week")
+    st.caption("Payments expected this week that have not been received")
+
+    try:
+        schedules = load_loan_schedules()
+        if not schedules.empty:
+            # Get current week boundaries
+            today = pd.Timestamp.today().normalize()
+            week_start = today - pd.Timedelta(days=today.dayofweek)  # Monday
+            week_end = week_start + pd.Timedelta(days=6)  # Sunday
+
+            # Filter to this week's payments
+            schedules["payment_date"] = pd.to_datetime(schedules["payment_date"], errors="coerce")
+            this_week = schedules[
+                (schedules["payment_date"] >= week_start) &
+                (schedules["payment_date"] <= week_end)
+            ].copy()
+
+            # Filter to unpaid (no actual payment or zero)
+            unpaid = this_week[
+                (this_week["actual_payment"].isna()) | (this_week["actual_payment"] == 0)
+            ].copy()
+
+            # Join with loan data for context
+            if not unpaid.empty and not active_loans.empty:
+                # Merge to get loan details
+                unpaid = unpaid.merge(
+                    active_loans[["loan_id", "deal_name", "loan_status", "partner_source", "csl_participation_amount"]].drop_duplicates(),
+                    on="loan_id",
+                    how="left"
+                )
+
+                # Exclude paid off loans
+                unpaid = unpaid[unpaid["loan_status"] != "Paid Off"]
+
+                if not unpaid.empty:
+                    total_expected = unpaid["expected_payment"].sum()
+                    loan_count = unpaid["loan_id"].nunique()
+
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Unpaid Payments", len(unpaid))
+                    with col2:
+                        st.metric("Unique Loans", loan_count)
+                    with col3:
+                        st.metric("Expected Amount", format_currency(total_expected))
+
+                    # Display table
+                    display_unpaid = pd.DataFrame()
+                    display_unpaid["Due Date"] = unpaid["payment_date"].dt.strftime("%Y-%m-%d")
+                    display_unpaid["Loan ID"] = unpaid["loan_id"]
+                    display_unpaid["Deal Name"] = unpaid["deal_name"]
+                    display_unpaid["Status"] = unpaid["loan_status"]
+                    display_unpaid["Partner"] = unpaid["partner_source"]
+                    display_unpaid["Expected"] = unpaid["expected_payment"].apply(format_currency)
+                    display_unpaid["Payment #"] = unpaid["payment_number"]
+
+                    # Sort by due date
+                    display_unpaid = display_unpaid.sort_values("Due Date")
+
+                    st.dataframe(display_unpaid, hide_index=True, width="stretch")
+
+                    # Download button
+                    csv = display_unpaid.to_csv(index=False).encode("utf-8")
+                    st.download_button(
+                        label="Download Unpaid This Week Report",
+                        data=csv,
+                        file_name=f"unpaid_this_week_{pd.Timestamp.today().strftime('%Y%m%d')}.csv",
+                        mime="text/csv",
+                        key="unpaid_this_week_download"
+                    )
+                else:
+                    st.success("All expected payments this week have been received!")
+            else:
+                st.info("No payment schedule data available for this week.")
+        else:
+            st.info("No payment schedule data available.")
+    except Exception as e:
+        st.warning(f"Unable to load payment schedule data: {str(e)}")
+
 
 # -------------------
 # Portfolio Insights Helper Functions
