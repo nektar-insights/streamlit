@@ -137,24 +137,24 @@ st.markdown(f"""
     margin: 20px 0;
 ">
     <h3 style="margin-top: 0; color: {PRIMARY_COLOR};">Key Thresholds Summary</h3>
-    <table style="width: 100%; border-collapse: collapse;">
+    <table style="width: 100%; border-collapse: collapse; color: #1a1a1a;">
         <tr>
-            <td style="padding: 8px 0;"><strong>Min TIB:</strong></td>
-            <td style="padding: 8px 0;">5 years</td>
-            <td style="padding: 8px 0;"><strong>Min FICO:</strong></td>
-            <td style="padding: 8px 0;">620</td>
+            <td style="padding: 8px 0; color: #1a1a1a;"><strong>Min TIB:</strong></td>
+            <td style="padding: 8px 0; color: #1a1a1a;">5 years</td>
+            <td style="padding: 8px 0; color: #1a1a1a;"><strong>Min FICO:</strong></td>
+            <td style="padding: 8px 0; color: #1a1a1a;">620</td>
         </tr>
         <tr>
-            <td style="padding: 8px 0;"><strong>Max Lien:</strong></td>
-            <td style="padding: 8px 0;">2nd position</td>
-            <td style="padding: 8px 0;"><strong>Max Debt Leverage:</strong></td>
-            <td style="padding: 8px 0;">25%</td>
+            <td style="padding: 8px 0; color: #1a1a1a;"><strong>Max Lien:</strong></td>
+            <td style="padding: 8px 0; color: #1a1a1a;">2nd position</td>
+            <td style="padding: 8px 0; color: #1a1a1a;"><strong>Max Debt Leverage:</strong></td>
+            <td style="padding: 8px 0; color: #1a1a1a;">25%</td>
         </tr>
         <tr>
-            <td style="padding: 8px 0;"><strong>Min Net MOIC:</strong></td>
-            <td style="padding: 8px 0;">1.15x</td>
-            <td style="padding: 8px 0;"><strong>Max Allocation:</strong></td>
-            <td style="padding: 8px 0;">$40K or 10%</td>
+            <td style="padding: 8px 0; color: #1a1a1a;"><strong>Min Net MOIC:</strong></td>
+            <td style="padding: 8px 0; color: #1a1a1a;">1.15x</td>
+            <td style="padding: 8px 0; color: #1a1a1a;"><strong>Max Allocation:</strong></td>
+            <td style="padding: 8px 0; color: #1a1a1a;">$40K or 10%</td>
         </tr>
     </table>
 </div>

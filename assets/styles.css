@@ -166,6 +166,38 @@ p, span, label {
     border: 1px solid var(--csl-border);
 }
 
+/* ---------- Markdown Tables ---------- */
+/* Ensure markdown tables have visible text */
+.stMarkdown table {
+    background-color: var(--csl-card-bg);
+    border-collapse: collapse;
+    width: 100%;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--csl-border);
+}
+
+.stMarkdown table th,
+.stMarkdown table td {
+    color: var(--csl-text-dark) !important;
+    padding: 0.75rem 1rem !important;
+    border-bottom: 1px solid var(--csl-border) !important;
+    text-align: left;
+}
+
+.stMarkdown table th {
+    background-color: #f9fafb !important;
+    font-weight: 600 !important;
+    text-transform: uppercase !important;
+    font-size: 0.75rem !important;
+    letter-spacing: 0.5px !important;
+    color: var(--csl-text-muted) !important;
+}
+
+.stMarkdown table tr:hover td {
+    background-color: #f9fafb !important;
+}
+
 [data-testid="stDataFrame"] table {
     border-collapse: collapse;
 }
