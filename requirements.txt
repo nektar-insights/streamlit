@@ -1,6 +1,6 @@
 supabase
 pandas
-streamlit
+streamlit>=1.32.0
 matplotlib>=3.0
 numpy-financial
 scikit-learn>=1.3,<2.0
