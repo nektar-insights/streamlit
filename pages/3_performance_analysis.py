@@ -502,22 +502,15 @@ def plot_metric_correlations(df: pd.DataFrame):
     Display correlation analysis between key performance metrics.
     Shows correlation coefficients and scatter plots for key metric pairs.
     """
-    st.header("Metric Correlation Analysis")
-
     # Filter to paid-off loans with both metrics available
     paid_off = df[df["loan_status"] == "Paid Off"].copy()
-
-    if paid_off.empty:
-        st.info("No paid-off loans available for correlation analysis.")
-        return
 
     # Check for required columns
     has_pct_on_time = "pct_on_time" in paid_off.columns
     has_realized_irr = "realized_irr" in paid_off.columns
     has_roi = "current_roi" in paid_off.columns
 
-    if not (has_pct_on_time and has_realized_irr):
-        st.info("Insufficient data for correlation analysis. Need on-time rate and IRR data.")
+    if paid_off.empty or not (has_pct_on_time and has_realized_irr):
         return
 
     # Filter to loans with valid data for both metrics
@@ -527,19 +520,18 @@ def plot_metric_correlations(df: pd.DataFrame):
     ].copy()
 
     if len(correlation_df) < 5:
-        st.info("Need at least 5 paid-off loans with both on-time rate and IRR data for correlation analysis.")
         return
 
     # Require variance in both metrics to compute meaningful correlations
     if correlation_df["pct_on_time"].nunique(dropna=True) < 2 or correlation_df["realized_irr"].nunique(dropna=True) < 2:
-        st.info("Correlation analysis not available: insufficient variance in on-time rate or IRR.")
         return
 
     # Calculate correlation coefficients
     corr_ontime_irr = correlation_df["pct_on_time"].corr(correlation_df["realized_irr"])
     if pd.isna(corr_ontime_irr):
-        st.info("Correlation analysis not available: correlation could not be computed.")
         return
+
+    st.header("Metric Correlation Analysis")
 
     # Display correlation coefficients as metrics
     st.subheader("Key Correlations")
