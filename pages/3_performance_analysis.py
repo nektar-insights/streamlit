@@ -195,7 +195,8 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
                 ).properties(width=400, height=450, title="Exposure by Industry")
 
                 # Add center text showing total
-                center_text = alt.Chart(pd.DataFrame({"text": [f"${total_exposure/1e6:.1f}M"]})).mark_text(
+                total_exposure_m = np.floor((total_exposure / 1e6) * 10) / 10
+                center_text = alt.Chart(pd.DataFrame({"text": [f"${total_exposure_m:.1f}M"]})).mark_text(
                     size=24, fontWeight="bold", color="#333"
                 ).encode(text="text:N")
 
@@ -237,7 +238,8 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
                 ).properties(width=400, height=450, title="Exposure by Status")
 
                 # Add center text
-                center_text2 = alt.Chart(pd.DataFrame({"text": [f"${total_status_exposure/1e6:.1f}M"]})).mark_text(
+                total_status_exposure_m = np.floor((total_status_exposure / 1e6) * 10) / 10
+                center_text2 = alt.Chart(pd.DataFrame({"text": [f"${total_status_exposure_m:.1f}M"]})).mark_text(
                     size=24, fontWeight="bold", color="#333"
                 ).encode(text="text:N")
 
