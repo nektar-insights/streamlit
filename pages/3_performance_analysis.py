@@ -24,6 +24,7 @@ from utils.config import (
 from utils.data_loader import (
     load_loan_summaries,
     load_deals,
+    load_loan_schedules,
 )
 
 # Loan tape specific utilities
@@ -34,6 +35,7 @@ from utils.loan_tape_data import (
 )
 from utils.loan_tape_analytics import (
     PROBLEM_STATUSES,
+    get_payment_behavior_features,
 )
 from utils.status_constants import (
     STATUS_COLORS,
@@ -652,6 +654,22 @@ def main():
 
     # Calculate IRR and add grades
     df = calculate_irr(df)
+    # Add payment behavior metrics (pct_on_time) from schedules for correlation analysis
+    schedules_df = load_loan_schedules()
+    if not schedules_df.empty:
+        payment_behavior = get_payment_behavior_features(schedules_df)
+        if not payment_behavior.empty:
+            payment_behavior["loan_id"] = (
+                payment_behavior["loan_id"]
+                .astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+            )
+            df["loan_id"] = df["loan_id"].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+            df = df.merge(
+                payment_behavior[["loan_id", "pct_on_time", "pct_late", "pct_missed", "consecutive_missed"]],
+                on="loan_id",
+                how="left"
+            )
+
     df = add_performance_grades(df)
 
     # Sidebar filters
