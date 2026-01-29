@@ -530,8 +530,16 @@ def plot_metric_correlations(df: pd.DataFrame):
         st.info("Need at least 5 paid-off loans with both on-time rate and IRR data for correlation analysis.")
         return
 
+    # Require variance in both metrics to compute meaningful correlations
+    if correlation_df["pct_on_time"].nunique(dropna=True) < 2 or correlation_df["realized_irr"].nunique(dropna=True) < 2:
+        st.info("Correlation analysis not available: insufficient variance in on-time rate or IRR.")
+        return
+
     # Calculate correlation coefficients
     corr_ontime_irr = correlation_df["pct_on_time"].corr(correlation_df["realized_irr"])
+    if pd.isna(corr_ontime_irr):
+        st.info("Correlation analysis not available: correlation could not be computed.")
+        return
 
     # Display correlation coefficients as metrics
     st.subheader("Key Correlations")
