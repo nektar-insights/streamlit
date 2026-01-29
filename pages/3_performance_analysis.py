@@ -159,6 +159,9 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
                 deal_count=("loan_id", "count")
             ).reset_index()
             industry_exposure = industry_exposure.sort_values("outstanding_balance", ascending=False)
+            total_exposure = industry_exposure["outstanding_balance"].sum()
+            industry_exposure["pct_total"] = industry_exposure["outstanding_balance"] / total_exposure
+            industry_exposure["pct_label"] = (industry_exposure["pct_total"] * 100).round(1).astype(str) + "%"
 
             # --- Status Exposure Donut Chart ---
             status_exposure = active_filtered.groupby("loan_status").agg(
@@ -166,6 +169,9 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
                 deal_count=("loan_id", "count")
             ).reset_index()
             status_exposure = status_exposure.sort_values("outstanding_balance", ascending=False)
+            total_status_exposure = status_exposure["outstanding_balance"].sum()
+            status_exposure["pct_total"] = status_exposure["outstanding_balance"] / total_status_exposure
+            status_exposure["pct_label"] = (status_exposure["pct_total"] * 100).round(1).astype(str) + "%"
 
             # Create two donut charts side by side
             col1, col2 = st.columns(2)
@@ -181,17 +187,32 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
                     tooltip=[
                         alt.Tooltip("display_label:N", title="Industry"),
                         alt.Tooltip("outstanding_balance:Q", title="Exposure", format="$,.0f"),
+                        alt.Tooltip("pct_total:Q", title="% of Total", format=".1%"),
                         alt.Tooltip("deal_count:Q", title="Loans"),
                     ],
                 ).properties(width=400, height=450, title="Exposure by Industry")
 
                 # Add center text showing total
-                total_exposure = industry_exposure["outstanding_balance"].sum()
                 center_text = alt.Chart(pd.DataFrame({"text": [f"${total_exposure/1e6:.1f}M"]})).mark_text(
                     size=24, fontWeight="bold", color="#333"
                 ).encode(text="text:N")
 
-                st.altair_chart(industry_donut + center_text, width="stretch")
+                # Label top 3 industries with % of total exposure
+                top3_industry_labels = (
+                    alt.Chart(industry_exposure)
+                    .transform_window(
+                        rank="rank()",
+                        sort=[alt.SortField("outstanding_balance", order="descending")]
+                    )
+                    .transform_filter(alt.datum.rank <= 3)
+                    .mark_text(radius=115, size=12, fontWeight="bold", color="#111")
+                    .encode(
+                        theta=alt.Theta("outstanding_balance:Q", stack=True),
+                        text=alt.Text("pct_label:N")
+                    )
+                )
+
+                st.altair_chart(industry_donut + top3_industry_labels + center_text, width="stretch")
 
             with col2:
                 # Get colors for statuses present in data (uses shared STATUS_COLORS)
@@ -208,16 +229,32 @@ def plot_industry_performance_analysis(df: pd.DataFrame):
                     tooltip=[
                         alt.Tooltip("loan_status:N", title="Status"),
                         alt.Tooltip("outstanding_balance:Q", title="Exposure", format="$,.0f"),
+                        alt.Tooltip("pct_total:Q", title="% of Total", format=".1%"),
                         alt.Tooltip("deal_count:Q", title="Loans"),
                     ],
                 ).properties(width=400, height=450, title="Exposure by Status")
 
                 # Add center text
-                center_text2 = alt.Chart(pd.DataFrame({"text": [f"${total_exposure/1e6:.1f}M"]})).mark_text(
+                center_text2 = alt.Chart(pd.DataFrame({"text": [f"${total_status_exposure/1e6:.1f}M"]})).mark_text(
                     size=24, fontWeight="bold", color="#333"
                 ).encode(text="text:N")
 
-                st.altair_chart(status_donut + center_text2, width="stretch")
+                # Label top 3 statuses with % of total exposure
+                top3_status_labels = (
+                    alt.Chart(status_exposure)
+                    .transform_window(
+                        rank="rank()",
+                        sort=[alt.SortField("outstanding_balance", order="descending")]
+                    )
+                    .transform_filter(alt.datum.rank <= 3)
+                    .mark_text(radius=115, size=12, fontWeight="bold", color="#111")
+                    .encode(
+                        theta=alt.Theta("outstanding_balance:Q", stack=True),
+                        text=alt.Text("pct_label:N")
+                    )
+                )
+
+                st.altair_chart(status_donut + top3_status_labels + center_text2, width="stretch")
 
             # --- Stacked Bar Chart: Industry x Status Breakdown ---
             st.markdown("##### Exposure by Industry & Status")
