@@ -7,3 +7,6 @@ secrets.toml
 __pycache__/
 *.backup
 venv/
+
+# Source data files
+docs/nav/

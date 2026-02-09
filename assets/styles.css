@@ -95,6 +95,37 @@ p, span, label {
     color: var(--csl-text-dark);
 }
 
+/* List items - critical for bullet points and checklists */
+li {
+    color: var(--csl-text-dark) !important;
+}
+
+ul, ol {
+    color: var(--csl-text-dark);
+}
+
+/* Ensure strong/bold text is visible */
+strong, b, em, i {
+    color: inherit;
+}
+
+/* Markdown content wrapper - ensures all text content is dark */
+.stMarkdown {
+    color: var(--csl-text-dark);
+}
+
+.stMarkdown p,
+.stMarkdown li,
+.stMarkdown span,
+.stMarkdown div {
+    color: var(--csl-text-dark);
+}
+
+/* Caption text */
+.stCaption, [data-testid="stCaptionContainer"] {
+    color: var(--csl-text-muted) !important;
+}
+
 /* ---------- Metric cards ---------- */
 /* Clean metrics without heavy borders */
 [data-testid="stMetric"] {

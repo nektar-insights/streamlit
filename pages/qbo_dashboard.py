@@ -359,6 +359,21 @@ def get_partner_performance(unified_df):
     return partner_perf.sort_values("Cash Collected", ascending=False)
 
 
+def get_fund_operations(qbo_df):
+    """
+    Get fund-level transactions (participation refunds and capital contributions).
+    These are deposits that are not loan payments and should be tracked separately.
+    """
+    if qbo_df.empty or "transaction_category" not in qbo_df.columns:
+        return pd.DataFrame(), pd.DataFrame()
+
+    # Filter to non-loan transactions
+    refunds = qbo_df[qbo_df["transaction_category"] == "participation_refund"].copy()
+    contributions = qbo_df[qbo_df["transaction_category"] == "capital_contribution"].copy()
+
+    return refunds, contributions
+
+
 def get_monthly_cohort_performance(unified_df, deals_df):
     """Analyze performance by origination cohort"""
     if unified_df.empty:
@@ -1036,7 +1051,73 @@ for rec in recommendations:
 st.markdown("---")
 
 # ===================================================================
-# SECTION 6: DATA DETAILS (Collapsed)
+# SECTION 6: FUND OPERATIONS (Non-Loan Transactions)
+# ===================================================================
+st.header("🏦 Fund Operations")
+st.markdown("**Non-loan transactions: participation refunds and capital contributions**")
+
+refunds_df, contributions_df = get_fund_operations(df)
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    total_refunds = refunds_df["total_amount"].sum() if not refunds_df.empty else 0
+    st.metric("Participation Refunds", f"${total_refunds:,.0f}", help="Refunds from cancelled/failed deal participations")
+
+with col2:
+    total_contributions = contributions_df["total_amount"].sum() if not contributions_df.empty else 0
+    st.metric("Capital Contributions", f"${total_contributions:,.0f}", help="Investor capital contributions to the fund")
+
+with col3:
+    total_fund_ops = total_refunds + total_contributions
+    st.metric("Total Fund Operations", f"${total_fund_ops:,.0f}", help="Total non-loan deposits")
+
+# Display details in tabs
+if not refunds_df.empty or not contributions_df.empty:
+    tab1, tab2 = st.tabs(["Participation Refunds", "Capital Contributions"])
+
+    with tab1:
+        if not refunds_df.empty:
+            display_cols = ["txn_date", "total_amount", "customer_name", "deposit_account"]
+            available_cols = [c for c in display_cols if c in refunds_df.columns]
+            st.dataframe(
+                refunds_df[available_cols].sort_values("txn_date", ascending=False),
+                column_config={
+                    "txn_date": st.column_config.DateColumn("Date"),
+                    "total_amount": st.column_config.NumberColumn("Amount", format="$%.2f"),
+                    "customer_name": st.column_config.TextColumn("Source"),
+                    "deposit_account": st.column_config.TextColumn("Account"),
+                },
+                hide_index=True,
+                width="stretch"
+            )
+        else:
+            st.info("No participation refunds recorded")
+
+    with tab2:
+        if not contributions_df.empty:
+            display_cols = ["txn_date", "total_amount", "customer_name", "deposit_account"]
+            available_cols = [c for c in display_cols if c in contributions_df.columns]
+            st.dataframe(
+                contributions_df[available_cols].sort_values("txn_date", ascending=False),
+                column_config={
+                    "txn_date": st.column_config.DateColumn("Date"),
+                    "total_amount": st.column_config.NumberColumn("Amount", format="$%.2f"),
+                    "customer_name": st.column_config.TextColumn("Source"),
+                    "deposit_account": st.column_config.TextColumn("Account"),
+                },
+                hide_index=True,
+                width="stretch"
+            )
+        else:
+            st.info("No capital contributions recorded")
+else:
+    st.info("No fund operations data available. The transaction_category column may not be populated yet.")
+
+st.markdown("---")
+
+# ===================================================================
+# SECTION 7: DATA DETAILS (Collapsed)
 # ===================================================================
 with st.expander("📋 Data Details & Diagnostics"):
 

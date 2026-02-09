@@ -56,14 +56,23 @@ df["is_participated"] = df["is_closed_won"] == True
 st.sidebar.header("Filters")
 
 min_date, max_date = df["date_created"].min(), df["date_created"].max()
-start_date, end_date = st.sidebar.date_input(
+date_range = st.sidebar.date_input(
     "Filter by Date Range",
     [min_date, max_date],
     min_value=min_date,
     max_value=max_date
 )
-df = df[(df["date_created"] >= pd.to_datetime(start_date)) &
-        (df["date_created"] <= pd.to_datetime(end_date))]
+
+# Handle case where user is mid-selection (only 1 date selected)
+if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
+    start_date, end_date = date_range
+    df = df[(df["date_created"] >= pd.to_datetime(start_date)) &
+            (df["date_created"] <= pd.to_datetime(end_date))]
+elif isinstance(date_range, (list, tuple)) and len(date_range) == 1:
+    st.sidebar.warning("Please select an end date")
+    st.stop()
+else:
+    start_date, end_date = min_date, max_date
 
 partner_options = sorted(df["partner_source"].dropna().unique())
 selected_partners = st.sidebar.multiselect(
