@@ -1,20 +1,58 @@
 # utils/config.py
 import streamlit as st
-from supabase import create_client
+from google.cloud import bigquery
 from pathlib import Path
 import base64
+import json
 
 # Import Altair theme
 from utils.altair_theme import register_csl_theme
 
 # ----------------------------
-# Supabase Connection
+# BigQuery Table Map
+# Supabase table name → fully-qualified BQ table reference
+# ----------------------------
+GCP_PROJECT = "csl-deal-pipeline"
+_TABLE_MAP = {
+    "deals":                       f"{GCP_PROJECT}.csl_hubspot.deals",
+    "mca_deals":                   f"{GCP_PROJECT}.csl_hubspot.mca_deals",
+    "loan_summaries":              f"{GCP_PROJECT}.csl_hubspot.loan_summaries",
+    "loan_schedules":              f"{GCP_PROJECT}.csl_hubspot.loan_schedules",
+    "naics_sector_risk_profile":   f"{GCP_PROJECT}.csl_hubspot.naics_sector_risk_profile",
+    "cash_flow_forecast_history":  f"{GCP_PROJECT}.csl_hubspot.cash_flow_forecast_history",
+    "qbo_invoice_payments":        f"{GCP_PROJECT}.csl_qbo.qbo_invoice_payments",
+    "qbo_general_ledger":          f"{GCP_PROJECT}.csl_qbo.qbo_general_ledger",
+    "qbo_loan_summary_view":       f"{GCP_PROJECT}.csl_qbo.loan_net_collections",
+    "ml_model_results":            f"{GCP_PROJECT}.csl_hubspot.ml_model_results",
+    "ml_loan_predictions":         f"{GCP_PROJECT}.csl_hubspot.ml_loan_predictions",
+    "model_metrics_history":       f"{GCP_PROJECT}.csl_hubspot.model_metrics_history",
+}
+
+# ----------------------------
+# BigQuery Connection
+# Secrets format (.streamlit/secrets.toml):
+#   [gcp]
+#   project_id = "csl-deal-pipeline"
+#   service_account_key = '{"type": "service_account", ...}'  # JSON string
 # ----------------------------
 @st.cache_resource
-def get_supabase_client():
-    url = st.secrets["supabase"]["url"]
-    key = st.secrets["supabase"]["service_role"]
-    return create_client(url, key)
+def get_bq_client():
+    try:
+        if "gcp" in st.secrets and "service_account_key" in st.secrets["gcp"]:
+            sa_info = st.secrets["gcp"]["service_account_key"]
+            if isinstance(sa_info, str):
+                sa_info = json.loads(sa_info)
+            from google.oauth2.service_account import Credentials
+            credentials = Credentials.from_service_account_info(
+                sa_info,
+                scopes=["https://www.googleapis.com/auth/bigquery"]
+            )
+            project = st.secrets["gcp"].get("project_id", GCP_PROJECT)
+            return bigquery.Client(project=project, credentials=credentials)
+    except Exception:
+        pass
+    # Fall back to ADC (local dev: gcloud auth application-default login)
+    return bigquery.Client(project=GCP_PROJECT)
 
 # ----------------------------
 # Color Palette Constants

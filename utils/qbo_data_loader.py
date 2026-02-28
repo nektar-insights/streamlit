@@ -1,39 +1,32 @@
 # utils/qbo_data_loader.py
 import pandas as pd
 import streamlit as st
-from utils.imports import get_supabase_client
+from utils.config import get_bq_client, _TABLE_MAP
 
-supabase = get_supabase_client()
 
-def fetch_all_rows(table_name: str, chunk_size: int = 1000) -> pd.DataFrame:
-    """Fetch all rows from a Supabase table using pagination to avoid limits"""
-    rows = []
-    start = 0
-    while True:
-        end = start + chunk_size - 1
-        response = (
-            supabase.table(table_name)
-            .select("*")
-            .range(start, end)
-            .execute()
-        )
-        batch = response.data
-        if not batch:
-            break
-        rows.extend(batch)
-        start += chunk_size
-    return pd.DataFrame(rows)
+def _bq_fetch(table_name: str) -> pd.DataFrame:
+    """Fetch all rows from a BigQuery table by logical name."""
+    try:
+        bq = get_bq_client()
+        bq_table = _TABLE_MAP[table_name]
+        return bq.query(f"SELECT * FROM `{bq_table}`").to_dataframe()
+    except Exception as e:
+        print(f"[BQ] Failed to load {table_name}: {e}")
+        return pd.DataFrame()
+
 
 @st.cache_data(ttl=3600)
 def load_qbo_data():
-    df_txn = fetch_all_rows("qbo_invoice_payments")
-    df_gl = fetch_all_rows("qbo_general_ledger")
+    df_txn = _bq_fetch("qbo_invoice_payments")
+    df_gl = _bq_fetch("qbo_general_ledger")
     return df_txn, df_gl
+
 
 @st.cache_data(ttl=3600)
 def load_deals():
-    return fetch_all_rows("deals")
+    return _bq_fetch("deals")
+
 
 @st.cache_data(ttl=3600)
 def load_mca_deals():
-    return fetch_all_rows("mca_deals")
+    return _bq_fetch("mca_deals")

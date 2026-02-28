@@ -7,53 +7,31 @@ All data loading functions are consolidated here for reuse across pages.
 import pandas as pd
 import streamlit as st
 from typing import Tuple, Optional
-from utils.imports import get_supabase_client
+from utils.config import get_bq_client, _TABLE_MAP, GCP_PROJECT
 
 
 class DataLoader:
     """Centralized data loader with caching and error handling"""
-    
+
     def __init__(self):
-        self.supabase = get_supabase_client()
-    
+        self.bq = get_bq_client()
+
     def _fetch_all_rows(self, table_name: str, chunk_size: int = 1000) -> pd.DataFrame:
         """
-        Fetch all rows from a Supabase table using pagination to avoid limits
+        Fetch all rows from a BigQuery table.
 
         Args:
-            table_name: Name of the table to fetch from
-            chunk_size: Number of rows to fetch per batch
+            table_name: Logical table name (resolved via _TABLE_MAP)
+            chunk_size: Unused (BigQuery has no row-limit pagination)
 
         Returns:
             pd.DataFrame: Complete dataset from the table
         """
         try:
-            rows = []
-            start = 0
-
-            while True:
-                end = start + chunk_size - 1
-                response = (
-                    self.supabase.table(table_name)
-                    .select("*")
-                    .range(start, end)
-                    .execute()
-                )
-                batch = response.data
-                if not batch:
-                    break  # no more rows
-                rows.extend(batch)
-                start += chunk_size
-
-            return pd.DataFrame(rows)
-
+            bq_table = _TABLE_MAP.get(table_name, f"{GCP_PROJECT}.csl_hubspot.{table_name}")
+            return self.bq.query(f"SELECT * FROM `{bq_table}`").to_dataframe()
         except Exception:
-            # Fallback to standard query
-            try:
-                response = self.supabase.table(table_name).select("*").execute()
-                return pd.DataFrame(response.data)
-            except Exception:
-                return pd.DataFrame()
+            return pd.DataFrame()
     
     def _preprocess_data(self, dataframe: pd.DataFrame) -> pd.DataFrame:
         """
@@ -223,24 +201,29 @@ class DataLoader:
     @st.cache_data(ttl=3600)
     def get_last_updated(_self) -> str:
         """
-        Get the last updated timestamp from key tables
+        Get the last updated timestamp from key tables.
 
         Returns:
             str: Formatted timestamp of the most recent update
         """
         try:
             timestamps = []
-            for table in ["loan_summaries", "deals", "loan_schedules", "mca_deals"]:
-                try:
-                    res = _self.supabase.table(table).select("updated_at").order("updated_at", desc=True).limit(1).execute()
-                    if res.data and res.data[0].get("updated_at"):
-                        timestamps.append(pd.to_datetime(res.data[0]["updated_at"]))
-                except:
+            bq_tables = [
+                _TABLE_MAP["loan_summaries"],
+                _TABLE_MAP["deals"],
+                _TABLE_MAP["loan_schedules"],
+                _TABLE_MAP["mca_deals"],
+            ]
+            for bq_table in bq_tables:
+                for ts_col in ("updated_at", "created_at"):
                     try:
-                        res = _self.supabase.table(table).select("created_at").order("created_at", desc=True).limit(1).execute()
-                        if res.data and res.data[0].get("created_at"):
-                            timestamps.append(pd.to_datetime(res.data[0]["created_at"]))
-                    except:
+                        rows = list(_self.bq.query(
+                            f"SELECT MAX({ts_col}) AS ts FROM `{bq_table}`"
+                        ).result())
+                        if rows and rows[0][0]:
+                            timestamps.append(pd.to_datetime(rows[0][0]))
+                            break
+                    except Exception:
                         pass
             if timestamps:
                 return max(timestamps).strftime("%B %d, %Y at %I:%M %p")
@@ -452,5 +435,5 @@ def clear_data_cache(dataset: Optional[str] = None):
     data_loader.clear_cache(dataset)
 
 
-# Re-export get_supabase_client for convenience
-from utils.imports import get_supabase_client
+# Re-export get_bq_client for convenience
+from utils.config import get_bq_client

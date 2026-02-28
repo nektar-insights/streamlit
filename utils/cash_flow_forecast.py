@@ -5,7 +5,7 @@ import numpy as np
 import altair as alt
 from datetime import datetime, timedelta
 import json
-from utils.imports import get_supabase_client
+from utils.config import get_bq_client, _TABLE_MAP
 
 
 def store_forecast_snapshot(forecast_df, params):
@@ -27,7 +27,8 @@ def store_forecast_snapshot(forecast_df, params):
         bool: True if successful, False otherwise
     """
     try:
-        supabase = get_supabase_client()
+        bq = get_bq_client()
+        table_id = _TABLE_MAP["cash_flow_forecast_history"]
 
         # Build period forecasts JSON
         period_forecasts = []
@@ -51,8 +52,8 @@ def store_forecast_snapshot(forecast_df, params):
             params.get("deployment_rate", 0) * len(period_forecasts)
         ) - (params.get("opex_rate", 0) * len(period_forecasts))
 
-        # Insert into Supabase
-        data = {
+        # Insert into BigQuery
+        row = {
             "forecast_date": datetime.now().strftime("%Y-%m-%d"),
             "forecast_period": params.get("forecast_period", "monthly"),
             "forecast_horizon": params.get("forecast_horizon", 6),
@@ -67,11 +68,8 @@ def store_forecast_snapshot(forecast_df, params):
             "period_forecasts": json.dumps(period_forecasts)
         }
 
-        response = supabase.table("cash_flow_forecast_history").insert(data).execute()
-
-        if response.data:
-            return True
-        return False
+        errors = bq.insert_rows_json(table_id, [row])
+        return len(errors) == 0
 
     except Exception as e:
         print(f"Error storing forecast snapshot: {e}")
@@ -80,7 +78,7 @@ def store_forecast_snapshot(forecast_df, params):
 
 def get_forecast_history(days=90, limit=50):
     """
-    Retrieve historical forecast snapshots from Supabase.
+    Retrieve historical forecast snapshots from BigQuery.
 
     Args:
         days: Number of days of history to retrieve
@@ -90,26 +88,23 @@ def get_forecast_history(days=90, limit=50):
         pd.DataFrame: Historical forecasts with their parameters and accuracy
     """
     try:
-        supabase = get_supabase_client()
-
+        bq = get_bq_client()
+        table = _TABLE_MAP["cash_flow_forecast_history"]
         cutoff_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
 
-        response = (
-            supabase.table("cash_flow_forecast_history")
-            .select("*")
-            .gte("forecast_date", cutoff_date)
-            .order("created_at", desc=True)
-            .limit(limit)
-            .execute()
-        )
+        df = bq.query(f"""
+            SELECT *
+            FROM `{table}`
+            WHERE forecast_date >= '{cutoff_date}'
+            ORDER BY created_at DESC
+            LIMIT {int(limit)}
+        """).to_dataframe()
 
-        if response.data:
-            df = pd.DataFrame(response.data)
+        if not df.empty:
             df["created_at"] = pd.to_datetime(df["created_at"])
             df["forecast_date"] = pd.to_datetime(df["forecast_date"])
-            return df
 
-        return pd.DataFrame()
+        return df
 
     except Exception as e:
         print(f"Error retrieving forecast history: {e}")
@@ -128,15 +123,21 @@ def update_forecast_with_actuals(forecast_id, qbo_df):
         float: Forecast accuracy percentage (0-100)
     """
     try:
-        supabase = get_supabase_client()
+        bq = get_bq_client()
+        table = _TABLE_MAP["cash_flow_forecast_history"]
 
         # Get the forecast record
-        response = supabase.table("cash_flow_forecast_history").select("*").eq("id", forecast_id).execute()
+        rows = bq.query(f"""
+            SELECT *
+            FROM `{table}`
+            WHERE id = '{forecast_id}'
+            LIMIT 1
+        """).to_dataframe()
 
-        if not response.data:
+        if rows.empty:
             return None
 
-        forecast = response.data[0]
+        forecast = rows.iloc[0].to_dict()
         period_forecasts = json.loads(forecast["period_forecasts"]) if isinstance(forecast["period_forecasts"], str) else forecast["period_forecasts"]
 
         # Calculate actuals for each period
@@ -186,12 +187,22 @@ def update_forecast_with_actuals(forecast_id, qbo_df):
             else:
                 accuracy = 0 if total_actual > 0 else 100
 
-            # Update the record
-            supabase.table("cash_flow_forecast_history").update({
-                "period_forecasts": json.dumps(updated_forecasts),
-                "actuals_updated_at": datetime.now().isoformat(),
-                "forecast_accuracy_pct": accuracy
-            }).eq("id", forecast_id).execute()
+            # Update the record via DML
+            from google.cloud import bigquery as _bq
+            actuals_ts = datetime.now().isoformat()
+            job_config = _bq.QueryJobConfig(query_parameters=[
+                _bq.ScalarQueryParameter("period_forecasts", "STRING", json.dumps(updated_forecasts)),
+                _bq.ScalarQueryParameter("actuals_updated_at", "STRING", actuals_ts),
+                _bq.ScalarQueryParameter("accuracy", "FLOAT64", accuracy),
+                _bq.ScalarQueryParameter("forecast_id", "STRING", forecast_id),
+            ])
+            bq.query(f"""
+                UPDATE `{table}`
+                SET period_forecasts = @period_forecasts,
+                    actuals_updated_at = @actuals_updated_at,
+                    forecast_accuracy_pct = @accuracy
+                WHERE id = @forecast_id
+            """, job_config=job_config).result()
 
             return accuracy
 

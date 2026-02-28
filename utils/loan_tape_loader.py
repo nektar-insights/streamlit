@@ -1,49 +1,23 @@
 # utils/loan_tape_loader.py
 import pandas as pd
 import numpy as np
-from utils.imports import get_supabase_client
+from utils.config import get_bq_client, _TABLE_MAP, GCP_PROJECT
 
-def _load_all_data_with_fallback(supabase, table_name):
+
+def _load_all_data_with_fallback(bq, table_name):
     """
-    Fetch all rows from a Supabase table using the working pagination method
+    Fetch all rows from a BigQuery table.
+    Signature kept for compatibility; bq param is now a BigQuery client.
     """
-    print(f"Loading all data from {table_name} using working pagination...")
-    
+    print(f"Loading all data from {table_name} via BigQuery...")
     try:
-        rows = []
-        start = 0
-        chunk_size = 1000
-        
-        while True:
-            end = start + chunk_size - 1
-            response = (
-                supabase.table(table_name)
-                .select("*")
-                .range(start, end)
-                .execute()
-            )
-            batch = response.data
-            if not batch:
-                break  # no more rows
-            rows.extend(batch)
-            print(f"Loaded batch: {len(batch)} records from {table_name} (total so far: {len(rows)})")
-            start += chunk_size
-        
-        df = pd.DataFrame(rows)
+        bq_table = _TABLE_MAP.get(table_name, f"{GCP_PROJECT}.csl_hubspot.{table_name}")
+        df = bq.query(f"SELECT * FROM `{bq_table}`").to_dataframe()
         print(f"Successfully loaded {len(df)} total records from {table_name}")
         return df
-        
     except Exception as e:
-        print(f"Pagination failed for {table_name}: {e}")
-        # Fallback to standard query
-        try:
-            response = supabase.table(table_name).select("*").execute()
-            df = pd.DataFrame(response.data)
-            print(f"Fallback successful: {len(df)} records from {table_name}")
-            return df
-        except Exception as e2:
-            print(f"All methods failed for {table_name}: {e2}")
-            return pd.DataFrame()
+        print(f"Failed to load {table_name} from BigQuery: {e}")
+        return pd.DataFrame()
 
 def load_loan_tape_data():
     """
@@ -52,11 +26,11 @@ def load_loan_tape_data():
     Returns:
         pd.DataFrame: Comprehensive loan tape with all required metrics
     """
-    supabase = get_supabase_client()
-    
+    bq = get_bq_client()
+
     # Try to load ALL data, with fallback to limited data
-    deals_df = _load_all_data_with_fallback(supabase, "deals")
-    qbo_df = _load_all_data_with_fallback(supabase, "qbo_invoice_payments")
+    deals_df = _load_all_data_with_fallback(bq, "deals")
+    qbo_df = _load_all_data_with_fallback(bq, "qbo_invoice_payments")
     
     if deals_df.empty or qbo_df.empty:
         return pd.DataFrame()
@@ -77,11 +51,11 @@ def load_unified_loan_customer_data():
     Returns:
         pd.DataFrame: Combined loan performance and customer payment analysis
     """
-    supabase = get_supabase_client()
-    
+    bq = get_bq_client()
+
     # Try to load ALL data, with fallback to limited data
-    deals_df = _load_all_data_with_fallback(supabase, "deals")
-    qbo_df = _load_all_data_with_fallback(supabase, "qbo_invoice_payments")
+    deals_df = _load_all_data_with_fallback(bq, "deals")
+    qbo_df = _load_all_data_with_fallback(bq, "qbo_invoice_payments")
     
     if deals_df.empty or qbo_df.empty:
         print("Warning: Missing deals or QBO data for unified analysis")
@@ -104,11 +78,11 @@ def get_data_diagnostics():
         dict: Diagnostic information for display in dashboard
     """
     try:
-        supabase = get_supabase_client()
-        
+        bq = get_bq_client()
+
         # Try to load ALL data, with fallback to limited data
-        deals_df = _load_all_data_with_fallback(supabase, "deals")
-        qbo_df = _load_all_data_with_fallback(supabase, "qbo_invoice_payments")
+        deals_df = _load_all_data_with_fallback(bq, "deals")
+        qbo_df = _load_all_data_with_fallback(bq, "qbo_invoice_payments")
         
         if deals_df.empty or qbo_df.empty:
             return {}
@@ -189,8 +163,8 @@ def get_customer_payment_summary(qbo_df=None):
     """
     if qbo_df is None or qbo_df.empty:
         # Load all QBO data if not provided
-        supabase = get_supabase_client()
-        qbo_df = _load_all_data_with_fallback(supabase, "qbo_invoice_payments")
+        bq = get_bq_client()
+        qbo_df = _load_all_data_with_fallback(bq, "qbo_invoice_payments")
     
     if qbo_df.empty:
         return pd.DataFrame()

@@ -8,8 +8,9 @@ by backend scripts (manual_status flag = True).
 import streamlit as st
 from datetime import datetime
 from typing import Optional, Tuple
+from google.cloud import bigquery
 from utils.status_constants import ALL_VALID_STATUSES, TERMINAL_STATUSES, PROTECTED_STATUSES
-from utils.config import get_supabase_client
+from utils.config import get_bq_client, _TABLE_MAP
 
 
 def clear_loan_summaries_cache():
@@ -42,72 +43,43 @@ def update_loan_status_manual(loan_id: str, new_status: str) -> Tuple[bool, str]
         Tuple of (success: bool, message: str)
     """
     try:
-        supabase = get_supabase_client()
+        bq = get_bq_client()
         timestamp = datetime.now().isoformat()
-
-        # Full update payload with all expected columns
-        update_data = {
-            "loan_status": new_status,
-            "manual_status": True,
-            "status_last_manual_update": timestamp,
-            "status_changed_at": timestamp,
-            "updated_at": timestamp
-        }
+        table = _TABLE_MAP["loan_summaries"]
 
         print(f"Attempting to update loan {loan_id} to status '{new_status}'")
-        print(f"Update payload: {update_data}")
 
-        # Try the full update first
-        try:
-            response = supabase.table("loan_summaries").update(update_data).eq("loan_id", loan_id).execute()
-        except Exception as full_error:
-            # If full update fails (likely due to missing columns), try minimal update
-            error_str = str(full_error).lower()
-            if "column" in error_str and "does not exist" in error_str:
-                print(f"Full update failed, trying minimal update: {full_error}")
-                # Try with just the essential fields
-                minimal_data = {"loan_status": new_status}
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("new_status", "STRING", new_status),
+                bigquery.ScalarQueryParameter("loan_id", "STRING", loan_id),
+                bigquery.ScalarQueryParameter("timestamp", "STRING", timestamp),
+            ]
+        )
+        bq.query(
+            f"""
+            UPDATE `{table}`
+            SET
+                loan_status = @new_status,
+                manual_status = TRUE,
+                status_last_manual_update = @timestamp,
+                status_changed_at = @timestamp,
+                updated_at = @timestamp
+            WHERE loan_id = @loan_id
+            """,
+            job_config=job_config
+        ).result()
 
-                # Try adding optional columns one by one
-                for col, val in [
-                    ("manual_status", True),
-                    ("updated_at", timestamp),
-                    ("status_changed_at", timestamp),
-                    ("status_last_manual_update", timestamp)
-                ]:
-                    try:
-                        test_data = {**minimal_data, col: val}
-                        supabase.table("loan_summaries").update(test_data).eq("loan_id", loan_id).limit(0).execute()
-                        minimal_data[col] = val
-                    except Exception:
-                        print(f"Column '{col}' does not exist, skipping")
-
-                response = supabase.table("loan_summaries").update(minimal_data).eq("loan_id", loan_id).execute()
-                print(f"Minimal update with columns: {list(minimal_data.keys())}")
-            else:
-                raise full_error
-
-        # Check if any rows were affected
-        if response.data:
-            print(f"Update successful. Response: {response.data}")
-            # Clear cache so the UI shows updated data
-            clear_loan_summaries_cache()
-            return True, f"Status updated to '{new_status}'"
-        else:
-            print(f"No rows updated. Response: {response}")
-            return False, f"No loan found with ID '{loan_id}'. Check if the loan exists."
+        print(f"Update successful for loan {loan_id}")
+        clear_loan_summaries_cache()
+        return True, f"Status updated to '{new_status}'"
 
     except Exception as e:
         error_msg = str(e)
         print(f"Update failed with error: {error_msg}")
-
-        # Provide helpful error messages for common issues
-        if "column" in error_msg.lower() and "does not exist" in error_msg.lower():
-            return False, f"Database schema mismatch: {error_msg}. Contact admin to verify column names."
-        elif "permission" in error_msg.lower() or "denied" in error_msg.lower():
-            return False, f"Permission denied. Check Supabase service role key permissions."
-        else:
-            return False, f"Update failed: {error_msg}"
+        if "permission" in error_msg.lower() or "denied" in error_msg.lower():
+            return False, f"Permission denied. Check BigQuery service account permissions."
+        return False, f"Update failed: {error_msg}"
 
 
 def render_status_badge(status: str) -> str:

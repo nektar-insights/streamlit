@@ -19,10 +19,10 @@ except ImportError:
 
 # Project imports
 from utils.config import (
-    get_supabase_client, 
-    PRIMARY_COLOR, 
-    PERFORMANCE_GRADIENT, 
-    RISK_GRADIENT, 
+    get_bq_client,
+    PRIMARY_COLOR,
+    PERFORMANCE_GRADIENT,
+    RISK_GRADIENT,
     COLOR_PALETTE,
     PLATFORM_FEE_RATE
 )

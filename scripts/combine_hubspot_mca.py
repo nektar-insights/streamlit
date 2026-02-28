@@ -1,25 +1,25 @@
 # scripts/combine_hubspot_mca.py
 
-import streamlit as st
 import pandas as pd
-from supabase import create_client
-import os
+from utils.config import get_bq_client, _TABLE_MAP
 
-# -------------------------
-# Setup: Supabase Connection
-# -------------------------
-url = st.secrets["supabase"]["url"]
-key = st.secrets["supabase"]["service_role"]
-supabase = create_client(url, key)
 
-def fetch_table(table_name):
-    return pd.DataFrame(supabase.table(table_name).select("*").execute().data)
+def _bq_fetch(table_name: str) -> pd.DataFrame:
+    """Fetch all rows from a BigQuery table by logical name."""
+    try:
+        bq = get_bq_client()
+        bq_table = _TABLE_MAP[table_name]
+        return bq.query(f"SELECT * FROM `{bq_table}`").to_dataframe()
+    except Exception as e:
+        print(f"[BQ] Failed to load {table_name}: {e}")
+        return pd.DataFrame()
+
 
 def combine_deals():
     # Load tables
-    deals = fetch_table("deals")
-    mca = fetch_table("mca_deals")
-    qbo = fetch_table("qbo_loan_summary_view")
+    deals = _bq_fetch("deals")
+    mca = _bq_fetch("mca_deals")
+    qbo = _bq_fetch("qbo_loan_summary_view")
 
     # Clean and cast IDs
     deals = deals.dropna(subset=["loan_id"])
@@ -53,10 +53,10 @@ def combine_deals():
     combined["tib"] = (
         combined[["tib", "years_in_business"]]
         .mean(axis=1)            # skips NaNs
-        .round()                 
+        .round()
         .astype("Int64")         # nullable integer dtype
     )
-    
+
     # Drop unnecessary columns
     drop_cols = [
         # HubSpot/MCA metadata

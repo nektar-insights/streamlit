@@ -1,4 +1,6 @@
-supabase
+google-cloud-bigquery
+google-cloud-bigquery-storage
+pyarrow
 pandas
 streamlit>=1.32.0
 matplotlib>=3.0

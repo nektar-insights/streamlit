@@ -41,7 +41,7 @@ from utils.loan_tape_analytics import (
     METRIC_THRESHOLDS,
     PROBLEM_STATUSES,
 )
-from utils.imports import get_supabase_client
+from utils.config import get_bq_client, _TABLE_MAP
 
 
 # =============================================================================
@@ -71,9 +71,13 @@ def store_model_results(
         UUID of the stored model, or None if failed
     """
     try:
-        supabase = get_supabase_client()
+        import uuid
+        bq = get_bq_client()
+        table = _TABLE_MAP["ml_model_results"]
+        model_id = str(uuid.uuid4())
 
         data = {
+            "id": model_id,
             "model_type": model_type,
             "is_active": True,
             "metrics": json.dumps(metrics),
@@ -81,14 +85,12 @@ def store_model_results(
             "training_samples": training_samples,
             "feature_count": feature_count,
             "training_duration_seconds": training_duration,
-            "data_as_of": datetime.now().isoformat()
+            "data_as_of": datetime.now().isoformat(),
+            "created_at": datetime.now().isoformat(),
         }
 
-        response = supabase.table("ml_model_results").insert(data).execute()
-
-        if response.data:
-            return response.data[0]["id"]
-        return None
+        errors = bq.insert_rows_json(table, [data])
+        return model_id if not errors else None
 
     except Exception as e:
         print(f"Error storing model results: {e}")
@@ -106,21 +108,19 @@ def load_model_results(model_type: str) -> Optional[Dict]:
         Dict with model results or None if not found
     """
     try:
-        supabase = get_supabase_client()
+        bq = get_bq_client()
+        table = _TABLE_MAP["ml_model_results"]
 
-        response = (
-            supabase.table("ml_model_results")
-            .select("*")
-            .eq("model_type", model_type)
-            .eq("is_active", True)
-            .order("created_at", desc=True)
-            .limit(1)
-            .execute()
-        )
+        rows = bq.query(f"""
+            SELECT *
+            FROM `{table}`
+            WHERE model_type = '{model_type}' AND is_active = TRUE
+            ORDER BY created_at DESC
+            LIMIT 1
+        """).to_dataframe()
 
-        if response.data:
-            result = response.data[0]
-            # Parse JSON fields
+        if not rows.empty:
+            result = rows.iloc[0].to_dict()
             result["metrics"] = json.loads(result["metrics"]) if isinstance(result["metrics"], str) else result["metrics"]
             result["coefficients"] = json.loads(result["coefficients"]) if isinstance(result["coefficients"], str) else result["coefficients"]
             return result
@@ -151,40 +151,70 @@ def store_loan_predictions(
         True if successful, False otherwise
     """
     try:
-        supabase = get_supabase_client()
+        bq = get_bq_client()
+        table = _TABLE_MAP["ml_loan_predictions"]
+        now_ts = datetime.now().isoformat()
 
-        # Prepare records for upsert
+        # Prepare records
         records = []
         for pred in predictions:
             record = {
                 "loan_id": str(pred["loan_id"]),
-                "updated_at": datetime.now().isoformat()
+                "updated_at": now_ts,
+                "default_probability": pred.get("default_probability"),
+                "risk_tier": pred.get("risk_tier"),
+                "classification_model_id": classification_model_id,
+                "predicted_performance": pred.get("predicted_performance"),
+                "regression_model_id": regression_model_id,
+                "current_risk_score": pred.get("current_risk_score"),
+                "current_risk_tier": pred.get("current_risk_tier"),
+                "current_risk_model_id": current_risk_model_id,
             }
-
-            if "default_probability" in pred:
-                record["default_probability"] = pred["default_probability"]
-                record["risk_tier"] = pred.get("risk_tier")
-                record["classification_model_id"] = classification_model_id
-
-            if "predicted_performance" in pred:
-                record["predicted_performance"] = pred["predicted_performance"]
-                record["regression_model_id"] = regression_model_id
-
-            if "current_risk_score" in pred:
-                record["current_risk_score"] = pred["current_risk_score"]
-                record["current_risk_tier"] = pred.get("current_risk_tier")
-                record["current_risk_model_id"] = current_risk_model_id
-
             records.append(record)
 
-        # Upsert in batches
+        if not records:
+            return True
+
+        # BQ MERGE upsert in batches
         batch_size = 100
         for i in range(0, len(records), batch_size):
             batch = records[i:i + batch_size]
-            supabase.table("ml_loan_predictions").upsert(
-                batch,
-                on_conflict="loan_id"
-            ).execute()
+            values_rows = []
+            for r in batch:
+                def _s(v):
+                    return f"'{v}'" if v is not None else "NULL"
+                def _f(v):
+                    return str(float(v)) if v is not None else "NULL"
+                values_rows.append(
+                    f"({_s(r['loan_id'])}, {_f(r['default_probability'])}, {_s(r['risk_tier'])}, "
+                    f"{_s(r['classification_model_id'])}, {_f(r['predicted_performance'])}, "
+                    f"{_s(r['regression_model_id'])}, {_f(r['current_risk_score'])}, "
+                    f"{_s(r['current_risk_tier'])}, {_s(r['current_risk_model_id'])}, "
+                    f"TIMESTAMP('{r['updated_at']}'))"
+                )
+            values_sql = ", ".join(values_rows)
+            bq.query(f"""
+                MERGE `{table}` T
+                USING (SELECT * FROM UNNEST([
+                    STRUCT<loan_id STRING, default_probability FLOAT64, risk_tier STRING,
+                           classification_model_id STRING, predicted_performance FLOAT64,
+                           regression_model_id STRING, current_risk_score FLOAT64,
+                           current_risk_tier STRING, current_risk_model_id STRING,
+                           updated_at TIMESTAMP>
+                    {values_sql}
+                ])) S ON T.loan_id = S.loan_id
+                WHEN MATCHED THEN UPDATE SET
+                    default_probability = S.default_probability,
+                    risk_tier = S.risk_tier,
+                    classification_model_id = S.classification_model_id,
+                    predicted_performance = S.predicted_performance,
+                    regression_model_id = S.regression_model_id,
+                    current_risk_score = S.current_risk_score,
+                    current_risk_tier = S.current_risk_tier,
+                    current_risk_model_id = S.current_risk_model_id,
+                    updated_at = S.updated_at
+                WHEN NOT MATCHED THEN INSERT ROW
+            """).result()
 
         return True
 
@@ -201,18 +231,14 @@ def load_loan_predictions() -> pd.DataFrame:
         DataFrame with loan predictions
     """
     try:
-        supabase = get_supabase_client()
+        bq = get_bq_client()
+        table = _TABLE_MAP["ml_loan_predictions"]
 
-        response = (
-            supabase.table("ml_loan_predictions")
-            .select("loan_id, default_probability, risk_tier, predicted_performance, current_risk_score, current_risk_tier, updated_at")
-            .execute()
-        )
-
-        if response.data:
-            return pd.DataFrame(response.data)
-
-        return pd.DataFrame()
+        return bq.query(f"""
+            SELECT loan_id, default_probability, risk_tier,
+                   predicted_performance, current_risk_score, current_risk_tier, updated_at
+            FROM `{table}`
+        """).to_dataframe()
 
     except Exception as e:
         print(f"Error loading loan predictions: {e}")
@@ -1896,8 +1922,8 @@ def store_model_metrics(
         True if successful, False otherwise
     """
     try:
-        from utils.config import get_supabase_client
-        supabase = get_supabase_client()
+        bq = get_bq_client()
+        table = _TABLE_MAP["model_metrics_history"]
 
         # Build record based on model type
         record = {
@@ -1955,7 +1981,9 @@ def store_model_metrics(
             "auc_lift": metrics.get("auc_lift"),
         }
 
-        supabase.table("model_metrics_history").insert(record).execute()
+        record["metadata"] = json.dumps(record.get("metadata", {}))
+        record["recorded_at"] = datetime.now().isoformat()
+        bq.insert_rows_json(table, [record])
         return True
 
     except Exception as e:
@@ -1981,31 +2009,24 @@ def get_model_metrics_history(
         DataFrame with historical metrics
     """
     try:
-        from utils.config import get_supabase_client
-        from datetime import datetime, timedelta
-
-        supabase = get_supabase_client()
-
-        # Calculate date cutoff
+        from datetime import timedelta
+        bq = get_bq_client()
+        table = _TABLE_MAP["model_metrics_history"]
         cutoff_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        type_filter = f"AND model_type = '{model_type}'" if model_type else ""
 
-        query = supabase.table("model_metrics_history") \
-            .select("*") \
-            .gte("recorded_at", cutoff_date) \
-            .order("recorded_at", desc=True) \
-            .limit(limit)
+        df = bq.query(f"""
+            SELECT *
+            FROM `{table}`
+            WHERE recorded_at >= '{cutoff_date}'
+            {type_filter}
+            ORDER BY recorded_at DESC
+            LIMIT {int(limit)}
+        """).to_dataframe()
 
-        if model_type:
-            query = query.eq("model_type", model_type)
-
-        result = query.execute()
-
-        if result.data:
-            df = pd.DataFrame(result.data)
+        if not df.empty:
             df["recorded_at"] = pd.to_datetime(df["recorded_at"])
-            return df
-
-        return pd.DataFrame()
+        return df
 
     except Exception as e:
         print(f"[Model Metrics] Warning: Could not retrieve metrics history: {e}")
