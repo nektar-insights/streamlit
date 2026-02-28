@@ -486,7 +486,7 @@ with tab_bad_debt:
                         for band, count in summary['deals_by_band'].items()
                     ])
 
-                    band_order = ["90-100%", "70-89%", "50-69%", "30-49%", "10-29%", "0-9%"]
+                    band_order = ["97%", "94%", "92%", "88%", "82%", "60%", "40%", "20%", "10%"]
                     band_df["sort_order"] = band_df["Recovery Band"].apply(
                         lambda x: band_order.index(x) if x in band_order else 99
                     )
@@ -497,7 +497,7 @@ with tab_bad_debt:
                         y=alt.Y("Count:Q", title="Number of Loans"),
                         color=alt.Color("Recovery Band:N", scale=alt.Scale(
                             domain=band_order,
-                            range=["#2ca02c", "#98df8a", "#ffbb78", "#ff7f0e", "#ff9896", "#d62728"]
+                            range=["#1a9850", "#52b788", "#a7c957", "#ffbb78", "#ff9f1c", "#ff7f0e", "#e76f51", "#d62828", "#9b2226"]
                         ), legend=None),
                         tooltip=[
                             alt.Tooltip("Recovery Band:N"),

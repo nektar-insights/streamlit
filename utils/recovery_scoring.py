@@ -75,6 +75,27 @@ STATUS_SCORE_MAP: Dict[str, float] = {
     "Paid Off": 10.0,  # Special handling: loss_pct = 0 regardless
 }
 
+# Maximum total recovery score allowed per status.
+# Prevents well-scored collateral/industry from masking terminal status severity.
+# Without this, a Bankruptcy loan (status=1.0, 10% weight) still scores ~4.6
+# from average defaults → "50% recovery" band, which is wildly optimistic.
+STATUS_SCORE_CEILING: Dict[str, float] = {
+    "Bankruptcy":          0.99,   # → "10%" band (90% loss) — nearly total loss
+    "Non-Performing":      2.99,   # → "20%" band (80% loss)
+    "Charged Off":         2.99,   # → "20%" band
+    "Default":             4.99,   # → "40%" band (60% loss) max
+    "Severe Delinquency":  4.99,   # → "40%" band max
+    "Legal Action":        4.99,   # → "40%" band max — v1 table: 20-50% by lien
+    "In Collections":      4.99,   # → "40%" band max — formal collection implies similar outcomes
+    "NSF / Suspended":     7.99,   # → "82%" band max
+    "Moderate Delinquency": 7.99,  # → "82%" band max
+    "Minor Delinquency":   8.99,   # → "92%" band max
+    "Active - Frequently Late": 8.99,  # → "92%" band max
+    "Past Delinquency":    9.49,   # → "94%" band max
+    "Active":             10.01,   # no ceiling
+    "Paid Off":           10.01,   # no ceiling (0% loss special-cased separately)
+}
+
 # Legacy status names that may appear in older data
 # Maps legacy name -> canonical ALL_VALID_STATUSES name
 LEGACY_STATUS_MAPPING: Dict[str, str] = {
@@ -289,9 +310,9 @@ RECOVERY_BANDS: List[Tuple[Tuple[float, float], str, float, float, float]] = [
     ((8.5, 9.0), "92%", 0.92, 0.90, 0.94),         # Good: 8% loss (TARGET)
     ((8.0, 8.5), "88%", 0.88, 0.85, 0.91),         # Above average: 12% loss
     ((7.0, 8.0), "82%", 0.82, 0.78, 0.86),         # Average: 18% loss
-    ((5.0, 7.0), "70%", 0.70, 0.60, 0.80),         # Below average: 30% loss
-    ((3.0, 5.0), "50%", 0.50, 0.40, 0.60),         # Poor: 50% loss
-    ((1.0, 3.0), "25%", 0.25, 0.15, 0.35),         # Distressed: 75% loss
+    ((5.0, 7.0), "60%", 0.60, 0.50, 0.70),         # Below average: 40% loss
+    ((3.0, 5.0), "40%", 0.40, 0.30, 0.50),         # Poor: 60% loss
+    ((1.0, 3.0), "20%", 0.20, 0.10, 0.30),         # Distressed: 80% loss
     ((0.0, 1.0), "10%", 0.10, 0.05, 0.15),         # Terminal: 90% loss
 ]
 
@@ -747,6 +768,11 @@ def compute_recovery_for_deal(deal_data: Dict) -> RecoveryScoreResult:
         status_score, industry_score, collateral_score, lien_score, communication_score
     )
 
+    # Apply status ceiling: terminal/distressed statuses cap the maximum score
+    # so that good collateral or industry can't override a severe status reality.
+    score_ceiling = STATUS_SCORE_CEILING.get(normalized_status, 10.01)
+    total_score = min(total_score, score_ceiling)
+
     # Get recovery band
     band_label, recovery_mid, recovery_low, recovery_high = get_recovery_band(total_score)
 
@@ -937,7 +963,7 @@ def get_portfolio_bad_debt_summary(df: pd.DataFrame) -> Dict:
         weighted_loss = 0.0
 
     # Deals by band
-    deals_by_band = df["recovery_band_label"].value_counts().to_dict()
+    deals_by_band = active_df["recovery_band_label"].value_counts().to_dict()
 
     # Calculate data availability statistics
     total_loans = len(df)
